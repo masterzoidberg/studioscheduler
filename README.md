@@ -106,7 +106,9 @@ The Supabase Edge Function under `supabase/functions/` runs in Deno and is inten
 - `lib/validator.ts` — deterministic client-side validation and coverage model
 - `lib/copilot-contract.ts` — runtime AI proposal boundary
 - `lib/reviewed-rulebook.ts` — reviewed V2 validation, fingerprint, diff, and conversion helpers
-- `supabase/migrations/` — reconstructable database schema and governed mutation infrastructure
+- `supabase/bootstrap/` — reconstructable schema/bootstrap snapshot; not historical migration provenance
+- `supabase/production-ledger/` — byte-exact archival copies of successful production V2.1 migration SQL
+- `supabase/migrations/` — new repository-authored migrations from this stabilization point forward
 - `supabase/functions/user-openrouter/` — authenticated account-scoped OpenRouter proxy
 - `tests/` — Rulebook governance, Copilot contract, deterministic validation, and import tests
 
