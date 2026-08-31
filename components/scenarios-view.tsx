@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { FlaskConical, Plus, ShieldCheck } from "lucide-react";
 import type { RulePatch } from "@/lib/domain";
 import { ruleClassification, validateSchedule } from "@/lib/validator";
@@ -16,9 +16,10 @@ export function ScenariosView(){
   const [parameterValue,setParameterValue]=useState("");
   const [notice,setNotice]=useState("");
   if(!state)return null;
+  const loadedState=state;
 
-  const selected=state.rules.find(r=>r.id===ruleId);
-  const scalarEntries=useMemo(()=>selected?Object.entries(selected.parameters).filter(([,v])=>typeof v==="number"||typeof v==="string"):[],[selected]);
+  const selected=loadedState.rules.find(r=>r.id===ruleId);
+  const scalarEntries=selected?Object.entries(selected.parameters).filter(([,v])=>typeof v==="number"||typeof v==="string"):[];
   const selectedScalar=scalarEntries.find(([key])=>key===parameterKey);
 
   let patch:RulePatch|null=null;
@@ -36,12 +37,12 @@ export function ScenariosView(){
     }
   }
 
-  const preview=patch&&selected?validateSchedule({...state,rules:state.rules.map(r=>r.id===selected.id?{...r,...patch.changes}:r)},currentAssignments):null;
+  const preview=patch&&selected?validateSchedule({...loadedState,rules:loadedState.rules.map(r=>r.id===selected.id?{...r,...patch.changes}:r)},currentAssignments):null;
   const machineImpactKnown=Boolean(selected?.type&&selected.enforcementStatus==="IMPLEMENTED");
 
   function chooseRule(id:string){
     setRuleId(id);setParameterKey("");setParameterValue("");
-    const next=state.rules.find(r=>r.id===id);
+    const next=loadedState.rules.find(r=>r.id===id);
     setWording(next?.description||"");setClassification(next?ruleClassification(next):"");setNotice("");
   }
 
@@ -58,7 +59,7 @@ export function ScenariosView(){
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex items-center gap-2"><Plus className="size-5 text-slate-400"/><h2 className="font-semibold">Create a Rulebook what-if</h2></div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">Scenario name<input value={name} onChange={e=>setName(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal"/></label><label className="text-xs font-semibold text-slate-600">Rule<select value={ruleId} onChange={e=>chooseRule(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No temporary rule change</option>{state.rules.map(r=><option key={r.id} value={r.id}>{r.id} · {r.title}</option>)}</select></label></div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">Scenario name<input value={name} onChange={e=>setName(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal"/></label><label className="text-xs font-semibold text-slate-600">Rule<select value={ruleId} onChange={e=>chooseRule(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No temporary rule change</option>{loadedState.rules.map(r=><option key={r.id} value={r.id}>{r.id} · {r.title}</option>)}</select></label></div>
 
       {selected?<div className="mt-4 space-y-3"><div className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600"><strong>{selected.id}</strong> · {selected.category}<br/>Machine enforcement: <strong>{selected.enforcementStatus||"NOT_IMPLEMENTED"}</strong>{selected.type?` · ${selected.type}`:" · not machine-typed"}</div><label className="block text-xs font-semibold text-slate-600">Temporary reviewed wording<textarea rows={4} value={wording} onChange={e=>setWording(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-normal leading-6"/></label><label className="block text-xs font-semibold text-slate-600">Temporary classification<input value={classification} onChange={e=>setClassification(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal"/></label>
       {scalarEntries.length?<div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">Optional machine parameter<select value={parameterKey} onChange={e=>{setParameterKey(e.target.value);setParameterValue("")}} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No parameter change</option>{scalarEntries.map(([key,value])=><option key={key} value={key}>{key} = {String(value)}</option>)}</select></label>{selectedScalar?<label className="text-xs font-semibold text-slate-600">Temporary value<input value={parameterValue} onChange={e=>setParameterValue(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal"/></label>:null}</div>:null}</div>:null}
@@ -67,7 +68,7 @@ export function ScenariosView(){
       <button disabled={!canEdit||(!name.trim()&&!patch)} onClick={()=>void create()} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-40"><FlaskConical className="size-4"/>Save scenario</button>
     </section>
 
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{state.scenarios.map(s=><article key={s.id} className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2"><FlaskConical className="size-4 text-slate-400"/><h2 className="font-semibold">{s.name}</h2></div><p className="mt-3 text-xs text-slate-500">Based on Rulebook v{s.baseRulebookVersion} + Schedule v{s.baseScheduleVersion}</p><p className="mt-3 text-sm text-slate-600">{s.rulePatches.length} rule patch{s.rulePatches.length===1?"":"es"} · {s.schedulePatches.length} schedule patch{s.schedulePatches.length===1?"":"es"}</p>{s.rulePatches.slice(0,3).map(p=><p key={p.id} className="mt-2 rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-600">{p.ruleId||"New rule"} · {p.reason}</p>)}<p className="mt-3 text-xs text-slate-400">Created {new Date(s.createdAt).toLocaleString()}</p></article>)}</section>
-    {state.scenarios.length===0?<div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No scenarios yet. Create one above to test a “what if” without changing reality.</div>:null}
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{loadedState.scenarios.map(s=><article key={s.id} className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2"><FlaskConical className="size-4 text-slate-400"/><h2 className="font-semibold">{s.name}</h2></div><p className="mt-3 text-xs text-slate-500">Based on Rulebook v{s.baseRulebookVersion} + Schedule v{s.baseScheduleVersion}</p><p className="mt-3 text-sm text-slate-600">{s.rulePatches.length} rule patch{s.rulePatches.length===1?"":"es"} · {s.schedulePatches.length} schedule patch{s.schedulePatches.length===1?"":"es"}</p>{s.rulePatches.slice(0,3).map(p=><p key={p.id} className="mt-2 rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-600">{p.ruleId||"New rule"} · {p.reason}</p>)}<p className="mt-3 text-xs text-slate-400">Created {new Date(s.createdAt).toLocaleString()}</p></article>)}</section>
+    {loadedState.scenarios.length===0?<div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No scenarios yet. Create one above to test a “what if” without changing reality.</div>:null}
   </div>;
 }
