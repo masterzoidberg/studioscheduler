@@ -1,4 +1,3 @@
--- Exact production migration 20260831123501: v2_1_rule_mutations
 create or replace function public.apply_rule_patch_v21(
   p_operation text,
   p_rule_id text,
