@@ -14,8 +14,9 @@ export function ScenariosView() {
   const [classification,setClassification]=useState("");
   const [notice,setNotice]=useState("");
   if(!state)return null;
+  const loadedState=state;
 
-  const selected=state.rules.find((rule)=>rule.id===ruleId);
+  const selected=loadedState.rules.find((rule)=>rule.id===ruleId);
   let patch:RulePatch|null=null;
   if(selected){
     const changes:RulePatch["changes"]={};
@@ -26,11 +27,11 @@ export function ScenariosView() {
     }
   }
 
-  const approvedMapping=selected?state.enforcementVersions.find((version)=>version.status==="CURRENT")?.snapshot.find((mapping)=>mapping.ruleId===selected.id):undefined;
+  const approvedMapping=selected?loadedState.enforcementVersions.find((version)=>version.status==="CURRENT")?.snapshot.find((mapping)=>mapping.ruleId===selected.id):undefined;
 
   function chooseRule(id:string){
     setRuleId(id);
-    const next=state.rules.find((rule)=>rule.id===id);
+    const next=loadedState.rules.find((rule)=>rule.id===id);
     setWording(next?.description||"");setClassification(next?ruleClassification(next):"");setNotice("");
   }
 
@@ -50,7 +51,7 @@ export function ScenariosView() {
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex items-center gap-2"><Plus className="size-5 text-slate-400"/><h2 className="font-semibold">Create a human Rulebook what-if</h2></div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">Scenario name<input value={name} onChange={(event)=>setName(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal"/></label><label className="text-xs font-semibold text-slate-600">Rule<select value={ruleId} onChange={(event)=>chooseRule(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No temporary rule change</option>{state.rules.map((rule)=><option key={rule.id} value={rule.id}>{rule.id} · {rule.title}</option>)}</select></label></div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">Scenario name<input value={name} onChange={(event)=>setName(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal"/></label><label className="text-xs font-semibold text-slate-600">Rule<select value={ruleId} onChange={(event)=>chooseRule(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No temporary rule change</option>{loadedState.rules.map((rule)=><option key={rule.id} value={rule.id}>{rule.id} · {rule.title}</option>)}</select></label></div>
 
       {selected?<div className="mt-4 space-y-3">
         <div className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600"><strong>{selected.id}</strong> · {selected.category}<br/>Current machine policy: <strong>{approvedMapping?`mapped as ${approvedMapping.type}`:"not mapped in Enforcement v"+currentEnforcementVersion}</strong></div>
@@ -62,11 +63,11 @@ export function ScenariosView() {
       <button disabled={!canEdit||(!name.trim()&&!patch)} onClick={()=>void create()} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-40"><FlaskConical className="size-4"/>Save scenario</button>
     </section>
 
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{state.scenarios.map((scenario)=>{
-      const baseSchedule=state.scheduleVersions.find((version)=>version.version===scenario.baseScheduleVersion);
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{loadedState.scenarios.map((scenario)=>{
+      const baseSchedule=loadedState.scheduleVersions.find((version)=>version.version===scenario.baseScheduleVersion);
       const baseEnforcement=scenario.baseEnforcementVersion??baseSchedule?.enforcementVersion??0;
       return <article key={scenario.id} className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2"><FlaskConical className="size-4 text-slate-400"/><h2 className="font-semibold">{scenario.name}</h2></div><div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-semibold"><span className="rounded-md bg-slate-100 px-2 py-1">Rulebook v{scenario.baseRulebookVersion}</span><span className="rounded-md bg-violet-50 px-2 py-1 text-violet-700"><Cpu className="mr-1 inline size-3"/>Enforcement v{baseEnforcement}</span><span className="rounded-md bg-slate-100 px-2 py-1">Schedule v{scenario.baseScheduleVersion}</span></div><p className="mt-3 text-sm text-slate-600">{scenario.rulePatches.length} human rule patch{scenario.rulePatches.length===1?"":"es"} · {scenario.schedulePatches.length} schedule patch{scenario.schedulePatches.length===1?"":"es"}</p>{scenario.rulePatches.slice(0,3).map((item)=><p key={item.id} className="mt-2 rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-600">{item.ruleId||"New rule"} · {item.reason}</p>)}<p className="mt-3 text-xs text-slate-400">Created {new Date(scenario.createdAt).toLocaleString()}</p></article>;
     })}</section>
-    {state.scenarios.length===0?<div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No scenarios yet. Create one above to test a “what if” without changing reality.</div>:null}
+    {loadedState.scenarios.length===0?<div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No scenarios yet. Create one above to test a “what if” without changing reality.</div>:null}
   </div>;
 }
