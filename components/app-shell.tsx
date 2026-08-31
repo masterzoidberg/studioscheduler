@@ -3,86 +3,70 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, Sparkles, X } from "lucide-react";
+import { BookOpenCheck, CalendarDays, Home, Menu, MoreHorizontal, RefreshCw, Sparkles, UsersRound, X } from "lucide-react";
 import { CopilotPanel } from "@/components/copilot-panel";
+import { LoginScreen } from "@/components/login-screen";
 import { navItems, SidebarNav } from "@/components/sidebar-nav";
+import { useWorkspace } from "@/components/workspace-provider";
 
 const titles: Record<string, { eyebrow: string; title: string }> = {
   "/": { eyebrow: "DWDE Studio Scheduler", title: "Scheduling control room" },
-  "/rulebook": { eyebrow: "Master Rulebook · v3", title: "Rulebook" },
-  "/schedule": { eyebrow: "Current Schedule · v7", title: "Weekly schedule" },
-  "/people": { eyebrow: "Studio roster", title: "People" },
+  "/rulebook": { eyebrow: "Canonical scheduling policy", title: "Master Rulebook" },
+  "/schedule": { eyebrow: "Canonical assignments", title: "Weekly schedule" },
+  "/people": { eyebrow: "Teachers + dancers", title: "People" },
   "/classes": { eyebrow: "Program catalog", title: "Classes" },
-  "/scenarios": { eyebrow: "Safe what-if workspace", title: "Scenarios" },
+  "/scenarios": { eyebrow: "Isolated what-if workspace", title: "Scenarios" },
   "/versions": { eyebrow: "Auditable history", title: "Versions" },
-  "/settings": { eyebrow: "Workspace configuration", title: "Settings" },
+  "/settings": { eyebrow: "Import, export + access", title: "Settings" },
 };
 
 function Brand() {
-  return (
-    <Link href="/" className="flex items-center gap-3" aria-label="DWDE Studio Scheduler home">
-      <div className="grid size-10 place-items-center rounded-xl bg-slate-950 text-sm font-bold tracking-tight text-white shadow-sm">DW</div>
-      <div><p className="text-sm font-semibold tracking-tight text-slate-950">DWDE Studio</p><p className="text-xs text-slate-500">Scheduler</p></div>
-    </Link>
-  );
+  return <Link href="/" className="flex items-center gap-3" aria-label="DWDE Studio Scheduler home"><div className="grid size-10 place-items-center rounded-xl bg-slate-950 text-sm font-bold text-white">DW</div><div><p className="text-sm font-semibold text-slate-950">DWDE Studio</p><p className="text-xs text-slate-500">Scheduler</p></div></Link>;
+}
+
+function BottomNav({ openMore }: { openMore: () => void }) {
+  const pathname = usePathname();
+  const items = [
+    ["/", "Home", Home], ["/schedule", "Schedule", CalendarDays], ["/rulebook", "Rules", BookOpenCheck], ["/people", "People", UsersRound],
+  ] as const;
+  return <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">{items.map(([href,label,Icon])=><Link key={href} href={href} className={`flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium ${pathname===href?"text-slate-950":"text-slate-500"}`}><Icon className="size-5"/>{label}</Link>)}<button onClick={openMore} className="flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium text-slate-500"><MoreHorizontal className="size-5"/>More</button></nav>;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { loading, error, accessMode, session, currentRulebookVersion, currentScheduleVersion, validation, refresh } = useWorkspace();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileCopilotOpen, setMobileCopilotOpen] = useState(false);
   const heading = titles[pathname] ?? titles["/"];
 
+  if (loading && accessMode === "NONE") return <div className="grid min-h-screen place-items-center bg-slate-950 text-white"><div className="flex items-center gap-3 text-sm"><RefreshCw className="size-5 animate-spin"/>Opening DWDE workspace…</div></div>;
+  if (!loading && accessMode === "NONE") return <LoginScreen/>;
+
   return (
     <div className="min-h-screen bg-[#f5f7f9] text-slate-950">
-      <div className="mx-auto grid min-h-screen max-w-[1920px] lg:grid-cols-[236px_minmax(0,1fr)] xl:grid-cols-[236px_minmax(0,1fr)_340px]">
+      <div className="mx-auto grid min-h-screen max-w-[1920px] lg:grid-cols-[236px_minmax(0,1fr)] 2xl:grid-cols-[236px_minmax(0,1fr)_350px]">
         <aside className="hidden border-r border-slate-200 bg-white px-4 py-5 lg:flex lg:flex-col">
-          <div className="px-2"><Brand /></div>
-          <div className="mt-8 flex-1"><SidebarNav /></div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-700"><span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />Schedule health</div>
-            <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">PASS</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">0 hard violations in current mock schedule</p>
-          </div>
-          <div className="mt-4 px-2 text-[11px] leading-5 text-slate-400">Milestone 1 · Visual prototype</div>
+          <div className="px-2"><Brand/></div><div className="mt-8 flex-1"><SidebarNav/></div>
+          <div className={`rounded-2xl border p-3.5 ${validation.valid?"border-emerald-200 bg-emerald-50":"border-red-200 bg-red-50"}`}><div className="flex items-center gap-2 text-xs font-semibold"><span className={`size-2 rounded-full ${validation.valid?"bg-emerald-500":"bg-red-500"}`}/>Schedule health</div><p className="mt-2 text-xl font-semibold">{validation.valid?"PASS":"NEEDS REPAIR"}</p><p className="mt-1 text-xs leading-5 text-slate-600">{validation.hardViolations} hard · {validation.warnings} warnings</p></div>
+          <div className="mt-4 px-2 text-[11px] leading-5 text-slate-400">Rulebook v{currentRulebookVersion} · Schedule v{currentScheduleVersion}</div>
         </aside>
 
-        <div className="min-w-0">
+        <div className="min-w-0 pb-20 lg:pb-0">
           <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur">
-            <div className="flex h-[72px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-              <div className="flex min-w-0 items-center gap-3">
-                <button type="button" className="grid size-10 place-items-center rounded-xl border border-slate-200 text-slate-600 lg:hidden" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu className="size-5" /></button>
-                <div className="min-w-0"><p className="truncate text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">{heading.eyebrow}</p><h1 className="truncate text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">{heading.title}</h1></div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:block">Cami · Owner view</div>
-                <button type="button" onClick={() => setMobileCopilotOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-medium text-white xl:hidden"><Sparkles className="size-4" /><span className="hidden sm:inline">Copilot</span></button>
-              </div>
+            <div className="flex min-h-[68px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+              <div className="flex min-w-0 items-center gap-3"><button className="hidden size-10 place-items-center rounded-xl border border-slate-200 text-slate-600 lg:grid 2xl:hidden" onClick={()=>setMobileNavOpen(true)} aria-label="Open navigation"><Menu className="size-5"/></button><div className="min-w-0"><p className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 sm:text-[11px]">{heading.eyebrow}</p><h1 className="truncate text-lg font-semibold sm:text-xl">{heading.title}</h1></div></div>
+              <div className="flex items-center gap-2"><button onClick={()=>void refresh()} className="grid size-10 place-items-center rounded-xl border border-slate-200 text-slate-500" aria-label="Refresh workspace"><RefreshCw className={`size-4 ${loading?"animate-spin":""}`}/></button><div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:block">{accessMode === "ALPHA" ? "Alpha tester" : session?.user.email || "Studio user"}</div><button onClick={()=>setMobileCopilotOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-950 px-3 text-sm font-medium text-white 2xl:hidden"><Sparkles className="size-4"/><span className="hidden sm:inline">Copilot</span></button></div>
             </div>
+            {error ? <div className="border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800 sm:px-6 lg:px-8">Workspace error: {error}</div> : null}
           </header>
           <main className="px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">{children}</main>
         </div>
-
-        <div className="sticky top-0 hidden h-screen xl:block"><CopilotPanel /></div>
+        <div className="sticky top-0 hidden h-screen 2xl:block"><CopilotPanel/></div>
       </div>
 
-      {mobileNavOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button type="button" aria-label="Close navigation" className="absolute inset-0 bg-slate-950/30 backdrop-blur-[2px]" onClick={() => setMobileNavOpen(false)} />
-          <aside className="relative h-full w-[min(84vw,320px)] border-r border-slate-200 bg-white p-5 shadow-2xl">
-            <div className="flex items-center justify-between"><Brand /><button type="button" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="size-5" /></button></div>
-            <div className="mt-8" onClick={() => setMobileNavOpen(false)}><SidebarNav compact /></div>
-            <div className="mt-8 border-t border-slate-200 pt-5"><p className="text-xs font-semibold text-slate-500">Available sections</p><p className="mt-2 text-sm leading-6 text-slate-600">{navItems.length} workspace areas are wired for Milestone 1 review.</p></div>
-          </aside>
-        </div>
-      ) : null}
-
-      {mobileCopilotOpen ? (
-        <div className="fixed inset-0 z-50 xl:hidden">
-          <button type="button" aria-label="Close Copilot" className="absolute inset-0 bg-slate-950/35 backdrop-blur-[2px]" onClick={() => setMobileCopilotOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 h-[82vh] sm:left-auto sm:right-4 sm:bottom-4 sm:w-[380px]"><CopilotPanel mobile onClose={() => setMobileCopilotOpen(false)} /></div>
-        </div>
-      ) : null}
+      <BottomNav openMore={()=>setMobileNavOpen(true)}/>
+      {mobileNavOpen ? <div className="fixed inset-0 z-50"><button className="absolute inset-0 bg-slate-950/40" onClick={()=>setMobileNavOpen(false)} aria-label="Close menu"/><aside className="absolute bottom-0 left-0 right-0 max-h-[88vh] rounded-t-[28px] bg-white p-5 shadow-2xl sm:bottom-auto sm:left-0 sm:top-0 sm:h-full sm:w-80 sm:rounded-none"><div className="flex items-center justify-between"><Brand/><button onClick={()=>setMobileNavOpen(false)} className="rounded-xl p-2 text-slate-500"><X className="size-5"/></button></div><div className="mt-6" onClick={()=>setMobileNavOpen(false)}><SidebarNav compact/></div><div className="mt-5 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Rulebook v{currentRulebookVersion} · Schedule v{currentScheduleVersion}<br/>{validation.hardViolations} hard violations</div></aside></div> : null}
+      {mobileCopilotOpen ? <div className="fixed inset-0 z-50"><button className="absolute inset-0 bg-slate-950/40" onClick={()=>setMobileCopilotOpen(false)} aria-label="Close Copilot"/><div className="absolute inset-x-0 bottom-0 h-[88vh] sm:left-auto sm:right-4 sm:bottom-4 sm:w-[400px]"><CopilotPanel mobile onClose={()=>setMobileCopilotOpen(false)}/></div></div> : null}
     </div>
   );
 }
