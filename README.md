@@ -1,41 +1,91 @@
 # DWDE Studio Scheduler
 
-A professional scheduling control room for collaboratively building, reviewing, validating, and eventually optimizing a dance studio rulebook and weekly schedule.
+DWDE Studio Scheduler is a versioned scheduling control room for maintaining the studio's reviewed Rulebook, editing the weekly schedule, running deterministic constraint checks, testing isolated scenarios, and collaborating with an AI Copilot without allowing the model to silently change canonical data.
 
-> Milestone 1 is a visual/product-direction prototype. Authentication, Supabase persistence, deterministic validation, real drag/drop, OpenAI tool calls, and version mutations are intentionally deferred until the visual direction is approved.
+Production: https://studioscheduler-three.vercel.app
 
-## Milestone 1 includes
+## Product invariant
 
-- Next.js 16 + TypeScript + Tailwind CSS
-- GitHub Codespaces configuration
-- Responsive administrative shell with left navigation
-- Dashboard with realistic DWDE health metrics
-- Searchable/filterable structured Rulebook using typed seed data
-- Monday multi-room visual schedule with selectable class cards
-- Rule-aware class inspector and status indicators
-- Persistent ChatGPT Copilot UI shell on desktop and mobile drawer
-- Placeholder routes for People, Classes, Scenarios, Versions, and Settings
-- CI for lint, typecheck, tests, production build, and route smoke tests
+**Cami and ChatGPT are looking at the same schedule and the same rules.**
 
-## Start in GitHub Codespaces
+Canonical truth lives in Supabase. UI edits and AI-approved proposals pass through the same authenticated, version-aware mutation boundaries.
 
-1. Open this repository on GitHub.
-2. Tap/click **Code**.
-3. Open the **Codespaces** tab.
-4. Choose **Create codespace on main**.
-5. Wait for the browser editor to open. The devcontainer automatically runs `npm install`.
-6. Open the terminal.
-7. Run:
+## Current V2.1 architecture
+
+- **Rulebook**: reviewed human scheduling policy with stable Rule IDs, raw reviewed classifications, provenance, history, and versioned edits.
+- **Schedule**: one canonical assignment model with independent ScheduleVersion history and an explicit link to the RulebookVersion used for validation.
+- **Deterministic validator**: detects implemented HARD-rule violations and separately reports machine-enforcement coverage. `0` detected violations does **not** imply full validation while applicable HARD rules remain uncovered.
+- **Scenarios**: isolated what-if branches based on specific Rulebook and Schedule versions. They do not change canonical truth.
+- **AI Copilot**: reads current database context and may return structured proposals. Proposals are runtime-validated, bound to their base Rulebook/Schedule versions, and require explicit Apply approval. Stale proposals are rejected.
+- **Access control**: Supabase Auth plus studio membership roles `OWNER`, `EDITOR`, and `VIEWER`. Owners manage invitations and member roles.
+- **OpenRouter credentials**: optionally stored per signed-in account in Supabase Vault. The browser never reads the saved full key back. An authenticated Supabase Edge Function performs OpenRouter calls. A server-side `OPENROUTER_API_KEY` can remain an optional fallback.
+
+## Authoritative reviewed Rulebook
+
+The adopted 2026–2027 reviewed source is:
+
+- `format_version`: `2.0`
+- `document_type`: `DWDE_SITE_RULEBOOK`
+- Rulebook ID: `dwde-2026-2027-master-rulebook`
+- Rulebook version: `2`
+- Reviewed rules: `178 / 178`
+- Approved without edit: `162`
+- Edited and approved: `16`
+- Canonical rules SHA-256: `5ef0a282e68b199fae94976335ede2484e80a966b2b5d2c3fa71355a26d5866b`
+
+The reviewed classification vocabulary is preserved as written. Machine typing/enforcement is a separate layer and must not rewrite or silently collapse human-reviewed policy.
+
+## Mutation boundaries
+
+Canonical writes are not direct browser table mutations. The application uses governed Supabase RPCs for:
+
+- Rulebook changes
+- Schedule moves and schedule revalidation/rebase
+- Teacher, room, and class edits
+- Scenario creation
+- Studio invitations and role management
+- AI proposal audit records
+
+Mutation RPCs enforce studio membership/role authorization and optimistic version checks. Schedule moves are rejected when the schedule is stale relative to the current Rulebook, when an assignment is locked, or when the implemented deterministic HARD validator detects a violation.
+
+## Authentication
+
+Supported application sign-in paths:
+
+- Google OAuth through Supabase Auth
+- Email magic link through Supabase Auth
+
+The old anonymous alpha access path is retired from the application architecture.
+
+## Local development
 
 ```bash
+npm install
 npm run dev
 ```
 
-8. When Codespaces reports port **3000**, choose **Open in Browser** or **Open Preview**.
+Then open http://localhost:3000.
 
-If the preview does not open automatically, open the **Ports** panel, find port `3000`, and use the globe/open-browser button.
+### Environment variables
 
-## Quality checks
+Copy the template:
+
+```bash
+cp .env.example .env.local
+```
+
+| Variable | Purpose | Browser-safe? |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Yes |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key | Yes, subject to RLS/RPC authorization |
+| `OPENROUTER_API_KEY` | Optional server-side Copilot fallback | **No** |
+| `OPENROUTER_MODEL_FAST` | Fast Copilot model | Server config |
+| `OPENROUTER_MODEL_REASONING` | Reasoning Copilot model | Server config |
+| `APP_URL` | Application base URL for attribution/callback context | Server config |
+
+Never expose service-role credentials or private provider keys through `NEXT_PUBLIC_*` variables.
+
+## Quality gate
 
 ```bash
 npm run lint
@@ -44,56 +94,29 @@ npm test
 npm run build
 ```
 
-GitHub Actions runs all four checks on pushes and pull requests and then smoke-tests every Milestone 1 route.
+GitHub Actions runs lint, typecheck, tests, production build, and rendered-route smoke tests on pushes and pull requests.
 
-## Environment variables
+The Supabase Edge Function under `supabase/functions/` runs in Deno and is intentionally excluded from the Next.js TypeScript/ESLint boundary. Its deployed function has JWT verification enabled and performs an additional DWDE studio-membership check.
 
-Copy the template when later milestones need integrations:
+## Repository layout
 
-```bash
-cp .env.example .env.local
-```
-
-No secrets are required for Milestone 1.
-
-| Variable | Purpose | Browser-safe? |
-| --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Yes |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase public/anon key | Yes |
-| `SUPABASE_SERVICE_ROLE_KEY` | Privileged Supabase operations | **No** |
-| `OPENAI_API_KEY` | OpenAI Responses API | **No** |
-| `OPENAI_MODEL_REASONING` | Reasoning model selection | Server config |
-| `OPENAI_MODEL_FAST` | Fast explanation model selection | Server config |
-| `APP_URL` | Application base URL | Server config |
-
-Never prefix service-role or OpenAI secrets with `NEXT_PUBLIC_`.
-
-### Supabase setup, when Milestone 2 begins
-
-Milestone 2 will include exact click-by-click setup. The intended flow is:
-
-1. Create a Supabase project.
-2. Copy **Project URL** to `NEXT_PUBLIC_SUPABASE_URL`.
-3. Copy the project **anon/publishable key** to `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-4. Store the **service role key** only as `SUPABASE_SERVICE_ROLE_KEY` in server/Codespaces secrets.
-5. Enable email magic-link and GitHub authentication in Supabase Auth.
-
-### OpenAI setup, when AI integration begins
-
-`OPENAI_API_KEY` will be read only by server-side code. The browser will never receive it. Model-generated changes will be typed proposals and will not bypass deterministic validation.
-
-## Current architecture
-
-- `app/` — routes and global styling
+- `app/` — Next.js routes and API routes
 - `components/` — application shell and feature views
-- `lib/types.ts` — typed domain contracts
-- `lib/mock-data.ts` — representative DWDE Rulebook and Monday schedule data
-- `tests/` — seed integrity tests
+- `lib/domain.ts` — canonical application domain contracts
+- `lib/validator.ts` — deterministic client-side validation and coverage model
+- `lib/copilot-contract.ts` — runtime AI proposal boundary
+- `lib/reviewed-rulebook.ts` — reviewed V2 validation, fingerprint, diff, and conversion helpers
+- `supabase/migrations/` — reconstructable database schema and governed mutation infrastructure
+- `supabase/functions/user-openrouter/` — authenticated account-scoped OpenRouter proxy
+- `tests/` — Rulebook governance, Copilot contract, deterministic validation, and import tests
 
-The UI consumes typed records instead of embedding scheduling facts in component logic. Persistence can therefore replace the mock repository in the next milestone without redesigning the core screens.
+## Security notes
 
-## Product invariant
+- Anonymous users do not have direct write privileges on canonical Rulebook, Schedule, or membership tables.
+- Anonymous users cannot execute the governed V2.1 mutation RPCs.
+- `private.user_ai_credentials` is intentionally private and client-inaccessible; credential access is restricted to service-role RPCs used by the authenticated Edge Function.
+- Authenticated `SECURITY DEFINER` RPCs are intentionally exposed to signed-in users because each function performs its own membership/role checks before privileged work.
 
-**Cami and ChatGPT are looking at the same schedule and the same rules.**
+## Future work
 
-AI will propose structured patches. The application, not the model, will determine technical validity. Scenarios remain isolated until explicitly adopted.
+V2.1 establishes the trustworthy control plane. Later work can expand deterministic coverage, add richer scenario compare/adopt and rollback workflows, and introduce a whole-week optimization engine without changing the canonical Rulebook or Assignment architecture.
