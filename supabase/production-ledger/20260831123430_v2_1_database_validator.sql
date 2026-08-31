@@ -1,4 +1,3 @@
--- Exact production migration 20260831123430: v2_1_database_validator
 create or replace function public.validate_schedule_hard_v21(p_schedule_version_id uuid)
 returns jsonb
 language plpgsql
