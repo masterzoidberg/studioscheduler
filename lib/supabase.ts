@@ -49,6 +49,17 @@ export function getServerSupabase(authHeader?: string | null, alphaKey?: string 
   });
 }
 
+export async function beginGoogleSignIn() {
+  if (typeof window === "undefined") return { ok: false, message: "Google sign-in is available in the browser." };
+  const supabase = getBrowserSupabase();
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${window.location.origin}/` },
+  });
+  if (error) return { ok: false, message: error.message };
+  return { ok: true, message: "Opening Google sign-in…" };
+}
+
 export function chatGptAuthAvailable() {
   return process.env.NEXT_PUBLIC_CHATGPT_AUTH_ENABLED === "true";
 }
