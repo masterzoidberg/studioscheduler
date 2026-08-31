@@ -16,6 +16,7 @@ export interface ReviewedImportValidation {
 
 const stableId = /^[A-Z0-9]+-[0-9]{3}$/;
 const sha256 = /^[0-9a-f]{64}$/i;
+export const DWDE_REVIEWED_V2_RULES_SHA256 = "5ef0a282e68b199fae94976335ede2484e80a966b2b5d2c3fa71355a26d5866b";
 
 export function normalizeReviewedClassification(value: string): RuleStrength | null {
   switch (value.trim().toUpperCase()) {
@@ -50,6 +51,7 @@ export function validateReviewedRulebook(input: unknown): ReviewedImportValidati
   if (pkg.rulebook.version !== 2) fail("rulebook.version", "This reviewed source must identify itself as Rulebook V2.");
   if (pkg.rulebook.status !== "REVIEWED") fail("rulebook.status", "Reviewed source status must be REVIEWED.");
   if (!sha256.test(pkg.rulebook.rules_sha256 || "")) fail("rulebook.rules_sha256", "A 64-character SHA-256 rules fingerprint is required.");
+  else if (pkg.rulebook.rules_sha256.toLowerCase() !== DWDE_REVIEWED_V2_RULES_SHA256) fail("rulebook.rules_sha256", "This file does not match the authoritative reviewed DWDE Rulebook V2 fingerprint.");
   if (!Array.isArray(pkg.rules)) fail("rules", "rules must be an array.");
   const rules = Array.isArray(pkg.rules) ? pkg.rules : [];
   if (pkg.rulebook.total_rules !== rules.length) fail("rulebook.total_rules", "Metadata rule count does not match the rules array.");
