@@ -6,9 +6,9 @@ import { scheduleRepairDecision } from "@/lib/schedule-repair";
 const root = process.cwd();
 const sql = (name: string) => readFileSync(join(root, "supabase", "migrations", name), "utf8");
 
-const governance = sql("20260831160002_v2_2_enforcement_governance.sql");
-const scheduleMutations = sql("20260831160003_v2_2_schedule_mutations.sql");
-const ruleCompatibility = sql("20260831160008_v2_2_v21_rule_compat.sql");
+const governance = sql("20260831160457_v2_2_enforcement_governance.sql");
+const scheduleMutations = sql("20260831160536_v2_2_schedule_mutations.sql");
+const ruleCompatibility = sql("20260831171138_v2_2_v21_rule_compat.sql");
 
 describe("V2.2 enforcement governance", () => {
   it("requires explicit review and optimistic EnforcementVersion checks", () => {
