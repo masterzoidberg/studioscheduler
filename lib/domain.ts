@@ -1,6 +1,7 @@
 export type RuleStrength = "HARD" | "VERY_STRONG" | "MODERATE" | "LIGHT" | "BASELINE";
 export type RuleStatus = "ACTIVE" | "NEEDS_REVIEW" | "DISABLED" | "RETIRED";
 export type VerificationStatus = "VERIFIED" | "NEEDS_REVIEW" | "UNVERIFIED";
+export type EnforcementStatus = "IMPLEMENTED" | "PARTIAL" | "NOT_IMPLEMENTED" | "NOT_APPLICABLE";
 export type Day = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
 
 export type RuleType =
@@ -34,6 +35,17 @@ export interface SourceInfo {
   document?: string;
   version?: string;
   note?: string;
+  fingerprint?: string;
+  parentRulebookVersion?: number;
+}
+
+export interface ReviewedRuleHistory {
+  decision?: string;
+  verified?: boolean;
+  reviewed_at?: string;
+  original_text?: string;
+  correction_raw?: string;
+  [key: string]: unknown;
 }
 
 export interface RuleException {
@@ -46,16 +58,21 @@ export interface RuleException {
 export interface StudioRule {
   id: string;
   category: string;
-  type: RuleType;
+  type: RuleType | null;
   title: string;
   description: string;
-  strength: RuleStrength;
+  strength: RuleStrength | null;
+  classificationRaw?: string;
   status: RuleStatus;
   verificationStatus: VerificationStatus;
+  reviewStatus?: VerificationStatus;
+  review?: ReviewedRuleHistory;
   affectedEntityIds: string[];
   parameters: Record<string, unknown>;
   exceptions?: RuleException[];
   source: SourceInfo;
+  sourceRaw?: Record<string, unknown>;
+  enforcementStatus?: EnforcementStatus;
   versionIntroduced: number;
   updatedAt: string;
 }
@@ -126,6 +143,16 @@ export interface RulebookVersion {
   actor: string;
   reason: string;
   changedRuleIds: string[];
+  rulebookId?: string;
+  status?: "CURRENT" | "HISTORICAL";
+  importedAt?: string;
+  sourceHash?: string;
+  sourceFileHash?: string;
+  ruleCount?: number;
+  parentVersion?: number;
+  formatVersion?: string;
+  documentType?: string;
+  sourceMetadata?: Record<string, unknown>;
 }
 
 export interface ScheduleVersion {
@@ -159,11 +186,21 @@ export interface ValidationViolation {
   suggestedAction?: string;
 }
 
+export interface ValidatorCoverage {
+  applicableHardRules: number;
+  implementedHardRules: number;
+  partialHardRules: number;
+  notImplementedHardRules: number;
+  uncoveredHardRuleIds: string[];
+}
+
 export interface ValidationResult {
   valid: boolean;
+  fullyValidated: boolean;
   hardViolations: number;
   warnings: number;
   violations: ValidationViolation[];
+  coverage: ValidatorCoverage;
 }
 
 export interface RulePatch {
@@ -234,6 +271,38 @@ export interface CanonicalImportPackage {
   };
   rules: StudioRule[];
   assignments?: Assignment[];
+}
+
+export interface ReviewedRuleRecord {
+  id: string;
+  category: string;
+  classification: string;
+  title: string;
+  text: string;
+  status: RuleStatus;
+  review_status: VerificationStatus;
+  review: ReviewedRuleHistory;
+  source: Record<string, unknown>;
+}
+
+export interface ReviewedRulebookPackage {
+  format_version: "2.0";
+  document_type: "DWDE_SITE_RULEBOOK";
+  rulebook: {
+    id: string;
+    name: string;
+    version: number;
+    status: string;
+    total_rules: number;
+    reviewed_rules: number;
+    source_review_completed_at?: string;
+    approved_without_edit: number;
+    edited_and_approved: number;
+    rules_sha256: string;
+  };
+  schema_notes?: Record<string, unknown>;
+  review_summary?: Record<string, unknown>;
+  rules: ReviewedRuleRecord[];
 }
 
 export interface SchedulingEngine {
