@@ -1,19 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, KeyRound, Mail, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, KeyRound, Mail, ShieldCheck } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
 
 export function LoginScreen() {
-  const { signInWithEmail, beginChatGptSignIn, chatGptAuthEnabled } = useWorkspace();
+  const { signInWithEmail } = useWorkspace();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
-    e.preventDefault(); setBusy(true);
+    e.preventDefault();
+    setBusy(true);
     const result = await signInWithEmail(email.trim());
-    setMessage(result.message); setBusy(false);
+    setMessage(result.message);
+    setBusy(false);
   }
 
   return (
@@ -23,7 +25,7 @@ export function LoginScreen() {
           <div className="flex size-12 items-center justify-center rounded-2xl bg-white text-sm font-black text-slate-950">DW</div>
           <p className="mt-6 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">DWDE Studio Scheduler</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">One rulebook. One schedule.</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-300">Sign in to review rules, validate changes, edit the schedule, and collaborate with the Copilot from your phone or desktop.</p>
+          <p className="mt-3 text-sm leading-6 text-slate-300">Sign in to review rules, validate changes, edit the schedule, and collaborate from your phone or desktop.</p>
         </div>
         <div className="p-6">
           <form onSubmit={submit} className="space-y-3">
@@ -33,13 +35,9 @@ export function LoginScreen() {
           </form>
           {message ? <div className="mt-3 rounded-xl bg-slate-100 p-3 text-sm leading-5 text-slate-700">{message}</div> : null}
 
-          <div className="my-5 flex items-center gap-3"><div className="h-px flex-1 bg-slate-200"/><span className="text-xs font-medium text-slate-400">OR</span><div className="h-px flex-1 bg-slate-200"/></div>
-          <button type="button" disabled={!chatGptAuthEnabled} onClick={beginChatGptSignIn} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 font-semibold text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"><Sparkles className="size-4"/>Continue with ChatGPT</button>
-          {!chatGptAuthEnabled ? <p className="mt-2 text-xs leading-5 text-slate-500">The ChatGPT identity adapter is implemented, but OpenAI partner OAuth credentials are not configured for this deployment yet. This button will activate without changing scheduling architecture once credentials are issued.</p> : null}
-
           <div className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4 text-xs leading-5 text-slate-600">
-            <div className="flex gap-3"><ShieldCheck className="mt-0.5 size-4 shrink-0"/><span>Scheduling data is protected by Supabase Row Level Security.</span></div>
-            <div className="flex gap-3"><KeyRound className="mt-0.5 size-4 shrink-0"/><span>OpenAI API credentials stay server-side. ChatGPT identity never exposes your ChatGPT conversations or API key.</span></div>
+            <div className="flex gap-3"><ShieldCheck className="mt-0.5 size-4 shrink-0"/><span>Studio data is protected by Supabase Row Level Security.</span></div>
+            <div className="flex gap-3"><KeyRound className="mt-0.5 size-4 shrink-0"/><span>ChatGPT and Copilot connections are managed inside Settings after you enter the workspace.</span></div>
           </div>
         </div>
       </div>
