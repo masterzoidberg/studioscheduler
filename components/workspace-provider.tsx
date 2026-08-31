@@ -2,13 +2,16 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
-import type { Assignment, CanonicalImportPackage, ClassDefinition, RuleHistoryEntry, RulePatch, RulebookVersion, Room, Scenario, SchedulePatch, ScheduleVersion, StudioRule, StudioState, Teacher, ValidationResult } from "@/lib/domain";
-import { applyAssignmentChanges, validateSchedule } from "@/lib/validator";
+import type {
+  Assignment, CanonicalImportPackage, ClassDefinition, ReviewedRulebookPackage, RuleHistoryEntry, RulePatch,
+  RulebookVersion, Room, Scenario, SchedulePatch, ScheduleVersion, StudioRule, StudioState, Teacher, ValidationResult,
+} from "@/lib/domain";
+import { applyAssignmentChanges, emptyValidation, validateSchedule } from "@/lib/validator";
 import { beginChatGptSignIn, captureAlphaAccess, chatGptAuthAvailable, clearAlphaAccess, getBrowserSupabase } from "@/lib/supabase";
 
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 
-type MutationResult = { ok: boolean; error?: string; validation?: ValidationResult; version?: number };
+type MutationResult = { ok: boolean; error?: string; validation?: ValidationResult; version?: number; details?: Record<string, unknown> };
 
 interface WorkspaceContextValue {
   loading: boolean;
@@ -28,7 +31,8 @@ interface WorkspaceContextValue {
   applyRulePatch: (patch: RulePatch) => Promise<MutationResult>;
   applySchedulePatch: (patch: SchedulePatch) => Promise<MutationResult>;
   importPackage: (pkg: CanonicalImportPackage) => Promise<MutationResult>;
-  exportPackage: () => CanonicalImportPackage | null;
+  importReviewedRulebook: (pkg: ReviewedRulebookPackage, sourceFileHash: string) => Promise<MutationResult>;
+  exportPackage: () => Record<string, unknown> | null;
   updateTeacher: (teacher: Teacher, reason: string) => Promise<MutationResult>;
   updateRoom: (room: Room, reason: string) => Promise<MutationResult>;
   updateClass: (klass: ClassDefinition, reason: string) => Promise<MutationResult>;
@@ -36,22 +40,50 @@ interface WorkspaceContextValue {
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
-
 const time = (value: string) => value.slice(0, 5);
-const source = (value: unknown) => (value && typeof value === "object" ? value : { type: "IMPORT" }) as StudioRule["source"];
+const object = (value: unknown) => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+const source = (value: unknown) => ({ type: "IMPORT", ...object(value) }) as StudioRule["source"];
 
 function mapRule(row: Record<string, unknown>): StudioRule {
+  const strength = row.strength ? row.strength as StudioRule["strength"] : null;
+  const verificationStatus = (row.verification_status || row.review_status || "UNVERIFIED") as StudioRule["verificationStatus"];
   return {
-    id: String(row.id), category: String(row.category), type: row.type as StudioRule["type"], title: String(row.title), description: String(row.description), strength: row.strength as StudioRule["strength"], status: row.status as StudioRule["status"], verificationStatus: row.verification_status as StudioRule["verificationStatus"], affectedEntityIds: (row.affected_entity_ids as string[]) || [], parameters: (row.parameters as Record<string, unknown>) || {}, exceptions: (row.exceptions as StudioRule["exceptions"]) || [], source: source(row.source), versionIntroduced: Number(row.version_introduced || 1), updatedAt: String(row.updated_at || ""),
+    id: String(row.id),
+    category: String(row.category || ""),
+    type: row.type ? row.type as StudioRule["type"] : null,
+    title: String(row.title || ""),
+    description: String(row.description || ""),
+    strength,
+    classificationRaw: String(row.classification_raw || strength?.replaceAll("_", " ") || "UNCLASSIFIED"),
+    status: row.status as StudioRule["status"],
+    verificationStatus,
+    reviewStatus: (row.review_status || verificationStatus) as StudioRule["reviewStatus"],
+    review: object(row.review),
+    affectedEntityIds: (row.affected_entity_ids as string[]) || [],
+    parameters: object(row.parameters),
+    exceptions: (row.exceptions as StudioRule["exceptions"]) || [],
+    source: source(row.source),
+    sourceRaw: object(row.source_raw),
+    enforcementStatus: (row.enforcement_status || "NOT_IMPLEMENTED") as StudioRule["enforcementStatus"],
+    versionIntroduced: Number(row.version_introduced || 1),
+    updatedAt: String(row.updated_at || ""),
   };
 }
 
 function mapAssignment(row: Record<string, unknown>): Assignment {
-  return { id: String(row.id), sessionId: String(row.session_id), day: row.day as Assignment["day"], startTime: time(String(row.start_time)), endTime: time(String(row.end_time)), teacherId: String(row.teacher_id), roomId: String(row.room_id), locked: Boolean(row.locked), status: row.status as Assignment["status"] };
+  return {
+    id: String(row.id), sessionId: String(row.session_id), day: row.day as Assignment["day"],
+    startTime: time(String(row.start_time)), endTime: time(String(row.end_time)), teacherId: String(row.teacher_id),
+    roomId: String(row.room_id), locked: Boolean(row.locked), status: row.status as Assignment["status"],
+  };
 }
 
 function mapHistory(row: Record<string, unknown>): RuleHistoryEntry {
-  return { id: String(row.id), ruleId: String(row.rule_id), rulebookVersion: Number(row.rulebook_version), changedAt: String(row.changed_at), actor: String(row.actor_label), reason: String(row.reason), before: row.before_rule ? mapRule(row.before_rule as Record<string, unknown>) : null, after: row.after_rule ? mapRule(row.after_rule as Record<string, unknown>) : null, aiProposed: Boolean(row.ai_proposed) };
+  return {
+    id: String(row.id), ruleId: String(row.rule_id), rulebookVersion: Number(row.rulebook_version), changedAt: String(row.changed_at),
+    actor: String(row.actor_label), reason: String(row.reason), before: row.before_rule ? mapRule(row.before_rule as Record<string, unknown>) : null,
+    after: row.after_rule ? mapRule(row.after_rule as Record<string, unknown>) : null, aiProposed: Boolean(row.ai_proposed),
+  };
 }
 
 function fail(error: unknown): MutationResult { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
@@ -62,7 +94,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [alphaKey, setAlphaKey] = useState("");
   const [state, setState] = useState<StudioState | null>(null);
-
   const accessMode: WorkspaceContextValue["accessMode"] = session ? "AUTHENTICATED" : alphaKey ? "ALPHA" : "NONE";
 
   const load = useCallback(async (key?: string, activeSession?: Session | null) => {
@@ -93,7 +124,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const assignmentQ = currentScheduleRow ? await supabase.from("assignments").select("*").eq("schedule_version_id", currentScheduleRow.id).order("start_time") : { data: [], error: null };
       if (assignmentQ.error) throw assignmentQ.error;
       const assignments = (assignmentQ.data || []).map((row) => mapAssignment(row as Record<string, unknown>));
-      const scheduleVersions: ScheduleVersion[] = (scheduleQ.data || []).map((row) => ({ id: row.id, version: row.version, rulebookVersion: row.rulebook_version, createdAt: row.created_at, actor: row.actor_label, reason: row.reason, assignments: row.id === currentScheduleRow?.id ? assignments : [] }));
+      const scheduleVersions: ScheduleVersion[] = (scheduleQ.data || []).map((row) => ({
+        id: row.id, version: row.version, rulebookVersion: row.rulebook_version, createdAt: row.created_at,
+        actor: row.actor_label, reason: row.reason, assignments: row.id === currentScheduleRow?.id ? assignments : [],
+      }));
       const mapped: StudioState = {
         studioId: STUDIO_ID, studioName: studioQ.data?.name || "DWDE Studio",
         teachers: (teachersQ.data || []).map((r) => ({ id: r.id, name: r.name, subjects: r.subjects || [], notes: r.notes || undefined })),
@@ -103,9 +137,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         classes: (classesQ.data || []).map((r) => ({ id: r.id, name: r.name, subject: r.subject, level: r.level, durationMinutes: r.duration_minutes, weeklyFrequency: r.weekly_frequency, rosterStudentIds: r.roster_student_ids || [], eligibleTeacherIds: r.eligible_teacher_ids || [], companyOnly: r.company_only })),
         sessions: (sessionsQ.data || []).map((r) => ({ id: r.id, classId: r.class_id, ordinal: r.ordinal, locked: r.locked })),
         rules: (rulesQ.data || []).map((r) => mapRule(r as Record<string, unknown>)),
-        rulebookVersions: (rbvQ.data || []).map((r) => ({ id: r.id, version: r.version, name: r.name, createdAt: r.created_at, actor: r.actor_label, reason: r.reason, changedRuleIds: r.changed_rule_ids || [] } as RulebookVersion)),
+        rulebookVersions: (rbvQ.data || []).map((r) => ({
+          id: r.id, version: r.version, name: r.name, createdAt: r.created_at, actor: r.actor_label, reason: r.reason,
+          changedRuleIds: r.changed_rule_ids || [], rulebookId: r.rulebook_id || undefined, status: r.status || undefined,
+          importedAt: r.imported_at || undefined, sourceHash: r.source_hash || undefined, sourceFileHash: r.source_file_hash || undefined,
+          ruleCount: r.rule_count ?? undefined, parentVersion: r.parent_version ?? undefined, formatVersion: r.format_version || undefined,
+          documentType: r.document_type || undefined, sourceMetadata: object(r.source_metadata),
+        } as RulebookVersion)),
         ruleHistory: (historyQ.data || []).map((r) => mapHistory(r as Record<string, unknown>)), scheduleVersions,
-        scenarios: (scenariosQ.data || []).map((r) => ({ id: r.id, name: r.name, baseRulebookVersion: r.base_rulebook_version, baseScheduleVersion: r.base_schedule_version, rulePatches: (r.rule_patches || []) as unknown as RulePatch[], schedulePatches: (r.schedule_patches || []) as unknown as SchedulePatch[], createdAt: r.created_at } as Scenario)),
+        scenarios: (scenariosQ.data || []).map((r) => ({
+          id: r.id, name: r.name, baseRulebookVersion: r.base_rulebook_version, baseScheduleVersion: r.base_schedule_version,
+          rulePatches: (r.rule_patches || []) as unknown as RulePatch[], schedulePatches: (r.schedule_patches || []) as unknown as SchedulePatch[], createdAt: r.created_at,
+        } as Scenario)),
         auditEvents: (auditQ.data || []).map((r) => ({ id: r.id, at: r.created_at, actor: r.actor_label, action: r.action, entityType: r.entity_type, entityId: r.entity_id || undefined, detail: r.detail })),
       };
       setState(mapped);
@@ -123,8 +166,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const currentAssignments = useMemo(() => state?.scheduleVersions.find((v) => v.version === Math.max(0, ...state.scheduleVersions.map((item) => item.version)))?.assignments || [], [state]);
-  const validation = useMemo(() => state ? validateSchedule(state, currentAssignments) : { valid: true, hardViolations: 0, warnings: 0, violations: [] }, [state, currentAssignments]);
-  const currentRulebookVersion = Math.max(0, ...(state?.rulebookVersions.map((v) => v.version) || [0]));
+  const validation = useMemo(() => state ? validateSchedule(state, currentAssignments) : emptyValidation(), [state, currentAssignments]);
+  const currentRulebookVersion = state?.rulebookVersions.find((version) => version.status === "CURRENT")?.version ?? Math.max(0, ...(state?.rulebookVersions.map((v) => v.version) || [0]));
   const currentScheduleVersion = Math.max(0, ...(state?.scheduleVersions.map((v) => v.version) || [0]));
 
   async function signInWithEmail(email: string) {
@@ -143,9 +186,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   async function applyRulePatch(patch: RulePatch): Promise<MutationResult> {
     try {
-      const { data, error: rpcError } = await getBrowserSupabase(alphaKey).rpc("apply_rule_patch", { p_operation: patch.operation, p_rule_id: patch.ruleId || String(patch.changes.id || ""), p_changes: patch.changes, p_reason: patch.reason, p_ai_proposed: patch.proposedBy === "AI" });
+      const { data, error: rpcError } = await getBrowserSupabase(alphaKey).rpc("apply_rule_patch", {
+        p_operation: patch.operation, p_rule_id: patch.ruleId || String(patch.changes.id || ""), p_changes: patch.changes,
+        p_reason: patch.reason, p_ai_proposed: patch.proposedBy === "AI",
+      });
       if (rpcError) throw rpcError; await load();
-      return { ok: true, version: Number((data as Record<string, unknown>)?.version || 0) };
+      return { ok: true, version: Number((data as Record<string, unknown>)?.version || 0), details: object(data) };
     } catch (e) { return fail(e); }
   }
 
@@ -156,9 +202,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (existing.locked) return { ok: false, error: "This assignment is locked by the Rulebook." };
     const proposed = applyAssignmentChanges(currentAssignments, patch.assignmentId, patch.changes);
     const result = validateSchedule(state, proposed);
-    if (!result.valid) return { ok: false, error: "The proposed schedule change creates HARD violations.", validation: result };
+    if (!result.valid) return { ok: false, error: "The proposed schedule change creates a detected HARD violation.", validation: result };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase(alphaKey).rpc("apply_schedule_patch", { p_assignment_id: patch.assignmentId, p_changes: patch.changes, p_reason: patch.reason, p_validation: result, p_ai_proposed: patch.proposedBy === "AI" });
+      const { data, error: rpcError } = await getBrowserSupabase(alphaKey).rpc("apply_schedule_patch", {
+        p_assignment_id: patch.assignmentId, p_changes: patch.changes, p_reason: patch.reason, p_validation: result, p_ai_proposed: patch.proposedBy === "AI",
+      });
       if (rpcError) throw rpcError; await load();
       return { ok: true, validation: result, version: Number((data as Record<string, unknown>)?.scheduleVersion || 0) };
     } catch (e) { return fail(e); }
@@ -168,13 +216,45 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       const { data, error: rpcError } = await getBrowserSupabase(alphaKey).rpc("import_canonical_rulebook", { p_package: pkg, p_reason: `Imported ${pkg.rulebook.name}` });
       if (rpcError) throw rpcError; await load();
-      return { ok: true, version: Number((data as Record<string, unknown>)?.version || 0) };
+      return { ok: true, version: Number((data as Record<string, unknown>)?.version || 0), details: object(data) };
     } catch (e) { return fail(e); }
   }
 
-  function exportPackage(): CanonicalImportPackage | null {
+  async function importReviewedRulebook(pkg: ReviewedRulebookPackage, sourceFileHash: string): Promise<MutationResult> {
+    if (!session) return { ok: false, error: "Sign in as a studio user before adopting reviewed source-of-truth data." };
+    try {
+      const { data, error: rpcError } = await getBrowserSupabase(alphaKey).rpc("import_reviewed_rulebook", {
+        p_package: pkg,
+        p_reason: `Adopted ${pkg.rulebook.name} V${pkg.rulebook.version} reviewed source`,
+        p_source_file_sha256: sourceFileHash,
+      });
+      if (rpcError) throw rpcError; await load();
+      return { ok: true, version: Number((data as Record<string, unknown>)?.version || 0), details: object(data) };
+    } catch (e) { return fail(e); }
+  }
+
+  function exportPackage(): Record<string, unknown> | null {
     if (!state) return null;
-    return { format_version: "1.0", rulebook: { id: "dwde-canonical", name: "DWDE Master Rulebook", version: currentRulebookVersion }, entities: { teachers: state.teachers, rooms: state.rooms, classes: state.classes, students: state.students, cohorts: state.cohorts, sessions: state.sessions }, rules: state.rules, assignments: currentAssignments };
+    const current = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? state.rulebookVersions[0];
+    const verified = state.rules.filter((rule) => (rule.reviewStatus ?? rule.verificationStatus) === "VERIFIED").length;
+    const approved = state.rules.filter((rule) => rule.review?.decision === "APPROVED").length;
+    const edited = state.rules.filter((rule) => rule.review?.decision === "EDIT").length;
+    return {
+      format_version: current?.formatVersion || "2.0",
+      document_type: current?.documentType || "DWDE_CANONICAL_RULEBOOK",
+      rulebook: {
+        id: current?.rulebookId || "dwde-2026-2027-master-rulebook", name: "DWDE 2026-2027 Master Rulebook",
+        version: currentRulebookVersion, status: current?.sourceHash ? "REVIEWED" : "CURRENT", total_rules: state.rules.length,
+        reviewed_rules: verified, approved_without_edit: approved, edited_and_approved: edited, rules_sha256: current?.sourceHash || null,
+      },
+      source_version: current,
+      rules: state.rules.map((rule) => ({
+        id: rule.id, category: rule.category, classification: rule.classificationRaw ?? rule.strength?.replaceAll("_", " ") ?? "UNCLASSIFIED",
+        title: rule.title, text: rule.description, status: rule.status, review_status: rule.reviewStatus ?? rule.verificationStatus,
+        review: rule.review ?? {}, source: rule.sourceRaw ?? rule.source,
+        machine: { type: rule.type, parameters: rule.parameters, affected_entity_ids: rule.affectedEntityIds, exceptions: rule.exceptions || [], enforcement_status: rule.enforcementStatus },
+      })),
+    };
   }
 
   async function audit(action: string, entityType: string, entityId: string, detail: string) {
@@ -182,20 +262,36 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }
 
   async function updateTeacher(teacher: Teacher, reason: string): Promise<MutationResult> {
-    try { const { error: qError } = await getBrowserSupabase(alphaKey).from("teachers").update({ name: teacher.name, subjects: teacher.subjects, notes: teacher.notes || null, updated_at: new Date().toISOString() }).eq("id", teacher.id); if (qError) throw qError; await audit("TEACHER_UPDATE", "TEACHER", teacher.id, reason); await load(); return { ok: true }; } catch (e) { return fail(e); }
+    try {
+      const { error: qError } = await getBrowserSupabase(alphaKey).from("teachers").update({ name: teacher.name, subjects: teacher.subjects, notes: teacher.notes || null, updated_at: new Date().toISOString() }).eq("id", teacher.id);
+      if (qError) throw qError; await audit("TEACHER_UPDATE", "TEACHER", teacher.id, reason); await load(); return { ok: true };
+    } catch (e) { return fail(e); }
   }
   async function updateRoom(room: Room, reason: string): Promise<MutationResult> {
-    try { const { error: qError } = await getBrowserSupabase(alphaKey).from("rooms").update({ name: room.name, capacity: room.capacity ?? null, features: room.features || [], updated_at: new Date().toISOString() }).eq("id", room.id); if (qError) throw qError; await audit("ROOM_UPDATE", "ROOM", room.id, reason); await load(); return { ok: true }; } catch (e) { return fail(e); }
+    try {
+      const { error: qError } = await getBrowserSupabase(alphaKey).from("rooms").update({ name: room.name, capacity: room.capacity ?? null, features: room.features || [], updated_at: new Date().toISOString() }).eq("id", room.id);
+      if (qError) throw qError; await audit("ROOM_UPDATE", "ROOM", room.id, reason); await load(); return { ok: true };
+    } catch (e) { return fail(e); }
   }
   async function updateClass(klass: ClassDefinition, reason: string): Promise<MutationResult> {
-    try { const { error: qError } = await getBrowserSupabase(alphaKey).from("class_definitions").update({ name: klass.name, subject: klass.subject, level: klass.level, duration_minutes: klass.durationMinutes, weekly_frequency: klass.weeklyFrequency, roster_student_ids: klass.rosterStudentIds, eligible_teacher_ids: klass.eligibleTeacherIds, company_only: Boolean(klass.companyOnly), updated_at: new Date().toISOString() }).eq("id", klass.id); if (qError) throw qError; await audit("CLASS_UPDATE", "CLASS", klass.id, reason); await load(); return { ok: true }; } catch (e) { return fail(e); }
+    try {
+      const { error: qError } = await getBrowserSupabase(alphaKey).from("class_definitions").update({ name: klass.name, subject: klass.subject, level: klass.level, duration_minutes: klass.durationMinutes, weekly_frequency: klass.weeklyFrequency, roster_student_ids: klass.rosterStudentIds, eligible_teacher_ids: klass.eligibleTeacherIds, company_only: Boolean(klass.companyOnly), updated_at: new Date().toISOString() }).eq("id", klass.id);
+      if (qError) throw qError; await audit("CLASS_UPDATE", "CLASS", klass.id, reason); await load(); return { ok: true };
+    } catch (e) { return fail(e); }
   }
 
   async function createScenario(name: string, rulePatches: RulePatch[] = [], schedulePatches: SchedulePatch[] = []): Promise<MutationResult> {
-    try { const { error: qError } = await getBrowserSupabase(alphaKey).from("scenarios").insert({ studio_id: STUDIO_ID, name, base_rulebook_version: currentRulebookVersion, base_schedule_version: currentScheduleVersion, rule_patches: rulePatches, schedule_patches: schedulePatches, created_by: session?.user.id || null }); if (qError) throw qError; await load(); return { ok: true }; } catch (e) { return fail(e); }
+    try {
+      const { error: qError } = await getBrowserSupabase(alphaKey).from("scenarios").insert({ studio_id: STUDIO_ID, name, base_rulebook_version: currentRulebookVersion, base_schedule_version: currentScheduleVersion, rule_patches: rulePatches, schedule_patches: schedulePatches, created_by: session?.user.id || null });
+      if (qError) throw qError; await load(); return { ok: true };
+    } catch (e) { return fail(e); }
   }
 
-  const value: WorkspaceContextValue = { loading, error, session, accessMode, state, currentAssignments, currentRulebookVersion, currentScheduleVersion, validation, chatGptAuthEnabled: chatGptAuthAvailable(), refresh: () => load(), signInWithEmail, signOut, beginChatGptSignIn, applyRulePatch, applySchedulePatch, importPackage, exportPackage, updateTeacher, updateRoom, updateClass, createScenario };
+  const value: WorkspaceContextValue = {
+    loading, error, session, accessMode, state, currentAssignments, currentRulebookVersion, currentScheduleVersion, validation,
+    chatGptAuthEnabled: chatGptAuthAvailable(), refresh: () => load(), signInWithEmail, signOut, beginChatGptSignIn,
+    applyRulePatch, applySchedulePatch, importPackage, importReviewedRulebook, exportPackage, updateTeacher, updateRoom, updateClass, createScenario,
+  };
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }
 
