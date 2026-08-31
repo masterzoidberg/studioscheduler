@@ -1,0 +1,1 @@
+drop function if exists public.invite_studio_member(text,text);
