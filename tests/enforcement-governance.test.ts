@@ -22,11 +22,14 @@ describe("V2.2 enforcement governance", () => {
   });
 
   it("keeps proposed mappings non-enforcing until approval", () => {
-    const proposalInsert = governance.indexOf("insert into public.rule_enforcement_proposals");
-    const versionInsert = governance.indexOf("insert into public.rule_enforcement_versions");
-    expect(proposalInsert).toBeGreaterThan(-1);
-    expect(versionInsert).toBeGreaterThan(proposalInsert);
-    expect(governance.slice(proposalInsert, versionInsert)).not.toContain("update public.rule_enforcement_versions set status='HISTORICAL'");
+    const proposeStart = governance.indexOf("create or replace function public.propose_rule_enforcement_mapping_v22");
+    const reviewStart = governance.indexOf("create or replace function public.review_rule_enforcement_mapping_v22");
+    expect(proposeStart).toBeGreaterThan(-1);
+    expect(reviewStart).toBeGreaterThan(proposeStart);
+    const proposeFunction = governance.slice(proposeStart, reviewStart);
+    expect(proposeFunction).toContain("insert into public.rule_enforcement_proposals");
+    expect(proposeFunction).not.toContain("insert into public.rule_enforcement_versions");
+    expect(proposeFunction).not.toContain("update public.rule_enforcement_versions set status='HISTORICAL'");
   });
 
   it("invalidates machine mappings after semantic human Rulebook changes", () => {
