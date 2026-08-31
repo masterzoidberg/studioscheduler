@@ -32,7 +32,10 @@ function BottomNav({ openMore }: { openMore: () => void }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { loading,error,accessMode,session,role,state,currentRulebookVersion,currentScheduleVersion,currentScheduleRulebookVersion,scheduleIsStale,validation,refresh,signOut } = useWorkspace();
+  const {
+    loading,error,accessMode,session,role,state,currentRulebookVersion,currentEnforcementVersion,currentScheduleVersion,
+    currentScheduleRulebookVersion,currentScheduleEnforcementVersion,scheduleIsStale,validation,refresh,signOut,
+  } = useWorkspace();
   const [mobileNavOpen,setMobileNavOpen]=useState(false);
   const [mobileCopilotOpen,setMobileCopilotOpen]=useState(false);
   const heading=titles[pathname]??titles["/"];
@@ -42,7 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (!loading && session && !state) return <main className="grid min-h-screen place-items-center bg-slate-950 p-5"><div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"><div className="flex size-11 items-center justify-center rounded-xl bg-amber-100 text-amber-800"><AlertTriangle className="size-5"/></div><h1 className="mt-5 text-2xl font-semibold">Signed in, but not invited yet</h1><p className="mt-3 text-sm leading-6 text-slate-600">{error||"This account does not have access to the DWDE workspace."}</p><p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">Signed in as {session.user.email}</p><button onClick={()=>void signOut()} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-semibold"><LogOut className="size-4"/>Sign out</button></div></main>;
 
   const health = scheduleIsStale
-    ? { label:"STALE RULEBOOK", tone:"border-amber-200 bg-amber-50 text-amber-900", dot:"bg-amber-500" }
+    ? { label:"STALE POLICY LINK", tone:"border-amber-200 bg-amber-50 text-amber-900", dot:"bg-amber-500" }
     : !validation.valid
       ? { label:"NEEDS REPAIR", tone:"border-red-200 bg-red-50 text-red-900", dot:"bg-red-500" }
       : validation.fullyValidated
@@ -54,7 +57,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="hidden border-r border-slate-200 bg-white px-4 py-5 lg:flex lg:flex-col">
         <div className="px-2"><Brand/></div><div className="mt-8 flex-1"><SidebarNav/></div>
         <div className={`rounded-2xl border p-3.5 ${health.tone}`}><div className="flex items-center gap-2 text-xs font-semibold"><span className={`size-2 rounded-full ${health.dot}`}/>Schedule health</div><p className="mt-2 text-base font-semibold">{health.label}</p><p className="mt-1 text-xs leading-5 opacity-80">{validation.hardViolations} detected HARD · {validation.coverage.implementedHardRules}/{validation.coverage.applicableHardRules} HARD rules enforced</p></div>
-        <div className="mt-4 px-2 text-[11px] leading-5 text-slate-400">Rulebook v{currentRulebookVersion} · Schedule v{currentScheduleVersion}<br/>Schedule uses Rulebook v{currentScheduleRulebookVersion}</div>
+        <div className="mt-4 px-2 text-[11px] leading-5 text-slate-400">Rulebook v{currentRulebookVersion} · Enforcement v{currentEnforcementVersion} · Schedule v{currentScheduleVersion}<br/>Schedule uses Rulebook v{currentScheduleRulebookVersion} + Enforcement v{currentScheduleEnforcementVersion}</div>
       </aside>
 
       <div className="min-w-0 pb-20 lg:pb-0">
@@ -65,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     </div>
 
     <BottomNav openMore={()=>setMobileNavOpen(true)}/>
-    {mobileNavOpen?<div className="fixed inset-0 z-50"><button className="absolute inset-0 bg-slate-950/40" onClick={()=>setMobileNavOpen(false)} aria-label="Close menu"/><aside className="absolute bottom-0 left-0 right-0 max-h-[88vh] rounded-t-[28px] bg-white p-5 shadow-2xl sm:bottom-auto sm:left-0 sm:top-0 sm:h-full sm:w-80 sm:rounded-none"><div className="flex items-center justify-between"><Brand/><button onClick={()=>setMobileNavOpen(false)} className="rounded-xl p-2 text-slate-500"><X className="size-5"/></button></div><div className="mt-6" onClick={()=>setMobileNavOpen(false)}><SidebarNav compact/></div><div className={`mt-5 rounded-xl border p-3 text-xs leading-5 ${health.tone}`}>{health.label}<br/>{validation.hardViolations} detected HARD · {validation.coverage.implementedHardRules}/{validation.coverage.applicableHardRules} enforced</div></aside></div>:null}
+    {mobileNavOpen?<div className="fixed inset-0 z-50"><button className="absolute inset-0 bg-slate-950/40" onClick={()=>setMobileNavOpen(false)} aria-label="Close menu"/><aside className="absolute bottom-0 left-0 right-0 max-h-[88vh] rounded-t-[28px] bg-white p-5 shadow-2xl sm:bottom-auto sm:left-0 sm:top-0 sm:h-full sm:w-80 sm:rounded-none"><div className="flex items-center justify-between"><Brand/><button onClick={()=>setMobileNavOpen(false)} className="rounded-xl p-2 text-slate-500"><X className="size-5"/></button></div><div className="mt-6" onClick={()=>setMobileNavOpen(false)}><SidebarNav compact/></div><div className={`mt-5 rounded-xl border p-3 text-xs leading-5 ${health.tone}`}>{health.label}<br/>{validation.hardViolations} detected HARD · {validation.coverage.implementedHardRules}/{validation.coverage.applicableHardRules} enforced<br/>RB v{currentScheduleRulebookVersion}/{currentRulebookVersion} · EV v{currentScheduleEnforcementVersion}/{currentEnforcementVersion}</div></aside></div>:null}
     {mobileCopilotOpen?<div className="fixed inset-0 z-50"><button className="absolute inset-0 bg-slate-950/40" onClick={()=>setMobileCopilotOpen(false)} aria-label="Close Copilot"/><div className="absolute inset-x-0 bottom-0 h-[88vh] sm:left-auto sm:right-4 sm:bottom-4 sm:w-[400px]"><CopilotPanel mobile onClose={()=>setMobileCopilotOpen(false)}/></div></div>:null}
   </div>;
 }

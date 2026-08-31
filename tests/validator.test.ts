@@ -1,18 +1,69 @@
 import { describe, expect, it } from "vitest";
-import type { Assignment, StudioRule, StudioState } from "@/lib/domain";
+import type { Assignment, RuleEnforcementMapping, StudioRule, StudioState } from "@/lib/domain";
 import { validateSchedule } from "@/lib/validator";
 
-const now="2026-08-30T00:00:00Z";
-const baseRule=(partial:Partial<StudioRule>):StudioRule=>({id:"rule",category:"TEST",type:"NO_OVERLAP",title:"Rule",description:"Rule",strength:"HARD",status:"ACTIVE",verificationStatus:"VERIFIED",affectedEntityIds:[],parameters:{},exceptions:[],source:{type:"SYSTEM_SEED"},versionIntroduced:1,updatedAt:now,...partial});
-const assignment=(partial:Partial<Assignment>):Assignment=>({id:"a",sessionId:"session-a",day:"Monday",startTime:"17:00",endTime:"18:00",teacherId:"teacher-cami",roomId:"room-a",locked:false,status:"NORMAL",...partial});
-function state(rules:StudioRule[]=[],assignments:Assignment[]=[assignment({})]):StudioState{return{studioId:"s",studioName:"DWDE",teachers:[{id:"teacher-cami",name:"Cami",subjects:["Jazz","Tap"]},{id:"teacher-karly",name:"Karly",subjects:["Ballet"]},{id:"teacher-aimee",name:"Aimée",subjects:["Ballet"]}],rooms:[{id:"room-a",name:"Studio A",capacity:20},{id:"room-b",name:"Studio B",capacity:20}],students:[{id:"student-child",name:"Karly's daughter",level:"Level 4B"}],cohorts:[],classes:[{id:"class-a",name:"Jazz 1",subject:"Jazz",level:"Level 1",durationMinutes:60,weeklyFrequency:1,rosterStudentIds:[],eligibleTeacherIds:["teacher-cami"]},{id:"class-b",name:"Ballet 5",subject:"Ballet",level:"Level 5",durationMinutes:60,weeklyFrequency:1,rosterStudentIds:["student-child"],eligibleTeacherIds:["teacher-karly","teacher-aimee"]},{id:"class-c",name:"Ballet 4",subject:"Ballet",level:"Level 4",durationMinutes:60,weeklyFrequency:1,rosterStudentIds:[],eligibleTeacherIds:["teacher-karly","teacher-aimee"]}],sessions:[{id:"session-a",classId:"class-a",ordinal:1},{id:"session-b",classId:"class-b",ordinal:1},{id:"session-c",classId:"class-c",ordinal:1}],rules,rulebookVersions:[],ruleHistory:[],scheduleVersions:[{id:"sv",version:1,rulebookVersion:1,createdAt:now,actor:"test",reason:"test",assignments}],scenarios:[],auditEvents:[]};}
+const now = "2026-08-30T00:00:00Z";
+const assignment = (partial: Partial<Assignment>): Assignment => ({ id: "a", sessionId: "session-a", day: "Monday", startTime: "17:00", endTime: "18:00", teacherId: "teacher-cami", roomId: "room-a", locked: false, status: "NORMAL", ...partial });
+const hardRule = (id: string, status: StudioRule["status"] = "ACTIVE"): StudioRule => ({ id, category: "TEST", type: null, title: id, description: id, strength: "HARD", classificationRaw: "HARD", status, verificationStatus: "VERIFIED", reviewStatus: "VERIFIED", affectedEntityIds: [], parameters: {}, exceptions: [], source: { type: "SYSTEM_SEED" }, enforcementStatus: "NOT_IMPLEMENTED", versionIntroduced: 1, updatedAt: now });
+const mapping = (ruleId: string, type: RuleEnforcementMapping["type"], parameters: Record<string, unknown> = {}, affectedEntityIds: string[] = []): RuleEnforcementMapping => ({ ruleId, type, parameters, affectedEntityIds, exceptions: [] });
 
-describe("DWDE deterministic validator",()=>{
-  it("detects room and teacher double booking",()=>{const s=state([], [assignment({id:"a"}),assignment({id:"b",sessionId:"session-a"})]);const r=validateSchedule(s);expect(r.hardViolations).toBeGreaterThanOrEqual(2);expect(r.violations.some(v=>v.message.includes("double-booked"))).toBe(true);});
-  it("enforces required room",()=>{const rule=baseRule({id:"room",type:"REQUIRED_ROOM",parameters:{required_room_id:"room-a",subject:"Ballet"}});const s=state([rule],[assignment({id:"b",sessionId:"session-b",teacherId:"teacher-aimee",roomId:"room-b"})]);expect(validateSchedule(s).violations.some(v=>v.constraintId==="room")).toBe(true);});
-  it("enforces Cami maximum workdays",()=>{const rule=baseRule({id:"cami-days",type:"MAX_TEACHER_WORKDAYS",parameters:{teacher_id:"teacher-cami",max_days:4}});const days=["Monday","Tuesday","Wednesday","Thursday","Friday"] as const;const list=days.map((day,i)=>assignment({id:`a${i}`,day}));const s=state([rule],list);expect(validateSchedule(s).violations.some(v=>v.constraintId==="cami-days")).toBe(true);});
-  it("enforces latest finish",()=>{const rule=baseRule({id:"finish",type:"LATEST_FINISH",parameters:{levels:["Level 1"],time:"20:30"}});const s=state([rule],[assignment({startTime:"20:00",endTime:"21:00"})]);expect(validateSchedule(s).violations.some(v=>v.constraintId==="finish")).toBe(true);});
-  it("enforces no Friday for Level 5",()=>{const rule=baseRule({id:"friday",type:"NO_DAY",parameters:{levels:["Level 5"],day:"Friday"}});const s=state([rule],[assignment({sessionId:"session-b",teacherId:"teacher-aimee",day:"Friday"})]);expect(validateSchedule(s).violations.some(v=>v.constraintId==="friday")).toBe(true);});
-  it("does not enforce disabled HARD rules",()=>{const rule=baseRule({id:"disabled",type:"NO_DAY",status:"DISABLED",parameters:{levels:["Level 1"],day:"Monday"}});expect(validateSchedule(state([rule])).violations.some(v=>v.constraintId==="disabled")).toBe(false);});
-  it("enforces Karly/daughter arrival relationship when active",()=>{const rule=baseRule({id:"relationship",type:"RELATIONSHIP_ARRIVAL_WINDOW",parameters:{teacher_id:"teacher-karly",student_id:"student-child",minutes:15}});const list=[assignment({id:"teach",sessionId:"session-c",teacherId:"teacher-karly",startTime:"16:00",endTime:"17:00"}),assignment({id:"child",sessionId:"session-b",teacherId:"teacher-aimee",startTime:"18:00",endTime:"19:00",roomId:"room-b"})];expect(validateSchedule(state([rule],list)).violations.some(v=>v.constraintId==="relationship")).toBe(true);});
+function state(rules: StudioRule[] = [], mappings: RuleEnforcementMapping[] = [], assignments: Assignment[] = [assignment({})]): StudioState {
+  return {
+    studioId: "s", studioName: "DWDE",
+    teachers: [{ id: "teacher-cami", name: "Cami", subjects: [] }, { id: "teacher-aimee", name: "Aimee", subjects: [] }],
+    rooms: [{ id: "room-a", name: "Studio A", capacity: 20 }, { id: "room-b", name: "Studio B", capacity: 20 }],
+    students: [], cohorts: [],
+    classes: [
+      { id: "class-a", name: "Jazz 1", subject: "Jazz", level: "Level 1", durationMinutes: 60, weeklyFrequency: 1, rosterStudentIds: [], eligibleTeacherIds: [] },
+      { id: "class-b", name: "Ballet 5", subject: "Ballet", level: "Level 5", durationMinutes: 60, weeklyFrequency: 1, rosterStudentIds: [], eligibleTeacherIds: [] },
+    ],
+    sessions: [{ id: "session-a", classId: "class-a", ordinal: 1 }, { id: "session-b", classId: "class-b", ordinal: 1 }],
+    rules,
+    rulebookVersions: [{ id: "rb", version: 2, name: "Rulebook", createdAt: now, actor: "test", reason: "test", changedRuleIds: [], status: "CURRENT" }],
+    enforcementVersions: [{ id: "ev", version: 1, rulebookVersion: 2, createdAt: now, actor: "test", reason: "test", changedRuleIds: mappings.map((item) => item.ruleId), snapshot: mappings, status: "CURRENT" }],
+    enforcementProposals: [], ruleHistory: [],
+    scheduleVersions: [{ id: "sv", version: 1, rulebookVersion: 2, enforcementVersion: 1, createdAt: now, actor: "test", reason: "test", assignments, isCurrent: true }],
+    scenarios: [], auditEvents: [],
+  };
+}
+
+describe("DWDE deterministic validator V2.2", () => {
+  it("detects room and teacher double booking only through approved mappings", () => {
+    const rules = [hardRule("OPS-008"), hardRule("OPS-009")];
+    const maps = [mapping("OPS-008", "ROOM_NO_OVERLAP"), mapping("OPS-009", "TEACHER_NO_OVERLAP")];
+    const result = validateSchedule(state(rules, maps, [assignment({ id: "a" }), assignment({ id: "b" })]));
+    expect(result.hardViolations).toBe(2);
+  });
+
+  it("enforces a required room mapping", () => {
+    const result = validateSchedule(state([hardRule("ROOM-002")], [mapping("ROOM-002", "REQUIRED_ROOM", { required_room_id: "room-a" }, ["class-b"])], [assignment({ id: "b", sessionId: "session-b", teacherId: "teacher-aimee", roomId: "room-b" })]));
+    expect(result.violations.some((item) => item.constraintId === "ROOM-002")).toBe(true);
+  });
+
+  it("enforces Cami maximum workdays", () => {
+    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
+    const list = days.map((day, index) => assignment({ id: `a${index}`, day }));
+    const result = validateSchedule(state([hardRule("CAM-006")], [mapping("CAM-006", "MAX_TEACHER_WORKDAYS", { teacher_id: "teacher-cami", max_days: 4 })], list));
+    expect(result.violations.some((item) => item.constraintId === "CAM-006")).toBe(true);
+  });
+
+  it("enforces day-scoped latest finish", () => {
+    const result = validateSchedule(state([hardRule("OPS-006")], [mapping("OPS-006", "LATEST_FINISH", { time: "15:00", days: ["Saturday"] })], [assignment({ day: "Saturday", startTime: "14:30", endTime: "15:30" })]));
+    expect(result.violations.some((item) => item.constraintId === "OPS-006")).toBe(true);
+  });
+
+  it("enforces class-scoped no-day mappings", () => {
+    const result = validateSchedule(state([hardRule("STU-019")], [mapping("STU-019", "NO_DAY", { days: ["Friday"] }, ["class-b"])], [assignment({ sessionId: "session-b", teacherId: "teacher-aimee", day: "Friday" })]));
+    expect(result.violations.some((item) => item.constraintId === "STU-019")).toBe(true);
+  });
+
+  it("does not enforce a mapping whose Rulebook rule is disabled", () => {
+    const result = validateSchedule(state([hardRule("disabled", "DISABLED")], [mapping("disabled", "NO_DAY", { days: ["Monday"] }, ["class-a"])]));
+    expect(result.violations.some((item) => item.constraintId === "disabled")).toBe(false);
+  });
+
+  it("enforces weekly class frequency", () => {
+    const result = validateSchedule(state([hardRule("CUR-006")], [mapping("CUR-006", "CLASS_FREQUENCY")], []));
+    expect(result.violations.filter((item) => item.constraintId === "CUR-006").length).toBe(2);
+  });
 });
