@@ -1,4 +1,4 @@
-import type { Assignment, ClassDefinition, StudioRule, StudioState, ValidationResult, ValidationViolation } from "@/lib/domain";
+import type { Assignment, ClassDefinition, RuleStrength, StudioRule, StudioState, ValidationResult, ValidationViolation } from "@/lib/domain";
 
 function minutes(value: string) {
   const [h = "0", m = "0"] = value.slice(0, 5).split(":");
@@ -14,10 +14,25 @@ function p<T>(rule: StudioRule, key: string, fallback: T): T {
   return (value === undefined ? fallback : value) as T;
 }
 
+export function ruleClassification(rule: StudioRule) {
+  return rule.classificationRaw ?? rule.strength?.replaceAll("_", " ") ?? "UNCLASSIFIED";
+}
+
+function severity(rule: StudioRule | null): RuleStrength {
+  if (!rule) return "HARD";
+  if (rule.strength) return rule.strength;
+  const raw = ruleClassification(rule).toUpperCase();
+  if (raw === "HARD" || raw === "HARD ASSUMPTION") return "HARD";
+  if (raw === "VERY STRONG") return "VERY_STRONG";
+  if (raw === "LIGHT") return "LIGHT";
+  if (raw === "BASELINE") return "BASELINE";
+  return "MODERATE";
+}
+
 function violation(rule: StudioRule | null, message: string, assignments: Assignment[], entities: string[] = []): ValidationViolation {
   return {
     constraintId: rule?.id || "SYSTEM",
-    severity: rule?.strength || "HARD",
+    severity: severity(rule),
     message,
     affectedEntityIds: entities,
     assignmentIds: assignments.map((item) => item.id),
@@ -43,6 +58,14 @@ function exceptionMatches(rule: StudioRule, klass: ClassDefinition) {
   });
 }
 
+function emptyCoverage() {
+  return { applicableHardRules: 0, implementedHardRules: 0, partialHardRules: 0, notImplementedHardRules: 0, uncoveredHardRuleIds: [] as string[] };
+}
+
+export function emptyValidation(): ValidationResult {
+  return { valid: true, fullyValidated: true, hardViolations: 0, warnings: 0, violations: [], coverage: emptyCoverage() };
+}
+
 export function validateSchedule(state: StudioState, assignments?: Assignment[]): ValidationResult {
   const current = assignments ?? state.scheduleVersions.find((item) => item.version === Math.max(0, ...state.scheduleVersions.map((v) => v.version)))?.assignments ?? [];
   const violations: ValidationViolation[] = [];
@@ -50,7 +73,10 @@ export function validateSchedule(state: StudioState, assignments?: Assignment[])
   const sessions = new Map(state.sessions.map((item) => [item.id, item]));
   const teachers = new Map(state.teachers.map((item) => [item.id, item]));
   const rooms = new Map(state.rooms.map((item) => [item.id, item]));
+  const ruleById = (id: string) => state.rules.find((rule) => rule.id === id && rule.status === "ACTIVE") ?? null;
   const classFor = (assignment: Assignment) => classes.get(sessions.get(assignment.sessionId)?.classId || "");
+  const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? state.rulebookVersions[0];
+  const reviewedAuthority = currentRulebook?.documentType === "DWDE_SITE_RULEBOOK" && currentRulebook.version >= 2;
 
   for (let i = 0; i < current.length; i += 1) {
     const a = current[i];
@@ -61,28 +87,39 @@ export function validateSchedule(state: StudioState, assignments?: Assignment[])
     }
     if (!teachers.has(a.teacherId)) violations.push(violation(null, `${klass.name} references a missing teacher.`, [a], [a.teacherId]));
     if (!rooms.has(a.roomId)) violations.push(violation(null, `${klass.name} references a missing room.`, [a], [a.roomId]));
+
+    const durationRule = ruleById("CUR-005");
     if (minutes(a.endTime) - minutes(a.startTime) !== klass.durationMinutes) {
-      violations.push(violation(null, `${klass.name} must be ${klass.durationMinutes} minutes.`, [a], [klass.id]));
+      violations.push(violation(durationRule, `${klass.name} must preserve its ${klass.durationMinutes}-minute duration.`, [a], [klass.id]));
     }
-    if (!klass.eligibleTeacherIds.includes(a.teacherId)) {
+
+    const gridRule = ruleById("OPS-017");
+    if ((minutes(a.startTime) % 15 !== 0 || minutes(a.endTime) % 15 !== 0) && (!gridRule || gridRule.enforcementStatus === "IMPLEMENTED")) {
+      violations.push(violation(gridRule, `${klass.name} must start and end on the 15-minute scheduling grid.`, [a], [klass.id]));
+    }
+
+    // Legacy alpha data stored qualification truth directly on ClassDefinition. Once the reviewed V2
+    // authority is active, those representative arrays are no longer treated as canonical HARD rules.
+    if (!reviewedAuthority && !klass.eligibleTeacherIds.includes(a.teacherId)) {
       violations.push(violation(null, `${teachers.get(a.teacherId)?.name || a.teacherId} is not an eligible teacher for ${klass.name}.`, [a], [a.teacherId, klass.id]));
     }
 
     for (let j = i + 1; j < current.length; j += 1) {
       const b = current[j];
       if (!overlaps(a, b)) continue;
-      if (a.roomId === b.roomId) violations.push(violation(null, `${rooms.get(a.roomId)?.name || a.roomId} is double-booked.`, [a, b], [a.roomId]));
-      if (a.teacherId === b.teacherId) violations.push(violation(null, `${teachers.get(a.teacherId)?.name || a.teacherId} is double-booked.`, [a, b], [a.teacherId]));
+      if (a.roomId === b.roomId) violations.push(violation(ruleById("OPS-008"), `${rooms.get(a.roomId)?.name || a.roomId} is double-booked.`, [a, b], [a.roomId]));
+      if (a.teacherId === b.teacherId) violations.push(violation(ruleById("OPS-009"), `${teachers.get(a.teacherId)?.name || a.teacherId} is double-booked.`, [a, b], [a.teacherId]));
       const classB = classFor(b);
       if (classB) {
         const shared = klass.rosterStudentIds.filter((id) => classB.rosterStudentIds.includes(id));
-        if (shared.length) violations.push(violation(null, `${shared.length} dancer${shared.length === 1 ? "" : "s"} would be double-booked between ${klass.name} and ${classB.name}.`, [a, b], shared));
+        if (shared.length) violations.push(violation(ruleById("OPS-010"), `${shared.length} dancer${shared.length === 1 ? "" : "s"} would be double-booked between ${klass.name} and ${classB.name}.`, [a, b], shared));
       }
     }
   }
 
   const activeRules = state.rules.filter((rule) => rule.status === "ACTIVE");
-  for (const rule of activeRules) {
+  const typedRules = activeRules.filter((rule) => rule.type && (!rule.enforcementStatus || rule.enforcementStatus === "IMPLEMENTED"));
+  for (const rule of typedRules) {
     if (rule.type === "REQUIRED_ROOM") {
       for (const a of current) {
         const klass = classFor(a);
@@ -132,8 +169,8 @@ export function validateSchedule(state: StudioState, assignments?: Assignment[])
     if (rule.type === "MAX_TEACHER_WORKDAYS") {
       const teacherId = p<string>(rule, "teacher_id", "");
       const maxDays = Number(p(rule, "max_days", 0));
-      const days = new Set(current.filter((a) => a.teacherId === teacherId).map((a) => a.day));
-      if (maxDays && days.size > maxDays) violations.push(violation(rule, `${teachers.get(teacherId)?.name || teacherId} is scheduled on ${days.size} days; maximum is ${maxDays}.`, current.filter((a) => a.teacherId === teacherId), [teacherId]));
+      const workDays = new Set(current.filter((a) => a.teacherId === teacherId).map((a) => a.day));
+      if (maxDays && workDays.size > maxDays) violations.push(violation(rule, `${teachers.get(teacherId)?.name || teacherId} is scheduled on ${workDays.size} days; maximum is ${maxDays}.`, current.filter((a) => a.teacherId === teacherId), [teacherId]));
     }
 
     if (rule.type === "MAX_TEACHER_GAP") {
@@ -216,8 +253,21 @@ export function validateSchedule(state: StudioState, assignments?: Assignment[])
     }
   }
 
+  const applicable = activeRules.filter((rule) => ruleClassification(rule) === "HARD" && rule.enforcementStatus !== "NOT_APPLICABLE");
+  const implemented = applicable.filter((rule) => rule.enforcementStatus === "IMPLEMENTED" || !rule.enforcementStatus);
+  const partial = applicable.filter((rule) => rule.enforcementStatus === "PARTIAL");
+  const notImplemented = applicable.filter((rule) => rule.enforcementStatus === "NOT_IMPLEMENTED");
+  const uncovered = [...partial, ...notImplemented].map((rule) => rule.id);
+  const coverage = {
+    applicableHardRules: applicable.length,
+    implementedHardRules: implemented.length,
+    partialHardRules: partial.length,
+    notImplementedHardRules: notImplemented.length,
+    uncoveredHardRuleIds: uncovered,
+  };
   const hardViolations = violations.filter((item) => item.severity === "HARD").length;
-  return { valid: hardViolations === 0, hardViolations, warnings: violations.length - hardViolations, violations };
+  const valid = hardViolations === 0;
+  return { valid, fullyValidated: valid && uncovered.length === 0, hardViolations, warnings: violations.length - hardViolations, violations, coverage };
 }
 
 export function applyAssignmentChanges(assignments: Assignment[], assignmentId: string, changes: Partial<Assignment>) {
