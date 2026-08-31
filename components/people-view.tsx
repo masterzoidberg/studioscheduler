@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Building2, GraduationCap, Pencil, UserRound, UsersRound, X } from "lucide-react";
 import type { Room, Teacher } from "@/lib/domain";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -14,7 +14,7 @@ export function PeopleView(){
   const assignmentClass=(sessionId:string)=>classMap.get(sessionMap.get(sessionId)?.classId||"");
   const teacherAssignments=(id:string)=>currentAssignments.filter(a=>a.teacherId===id);
   const dancerAssignments=(id:string)=>currentAssignments.filter(a=>(assignmentClass(a.sessionId)?.rosterStudentIds||[]).includes(id));
-  const affectedBySubjects=useMemo(()=>teacher?teacherAssignments(teacher.id).filter(a=>{const c=assignmentClass(a.sessionId);return c&&!teacher.subjects.includes(c.subject)}):[],[teacher,currentAssignments]);
+  const affectedBySubjects=teacher?teacherAssignments(teacher.id).filter(a=>{const c=assignmentClass(a.sessionId);return c&&!teacher.subjects.includes(c.subject)}):[];
   async function saveTeacher(){if(!teacher)return;const r=await updateTeacher(teacher,`Updated ${teacher.name} profile`);setNotice(r.ok?"Teacher profile saved. Validator refreshed.":r.error||"Save failed.");if(r.ok)setTeacher(null);}
   async function saveRoom(){if(!room)return;const r=await updateRoom(room,`Updated ${room.name}`);setNotice(r.ok?"Room saved. Schedule validation refreshed.":r.error||"Save failed.");if(r.ok)setRoom(null);}
 
