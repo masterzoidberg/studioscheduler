@@ -1,4 +1,3 @@
--- Exact production migration 20260831080928: v2_1_auth_rls
 -- DWDE Studio Scheduler V2.1 integrity and authorization stabilization.
 -- Canonical data is client-readable by studio members but mutation is restricted to audited RPCs.
 
