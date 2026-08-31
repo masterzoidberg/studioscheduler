@@ -115,9 +115,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const key = captureAlphaAccess();
-    setAlphaKey(key);
     const supabase = getBrowserSupabase(key);
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); void load(key, data.session); });
+    supabase.auth.getSession().then(({ data }) => { setAlphaKey(key); setSession(data.session); void load(key, data.session); });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => { setSession(next); void load(key, next); });
     return () => listener.subscription.unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
