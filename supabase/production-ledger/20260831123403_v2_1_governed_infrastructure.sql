@@ -1,4 +1,3 @@
--- Exact production migration 20260831123403: v2_1_governed_infrastructure
 create table if not exists public.entity_versions (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid not null references public.studios(id) on delete cascade,
