@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Archive, CheckCircle2, Download, History, Plus, Search, ShieldAlert, SlidersHorizontal, X } from "lucide-react";
 import type { RulePatch, StudioRule } from "@/lib/domain";
 import { validateSchedule } from "@/lib/validator";
@@ -46,29 +46,29 @@ export function RulebookView() {
   const [notice,setNotice] = useState("");
   if (!state) return null;
 
-  const filtered = useMemo(()=>state.rules.filter((rule)=>{
+  const filtered = state.rules.filter((rule)=>{
     const text = `${rule.id} ${rule.title} ${rule.description} ${rule.category} ${rule.type} ${rule.affectedEntityIds.join(" ")}`.toLowerCase();
     return text.includes(query.toLowerCase()) && (strength === "ALL" || rule.strength === strength) && (status === "ALL" || rule.status === status);
-  }),[state.rules,query,strength,status]);
+  });
 
   const previewValidation = editing && original ? validateSchedule({ ...state, rules: state.rules.map((r)=>r.id===editing.id?editing:r) }, currentAssignments) : null;
   const currentValidation = validateSchedule(state,currentAssignments);
 
   function beginEdit(rule: StudioRule) { setEditing(structuredClone(rule)); setOriginal(rule); setReason(""); setNotice(""); }
   function beginCreate() {
-    const id = `rule-new-${Date.now()}`;
-    const rule: StudioRule = { id, category:"GENERAL", type:"NO_OVERLAP", title:"New scheduling rule", description:"Describe the scheduling policy in plain language.", strength:"MODERATE", status:"NEEDS_REVIEW", verificationStatus:"UNVERIFIED", affectedEntityIds:[], parameters:{}, exceptions:[], source:{type:"USER_EDIT"}, versionIntroduced:currentRulebookVersion+1, updatedAt:new Date().toISOString() };
+    const id = `rule-new-v${currentRulebookVersion+1}`;
+    const rule: StudioRule = { id, category:"GENERAL", type:"NO_OVERLAP", title:"New scheduling rule", description:"Describe the scheduling policy in plain language.", strength:"MODERATE", status:"NEEDS_REVIEW", verificationStatus:"UNVERIFIED", affectedEntityIds:[], parameters:{}, exceptions:[], source:{type:"USER_EDIT"}, versionIntroduced:currentRulebookVersion+1, updatedAt:"" };
     setEditing(rule); setOriginal(null); setReason(""); setNotice("");
   }
   async function save() {
     if (!editing) return; setSaving(true);
-    const patch: RulePatch = { id:`patch-${Date.now()}`, ruleId: original?.id, operation: original?"UPDATE":"CREATE", changes: editing, reason: reason.trim() || (original ? "Rule edited in Rulebook" : "Rule created in Rulebook"), proposedBy:"USER" };
+    const patch: RulePatch = { id:"rulebook-edit", ruleId: original?.id, operation: original?"UPDATE":"CREATE", changes: editing, reason: reason.trim() || (original ? "Rule edited in Rulebook" : "Rule created in Rulebook"), proposedBy:"USER" };
     const result = await applyRulePatch(patch); setSaving(false);
     if (!result.ok) return setNotice(result.error || "Save failed.");
     setNotice(`Saved as Rulebook v${result.version}.`); setEditing(null); setOriginal(null);
   }
   async function changeStatus(rule: StudioRule, operation: RulePatch["operation"]) {
-    const result = await applyRulePatch({ id:`patch-${Date.now()}`, ruleId:rule.id, operation, changes:{}, reason:`${operation.toLowerCase()} ${rule.title}`, proposedBy:"USER" });
+    const result = await applyRulePatch({ id:"rule-status-change", ruleId:rule.id, operation, changes:{}, reason:`${operation.toLowerCase()} ${rule.title}`, proposedBy:"USER" });
     setNotice(result.ok?`Rulebook v${result.version} created.`:result.error || "Change failed.");
   }
   function downloadJson() {
