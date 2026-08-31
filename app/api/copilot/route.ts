@@ -3,16 +3,22 @@ import { getServerSupabase } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
+const DEFAULT_FAST_MODEL = "openai/gpt-5.6-luna";
+const DEFAULT_REASONING_MODEL = "openai/gpt-5.6-sol";
 
 type Proposal = { kind: "RULE_PATCH" | "SCHEDULE_PATCH"; patch: Record<string, unknown>; title?: string };
-type CopilotResult = { answer: string; mode: "OPENAI" | "LOCAL"; proposal?: Proposal | null };
+type CopilotResult = { answer: string; mode: "OPENROUTER" | "LOCAL"; model?: string; proposal?: Proposal | null };
 
-function extractText(payload: Record<string, unknown>) {
-  const output = Array.isArray(payload.output) ? payload.output : [];
-  for (const item of output as Array<Record<string, unknown>>) {
-    const content = Array.isArray(item.content) ? item.content : [];
-    for (const part of content as Array<Record<string, unknown>>) if (part.type === "output_text" && typeof part.text === "string") return part.text;
-  }
+type OpenRouterPayload = {
+  model?: string;
+  choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
+  error?: { message?: string };
+};
+
+function extractText(payload: OpenRouterPayload) {
+  const content = payload.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((part) => part.text || "").join("");
   return "";
 }
 
@@ -31,8 +37,15 @@ function localAnswer(message: string, rules: Array<Record<string, unknown>>, tea
   if (q.includes("hard")) matches = matches.filter((r) => r.strength === "HARD");
   if (q.includes("studio a")) matches = rules.filter((r) => String(JSON.stringify(r.parameters)).includes("room-studio-a"));
   if (matches.length) return { mode: "LOCAL", answer: matches.slice(0, 12).map((r) => `• ${r.title} (${r.strength}, ${r.status}) — ${r.description}`).join("\n"), proposal: null };
-  if (q.includes("class")) return { mode: "LOCAL", answer: `Current class catalog includes ${classes.slice(0, 20).map((c) => c.name).join(", ")}. Configure OPENAI_API_KEY for reasoning and structured edit proposals.`, proposal: null };
-  return { mode: "LOCAL", answer: "I can still perform database-grounded rule lookups, but the OpenAI Responses API key is not configured on this deployment yet. Structured ChatGPT reasoning and edit proposals activate when the server-side OPENAI_API_KEY is added.", proposal: null };
+  if (q.includes("class")) return { mode: "LOCAL", answer: `Current class catalog includes ${classes.slice(0, 20).map((c) => c.name).join(", ")}. Connect OpenRouter in Settings to activate AI reasoning and structured edit proposals.`, proposal: null };
+  return { mode: "LOCAL", answer: "I can still perform database-grounded rule lookups, but OpenRouter is not connected on this deployment yet. Add the server-side OPENROUTER_API_KEY to activate AI reasoning and structured proposals.", proposal: null };
+}
+
+function selectModel(message: string) {
+  const fast = process.env.OPENROUTER_MODEL_FAST || DEFAULT_FAST_MODEL;
+  const reasoning = process.env.OPENROUTER_MODEL_REASONING || DEFAULT_REASONING_MODEL;
+  const requiresReasoning = /\b(propose|change|move|assign|unassign|schedule|optimi[sz]e|repair|scenario|what[- ]?if|conflict|why can'?t|rework|reschedule)\b/i.test(message);
+  return { model: requiresReasoning ? reasoning : fast, effort: requiresReasoning ? "medium" : "low", fast, reasoning } as const;
 }
 
 async function authorizeWorkspace(request: NextRequest) {
@@ -48,8 +61,9 @@ export async function GET(request: NextRequest) {
     const { allowed } = await authorizeWorkspace(request);
     if (!allowed) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
     return NextResponse.json({
-      openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
-      model: process.env.OPENAI_MODEL_REASONING || "gpt-5.6",
+      openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY),
+      reasoningModel: process.env.OPENROUTER_MODEL_REASONING || DEFAULT_REASONING_MODEL,
+      fastModel: process.env.OPENROUTER_MODEL_FAST || DEFAULT_FAST_MODEL,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
@@ -61,7 +75,9 @@ export async function POST(request: NextRequest) {
     const { supabase, allowed } = await authorizeWorkspace(request);
     if (!allowed) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
     const body = await request.json() as { message?: string; screen?: string };
-    const message = body.message?.trim(); if (!message) return NextResponse.json({ error: "Message is required." }, { status: 400 });
+    const message = body.message?.trim();
+    if (!message) return NextResponse.json({ error: "Message is required." }, { status: 400 });
+
     const [rulesQ, teachersQ, roomsQ, classesQ, sessionsQ, scheduleQ] = await Promise.all([
       supabase.from("rules").select("id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions").eq("studio_id", STUDIO_ID),
       supabase.from("teachers").select("id,name,subjects").eq("studio_id", STUDIO_ID),
@@ -70,22 +86,74 @@ export async function POST(request: NextRequest) {
       supabase.from("class_sessions").select("id,class_id,locked").eq("studio_id", STUDIO_ID),
       supabase.from("schedule_versions").select("id,version,rulebook_version").eq("studio_id", STUDIO_ID).eq("is_current", true).maybeSingle(),
     ]);
-    const firstError = [rulesQ,teachersQ,roomsQ,classesQ,sessionsQ,scheduleQ].find(q=>q.error)?.error; if(firstError) throw firstError;
-    const assignmentQ = scheduleQ.data ? await supabase.from("assignments").select("id,session_id,day,start_time,end_time,teacher_id,room_id,locked").eq("schedule_version_id", scheduleQ.data.id) : { data: [], error: null };
-    if(assignmentQ.error) throw assignmentQ.error;
+    const firstError = [rulesQ, teachersQ, roomsQ, classesQ, sessionsQ, scheduleQ].find((q) => q.error)?.error;
+    if (firstError) throw firstError;
 
-    const rules = rulesQ.data || []; const teachers = teachersQ.data || []; const classes = classesQ.data || [];
-    const key = process.env.OPENAI_API_KEY;
+    const assignmentQ = scheduleQ.data
+      ? await supabase.from("assignments").select("id,session_id,day,start_time,end_time,teacher_id,room_id,locked").eq("schedule_version_id", scheduleQ.data.id)
+      : { data: [], error: null };
+    if (assignmentQ.error) throw assignmentQ.error;
+
+    const rules = rulesQ.data || [];
+    const teachers = teachersQ.data || [];
+    const classes = classesQ.data || [];
+    const key = process.env.OPENROUTER_API_KEY;
     if (!key) return NextResponse.json(localAnswer(message, rules, teachers, classes));
 
-    const context = { screen: body.screen || "unknown", rulebookVersion: scheduleQ.data?.rulebook_version, scheduleVersion: scheduleQ.data?.version, rules, teachers, rooms: roomsQ.data || [], classes, sessions: sessionsQ.data || [], assignments: assignmentQ.data || [] };
+    const context = {
+      screen: body.screen || "unknown",
+      rulebookVersion: scheduleQ.data?.rulebook_version,
+      scheduleVersion: scheduleQ.data?.version,
+      rules,
+      teachers,
+      rooms: roomsQ.data || [],
+      classes,
+      sessions: sessionsQ.data || [],
+      assignments: assignmentQ.data || [],
+    };
     const instructions = `You are the DWDE Studio Scheduler Copilot. The supplied CURRENT_DATABASE_CONTEXT is closed-world truth for this request. Do not invent scheduling facts. Explain current rules and assignments clearly. You may propose a change but NEVER claim you applied it. All changes require preview and explicit user approval. Return ONLY one JSON object with this exact outer shape: {"answer":"plain-language answer","proposal":null OR {"kind":"RULE_PATCH"|"SCHEDULE_PATCH","title":"short preview title","patch":OBJECT}}. For RULE_PATCH, patch must match {"id":"patch-ai-...","ruleId":"stable rule id or omit for CREATE","operation":"CREATE|UPDATE|RETIRE|DISABLE|ENABLE","changes":OBJECT,"reason":"reason","proposedBy":"AI"}. For SCHEDULE_PATCH, patch must match {"id":"patch-ai-...","operation":"MOVE|ASSIGN|UNASSIGN","assignmentId":"stable assignment id","changes":OBJECT,"reason":"reason","proposedBy":"AI"}. Use camelCase domain field names inside changes, such as startTime, endTime, teacherId, roomId, verificationStatus, affectedEntityIds. If the user says what-if, recommend a Scenario rather than changing canonical truth. If the request is ambiguous, answer with what is known and do not create a patch.`;
-    const apiResponse = await fetch("https://api.openai.com/v1/responses", { method:"POST", headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`}, body:JSON.stringify({ model: process.env.OPENAI_MODEL_REASONING || "gpt-5.6", instructions: `${instructions}\n\nCURRENT_DATABASE_CONTEXT:\n${JSON.stringify(context)}`, input: message, reasoning: { effort: "medium" } }) });
-    const payload = await apiResponse.json() as Record<string, unknown>;
-    if(!apiResponse.ok) return NextResponse.json({ error: `OpenAI Responses API error: ${String((payload.error as Record<string,unknown>|undefined)?.message || apiResponse.statusText)}` },{status:502});
+    const selection = selectModel(message);
+    const appUrl = process.env.APP_URL || "https://studioscheduler-three.vercel.app";
+
+    const apiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        "HTTP-Referer": appUrl,
+        "X-Title": "DWDE Studio Scheduler",
+      },
+      body: JSON.stringify({
+        model: selection.model,
+        messages: [
+          { role: "system", content: `${instructions}\n\nCURRENT_DATABASE_CONTEXT:\n${JSON.stringify(context)}` },
+          { role: "user", content: message },
+        ],
+        response_format: { type: "json_object" },
+        reasoning: { effort: selection.effort },
+      }),
+    });
+    const payload = await apiResponse.json() as OpenRouterPayload;
+    if (!apiResponse.ok) return NextResponse.json({ error: `OpenRouter error: ${payload.error?.message || apiResponse.statusText}` }, { status: 502 });
+
     const parsed = parseJson(extractText(payload));
-    const result: CopilotResult = { mode:"OPENAI", answer: parsed?.answer || "I received a response but could not parse its structured result safely. No change was proposed.", proposal: parsed?.proposal || null };
-    await supabase.from("ai_proposals").insert({ studio_id:STUDIO_ID, proposal_type:result.proposal?.kind || "QUESTION", request_text:message, response_text:result.answer, patch:result.proposal?.patch || null, impact:null, status:"PROPOSED" });
+    const result: CopilotResult = {
+      mode: "OPENROUTER",
+      model: payload.model || selection.model,
+      answer: parsed?.answer || "I received a response but could not parse its structured result safely. No change was proposed.",
+      proposal: parsed?.proposal || null,
+    };
+    await supabase.from("ai_proposals").insert({
+      studio_id: STUDIO_ID,
+      proposal_type: result.proposal?.kind || "QUESTION",
+      request_text: message,
+      response_text: result.answer,
+      patch: result.proposal?.patch || null,
+      impact: { provider: "OPENROUTER", model: result.model },
+      status: "PROPOSED",
+    });
     return NextResponse.json(result);
-  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 }); }
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
 }
