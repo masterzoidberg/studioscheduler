@@ -33,15 +33,3 @@ export async function beginGoogleSignIn() {
   if (error) return { ok: false, message: error.message };
   return { ok: true, message: "Opening Google sign-in…" };
 }
-
-export function chatGptAuthAvailable() {
-  return process.env.NEXT_PUBLIC_CHATGPT_AUTH_ENABLED === "true";
-}
-
-export function beginChatGptSignIn() {
-  if (typeof window === "undefined") return;
-  if (!chatGptAuthAvailable()) throw new Error("ChatGPT sign-in is not configured for this deployment.");
-  const provider = process.env.NEXT_PUBLIC_CHATGPT_AUTH_PROVIDER || "custom:chatgpt";
-  const redirectTo = `${window.location.origin}/`;
-  window.location.assign(`${SUPABASE_URL}/auth/v1/authorize?provider=${encodeURIComponent(provider)}&redirect_to=${encodeURIComponent(redirectTo)}`);
-}
