@@ -35,12 +35,31 @@ function localAnswer(message: string, rules: Array<Record<string, unknown>>, tea
   return { mode: "LOCAL", answer: "I can still perform database-grounded rule lookups, but the OpenAI Responses API key is not configured on this deployment yet. Structured ChatGPT reasoning and edit proposals activate when the server-side OPENAI_API_KEY is added.", proposal: null };
 }
 
+async function authorizeWorkspace(request: NextRequest) {
+  const auth = request.headers.get("authorization");
+  const alpha = request.headers.get("x-dwde-alpha-key");
+  const supabase = getServerSupabase(auth, alpha);
+  const studioCheck = await supabase.from("studios").select("id,name").eq("id", STUDIO_ID).maybeSingle();
+  return { supabase, allowed: !studioCheck.error && Boolean(studioCheck.data) };
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { allowed } = await authorizeWorkspace(request);
+    if (!allowed) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
+    return NextResponse.json({
+      openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
+      model: process.env.OPENAI_MODEL_REASONING || "gpt-5.6",
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const auth = request.headers.get("authorization"); const alpha = request.headers.get("x-dwde-alpha-key");
-    const supabase = getServerSupabase(auth, alpha);
-    const studioCheck = await supabase.from("studios").select("id,name").eq("id", STUDIO_ID).maybeSingle();
-    if (studioCheck.error || !studioCheck.data) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
+    const { supabase, allowed } = await authorizeWorkspace(request);
+    if (!allowed) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
     const body = await request.json() as { message?: string; screen?: string };
     const message = body.message?.trim(); if (!message) return NextResponse.json({ error: "Message is required." }, { status: 400 });
     const [rulesQ, teachersQ, roomsQ, classesQ, sessionsQ, scheduleQ] = await Promise.all([
