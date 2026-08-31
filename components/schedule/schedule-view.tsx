@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock3, LockKeyhole, MapPin, Pencil, ShieldCheck, UserRound, X } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, CheckCircle2, Clock3, LockKeyhole, Pencil, ShieldCheck, UserRound, X } from "lucide-react";
 import type { Assignment, Day, SchedulePatch } from "@/lib/domain";
 import { applyAssignmentChanges, validateSchedule } from "@/lib/validator";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -21,13 +21,13 @@ export function ScheduleView() {
   if(!state)return null;
   const classMap=new Map(state.classes.map(x=>[x.id,x])); const sessionMap=new Map(state.sessions.map(x=>[x.id,x])); const teacherMap=new Map(state.teachers.map(x=>[x.id,x])); const roomMap=new Map(state.rooms.map(x=>[x.id,x]));
   const klass=(a:Assignment)=>classMap.get(sessionMap.get(a.sessionId)?.classId||"");
-  const dayAssignments=useMemo(()=>currentAssignments.filter(a=>a.day===day).sort((a,b)=>toMinutes(a.startTime)-toMinutes(b.startTime)),[currentAssignments,day]);
+  const dayAssignments=currentAssignments.filter(a=>a.day===day).sort((a,b)=>toMinutes(a.startTime)-toMinutes(b.startTime));
   const rooms=state.rooms;
   const preview=draft?validateSchedule(state,applyAssignmentChanges(currentAssignments,draft.id,draft)):null;
   const related=editing?validation.violations.filter(v=>v.assignmentIds.includes(editing.id)):[];
 
   function begin(a:Assignment){setEditing(a);setDraft({...a});setReason("");setNotice("");}
-  async function save(){if(!draft||!editing)return;setSaving(true);const changes:Partial<Assignment>={day:draft.day,startTime:draft.startTime,endTime:draft.endTime,teacherId:draft.teacherId,roomId:draft.roomId};const patch:SchedulePatch={id:`schedule-patch-${Date.now()}`,operation:"MOVE",assignmentId:draft.id,changes,reason:reason.trim()||`Edited ${klass(draft)?.name||draft.id}`,proposedBy:"USER"};const result=await applySchedulePatch(patch);setSaving(false);if(!result.ok){setNotice(result.error||"Change blocked.");return;}setNotice(`Saved as Schedule v${result.version}.`);setEditing(null);setDraft(null);}
+  async function save(){if(!draft||!editing)return;setSaving(true);const changes:Partial<Assignment>={day:draft.day,startTime:draft.startTime,endTime:draft.endTime,teacherId:draft.teacherId,roomId:draft.roomId};const patch:SchedulePatch={id:"schedule-edit",operation:"MOVE",assignmentId:draft.id,changes,reason:reason.trim()||`Edited ${klass(draft)?.name||draft.id}`,proposedBy:"USER"};const result=await applySchedulePatch(patch);setSaving(false);if(!result.ok){setNotice(result.error||"Change blocked.");return;}setNotice(`Saved as Schedule v${result.version}.`);setEditing(null);setDraft(null);}
 
   return <div className="space-y-5">
     <section className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm leading-6 text-slate-600">Every room, teacher, and dancer view is derived from these canonical assignments.</p><div className="mt-2 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-slate-950 px-3 py-1.5 font-semibold text-white">Schedule v{currentScheduleVersion}</span><span className="rounded-full border border-slate-200 bg-white px-3 py-1.5">Rulebook v{currentRulebookVersion}</span><span className={`rounded-full border px-3 py-1.5 ${validation.valid?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-red-200 bg-red-50 text-red-700"}`}>{validation.hardViolations} hard · {validation.warnings} warnings</span></div></div><div className={`rounded-xl border px-4 py-2 text-sm font-semibold ${validation.valid?"border-emerald-200 bg-emerald-50 text-emerald-800":"border-red-200 bg-red-50 text-red-800"}`}>{validation.valid?<><CheckCircle2 className="mr-2 inline size-4"/>Valid</>:<><AlertTriangle className="mr-2 inline size-4"/>Needs repair</>}</div></section>
