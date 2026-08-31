@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Archive, Bot, Download, History, Plus, Search, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
 import type { RulePatch, RuleType, StudioRule } from "@/lib/domain";
 import { ruleClassification, validateSchedule } from "@/lib/validator";
@@ -47,7 +47,7 @@ export function RulebookView(){
   const filtered=state.rules.filter(rule=>`${rule.id} ${rule.title} ${rule.description} ${rule.category} ${ruleClassification(rule)}`.toLowerCase().includes(query.toLowerCase())&&matches(rule,filter,recentIds));
   const preview=editing&&original?validateSchedule({...state,rules:state.rules.map(r=>r.id===editing.id?editing:r)},currentAssignments):null;
   const historyRule=historyId?state.rules.find(r=>r.id===historyId):null;
-  const history=useMemo(()=>historyId?state.ruleHistory.filter(h=>h.ruleId===historyId).sort((a,b)=>b.rulebookVersion-a.rulebookVersion):[],[historyId,state.ruleHistory]);
+  const history=historyId?state.ruleHistory.filter(h=>h.ruleId===historyId).sort((a,b)=>b.rulebookVersion-a.rulebookVersion):[];
 
   function beginEdit(rule:StudioRule){if(!canEdit)return;setEditing(structuredClone(rule));setOriginal(rule);setReason("");setNotice("");}
   function beginCreate(){if(!canEdit)return;const rule:StudioRule={id:`NEW-${String(Date.now()).slice(-3)}`,category:"General",type:null,title:"New scheduling rule",description:"Describe the scheduling policy in plain language.",strength:null,classificationRaw:"MODERATE",status:"NEEDS_REVIEW",verificationStatus:"UNVERIFIED",reviewStatus:"UNVERIFIED",review:{decision:"USER_EDIT",verified:false},affectedEntityIds:[],parameters:{},exceptions:[],source:{type:"USER_EDIT"},sourceRaw:{},enforcementStatus:"NOT_IMPLEMENTED",versionIntroduced:currentRulebookVersion+1,updatedAt:""};setEditing(rule);setOriginal(null);setReason("");setNotice("");}
