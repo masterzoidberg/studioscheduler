@@ -15,6 +15,7 @@ const appliedV22 = [
   "20260831164129_v2_2_scenario_versions.sql",
   "20260831164302_v2_2_v21_scenario_compat.sql",
   "20260831171138_v2_2_v21_rule_compat.sql",
+  "20260831180357_v2_2_index_enforcement_foreign_keys.sql",
 ];
 
 describe("V2.2 migration reconciliation", () => {
