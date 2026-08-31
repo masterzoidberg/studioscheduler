@@ -3,6 +3,7 @@ export type RuleStatus = "ACTIVE" | "NEEDS_REVIEW" | "DISABLED" | "RETIRED";
 export type VerificationStatus = "VERIFIED" | "NEEDS_REVIEW" | "UNVERIFIED";
 export type EnforcementStatus = "IMPLEMENTED" | "PARTIAL" | "NOT_IMPLEMENTED" | "NOT_APPLICABLE";
 export type Day = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+export type StudioRole = "OWNER" | "EDITOR" | "VIEWER";
 
 export type RuleType =
   | "REQUIRED_ROOM"
@@ -155,16 +156,6 @@ export interface RulebookVersion {
   sourceMetadata?: Record<string, unknown>;
 }
 
-export interface ScheduleVersion {
-  id: string;
-  version: number;
-  rulebookVersion: number;
-  createdAt: string;
-  actor: string;
-  reason: string;
-  assignments: Assignment[];
-}
-
 export interface RuleHistoryEntry {
   id: string;
   ruleId: string;
@@ -191,6 +182,7 @@ export interface ValidatorCoverage {
   implementedHardRules: number;
   partialHardRules: number;
   notImplementedHardRules: number;
+  notApplicableHardRules?: number;
   uncoveredHardRuleIds: string[];
 }
 
@@ -201,6 +193,18 @@ export interface ValidationResult {
   warnings: number;
   violations: ValidationViolation[];
   coverage: ValidatorCoverage;
+}
+
+export interface ScheduleVersion {
+  id: string;
+  version: number;
+  rulebookVersion: number;
+  createdAt: string;
+  actor: string;
+  reason: string;
+  assignments: Assignment[];
+  isCurrent?: boolean;
+  validationResult?: ValidationResult | null;
 }
 
 export interface RulePatch {
@@ -239,6 +243,22 @@ export interface AuditEvent {
   entityType: string;
   entityId?: string;
   detail: string;
+}
+
+export interface StudioMember {
+  userId: string;
+  role: StudioRole;
+  displayName?: string;
+  email?: string;
+  createdAt?: string;
+}
+
+export interface StudioInvite {
+  id: string;
+  email: string;
+  role: StudioRole;
+  createdAt: string;
+  acceptedAt?: string | null;
 }
 
 export interface StudioState {
@@ -312,7 +332,7 @@ export interface SchedulingEngine {
 export interface CurrentUser {
   id: string;
   displayName: string;
-  role: "OWNER" | "EDITOR" | "VIEWER";
+  role: StudioRole;
 }
 
 export interface AuthProvider {
