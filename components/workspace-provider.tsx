@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type {
-  Assignment, ClassDefinition, CurrentUser, RuleHistoryEntry, RulePatch, RulebookVersion, Room, Scenario,
+  Assignment, ClassDefinition, RuleHistoryEntry, RulePatch, RulebookVersion, Room, Scenario,
   SchedulePatch, ScheduleVersion, StudioInvite, StudioMember, StudioRule, StudioRole, StudioState, Teacher, ValidationResult,
 } from "@/lib/domain";
 import { applyAssignmentChanges, emptyValidation, validateSchedule } from "@/lib/validator";
@@ -201,7 +201,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const currentSchedule = useMemo(() => state?.scheduleVersions.find((v) => v.isCurrent) || null, [state]);
-  const currentAssignments = currentSchedule?.assignments || [];
+  const currentAssignments = useMemo(() => currentSchedule?.assignments || [], [currentSchedule]);
   const currentRulebookVersion = state?.rulebookVersions.find((v) => v.status === "CURRENT")?.version ?? 0;
   const currentScheduleVersion = currentSchedule?.version ?? 0;
   const currentScheduleRulebookVersion = currentSchedule?.rulebookVersion ?? 0;
