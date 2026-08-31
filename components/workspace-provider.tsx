@@ -7,7 +7,7 @@ import type {
   SchedulePatch, ScheduleVersion, StudioInvite, StudioMember, StudioRule, StudioRole, StudioState, Teacher, ValidationResult,
 } from "@/lib/domain";
 import { applyAssignmentChanges, emptyValidation, validateSchedule } from "@/lib/validator";
-import { beginChatGptSignIn, chatGptAuthAvailable, getBrowserSupabase } from "@/lib/supabase";
+import { getBrowserSupabase } from "@/lib/supabase";
 
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -30,11 +30,9 @@ interface WorkspaceContextValue {
   currentScheduleRulebookVersion: number;
   scheduleIsStale: boolean;
   validation: ValidationResult;
-  chatGptAuthEnabled: boolean;
   refresh: () => Promise<void>;
   signInWithEmail: (email: string) => Promise<{ ok: boolean; message: string }>;
   signOut: () => Promise<void>;
-  beginChatGptSignIn: () => void;
   applyRulePatch: (patch: RulePatch) => Promise<MutationResult>;
   applySchedulePatch: (patch: SchedulePatch) => Promise<MutationResult>;
   rebaseSchedule: () => Promise<MutationResult>;
@@ -375,8 +373,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const value: WorkspaceContextValue = {
     loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,currentAssignments,currentRulebookVersion,
-    currentScheduleVersion,currentScheduleRulebookVersion,scheduleIsStale,validation,chatGptAuthEnabled:chatGptAuthAvailable(),
-    refresh:()=>load(),signInWithEmail,signOut,beginChatGptSignIn,applyRulePatch,applySchedulePatch,rebaseSchedule,exportPackage,
+    currentScheduleVersion,currentScheduleRulebookVersion,scheduleIsStale,validation,
+    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySchedulePatch,rebaseSchedule,exportPackage,
     updateTeacher,updateRoom,updateClass,createScenario,inviteMember,setMemberRole,removeMember,cancelInvite,
   };
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
