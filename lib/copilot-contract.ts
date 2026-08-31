@@ -24,7 +24,8 @@ export function validateCopilotProposal(input:unknown,ctx:CopilotProposalContext
   const proposal=input as Record<string,unknown>;
   if(proposal.kind!=="RULE_PATCH"&&proposal.kind!=="SCHEDULE_PATCH")return{ok:false,message:"Unknown proposal kind."};
   if(!proposal.patch||typeof proposal.patch!=="object"||Array.isArray(proposal.patch))return{ok:false,message:"Proposal patch is missing."};
-  const patch={...(proposal.patch as Record<string,unknown>),baseRulebookVersion:ctx.rulebookVersion,baseScheduleVersion:ctx.scheduleVersion};
+  const rawPatch=proposal.patch as Record<string,unknown>;
+  const patch:Record<string,unknown>={...rawPatch,baseRulebookVersion:ctx.rulebookVersion,baseScheduleVersion:ctx.scheduleVersion};
 
   if(proposal.kind==="RULE_PATCH"){
     const operation=String(patch.operation||"");
