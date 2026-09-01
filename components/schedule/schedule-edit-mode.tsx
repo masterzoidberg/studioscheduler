@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 
 interface ScheduleEditModeContextValue {
   editingEnabled: boolean;
@@ -10,6 +10,12 @@ interface ScheduleEditModeContextValue {
 
 const ScheduleEditModeContext = createContext<ScheduleEditModeContextValue | null>(null);
 const STORAGE_KEY = "dwde.schedule.editing-enabled";
+const MUTATION_LABELS = [
+  "place class",
+  "unassign",
+  "send to unscheduled",
+  "save new schedule version",
+];
 
 export function ScheduleEditModeProvider({ children }: { children: ReactNode }) {
   const [editingEnabled, setEditingEnabledState] = useState(false);
@@ -32,13 +38,36 @@ export function ScheduleEditModeProvider({ children }: { children: ReactNode }) 
     }
   }
 
+  function guardPointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (!editingEnabled) event.stopPropagation();
+  }
+
+  function guardMutationClick(event: MouseEvent<HTMLDivElement>) {
+    if (editingEnabled) return;
+    const button = (event.target as HTMLElement | null)?.closest("button");
+    if (!button) return;
+    const label = (button.textContent || "").trim().toLowerCase();
+    if (!MUTATION_LABELS.some((item) => label.includes(item))) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   return (
     <ScheduleEditModeContext.Provider value={{
       editingEnabled,
       setEditingEnabled,
       toggleEditing: () => setEditingEnabled(!editingEnabled),
     }}>
-      {children}
+      <div
+        data-schedule-editing={editingEnabled ? "enabled" : "locked"}
+        onPointerMoveCapture={guardPointerMove}
+        onClickCapture={guardMutationClick}
+      >
+        {!editingEnabled ? (
+          <style>{`[data-schedule-editing="locked"] button:has(.lucide-grip-vertical){touch-action:auto !important;}`}</style>
+        ) : null}
+        {children}
+      </div>
     </ScheduleEditModeContext.Provider>
   );
 }
