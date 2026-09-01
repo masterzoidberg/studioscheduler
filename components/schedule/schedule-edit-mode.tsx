@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { createContext, useContext, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 
 interface ScheduleEditModeContextValue {
   editingEnabled: boolean;
@@ -9,7 +9,6 @@ interface ScheduleEditModeContextValue {
 }
 
 const ScheduleEditModeContext = createContext<ScheduleEditModeContextValue | null>(null);
-const STORAGE_KEY = "dwde.schedule.editing-enabled";
 const MUTATION_LABELS = [
   "place class",
   "unassign",
@@ -18,25 +17,7 @@ const MUTATION_LABELS = [
 ];
 
 export function ScheduleEditModeProvider({ children }: { children: ReactNode }) {
-  const [editingEnabled, setEditingEnabledState] = useState(false);
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored === "true") setEditingEnabledState(true);
-    } catch {
-      // Local storage is only a convenience. Review mode remains the safe default.
-    }
-  }, []);
-
-  function setEditingEnabled(enabled: boolean) {
-    setEditingEnabledState(enabled);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, String(enabled));
-    } catch {
-      // Ignore storage failures; current-session state still works.
-    }
-  }
+  const [editingEnabled, setEditingEnabled] = useState(false);
 
   function guardPointerMove(event: PointerEvent<HTMLDivElement>) {
     if (!editingEnabled) event.stopPropagation();
@@ -64,7 +45,7 @@ export function ScheduleEditModeProvider({ children }: { children: ReactNode }) 
         onClickCapture={guardMutationClick}
       >
         {!editingEnabled ? (
-          <style>{`[data-schedule-editing="locked"] button:has(.lucide-grip-vertical){touch-action:auto !important;}`}</style>
+          <style>{`[data-schedule-editing="locked"] button:has(.lucide-grip-vertical){touch-action:auto !important;}[data-schedule-editing="locked"] input,[data-schedule-editing="locked"] select,[data-schedule-editing="locked"] textarea{pointer-events:none;opacity:.65;}`}</style>
         ) : null}
         {children}
       </div>
