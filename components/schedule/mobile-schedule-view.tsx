@@ -166,7 +166,7 @@ export function MobileScheduleView() {
     setDragPreview(null);
     if (samePlacement(candidate, drag.assignment)) return;
 
-    const nextValidation = validateSchedule(state, applyAssignmentChanges(currentAssignments, candidate.id, candidate));
+    const nextValidation = validateSchedule(state!, applyAssignmentChanges(currentAssignments, candidate.id, candidate));
     const allowed = validation.hardViolations === 0
       ? nextValidation.hardViolations === 0
       : nextValidation.hardViolations < validation.hardViolations;
