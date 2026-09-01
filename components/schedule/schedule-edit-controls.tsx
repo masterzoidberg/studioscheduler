@@ -13,6 +13,7 @@ function messageOf(error: unknown) {
 
 export function ScheduleEditControls() {
   const {
+    state,
     canEdit,
     currentScheduleVersion,
     currentRulebookVersion,
@@ -24,8 +25,17 @@ export function ScheduleEditControls() {
   const [undoing, setUndoing] = useState(false);
   const [notice, setNotice] = useState("");
 
+  const previous = state?.scheduleVersions.find((version) => version.version === currentScheduleVersion - 1);
+  const canUndo = Boolean(
+    canEdit
+    && !scheduleIsStale
+    && previous
+    && previous.rulebookVersion === currentRulebookVersion
+    && previous.enforcementVersion === currentEnforcementVersion,
+  );
+
   async function undoLastChange() {
-    if (!canEdit || scheduleIsStale || undoing) return;
+    if (!canUndo || undoing) return;
     setUndoing(true);
     setNotice("");
     const { data, error } = await getBrowserSupabase().rpc("undo_last_schedule_change_v23", {
@@ -62,9 +72,9 @@ export function ScheduleEditControls() {
           <button
             type="button"
             onClick={() => void undoLastChange()}
-            disabled={!canEdit || scheduleIsStale || undoing}
+            disabled={!canUndo || undoing}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            title="Restore the immediately previous compatible schedule as a new version"
+            title={canUndo ? `Restore Schedule v${currentScheduleVersion - 1} as a new version` : "Nothing compatible to undo yet"}
           >
             <RotateCcw className="size-4" />{undoing ? "Undoing…" : "Undo last change"}
           </button>
