@@ -135,7 +135,7 @@ export interface RuleEnforcementProposal {
   updatedAt: string;
 }
 
-export interface Teacher { id: string; name: string; subjects: string[]; notes?: string; }
+export interface Teacher { id: string; name: string; subjects: string[]; notes?: string; displayColor?: string; }
 export interface Room { id: string; name: string; capacity?: number; features?: string[]; }
 export interface Student { id: string; name: string; level: string; cohortIds?: string[]; }
 export interface Cohort { id: string; name: string; studentIds: string[]; }
