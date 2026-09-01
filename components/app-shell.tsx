@@ -7,6 +7,7 @@ import { AlertTriangle, BookOpenCheck, CalendarDays, Home, LogOut, Menu, MoreHor
 import { CopilotPanel } from "@/components/copilot-panel";
 import { LoginScreen } from "@/components/login-screen";
 import { MobileScheduleView } from "@/components/schedule/mobile-schedule-view";
+import { ScheduleBuilderPanel } from "@/components/schedule/schedule-builder-panel";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { useWorkspace } from "@/components/workspace-provider";
 
@@ -63,7 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="min-w-0 pb-20 lg:pb-0">
         <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur"><div className="flex min-h-[68px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8"><div className="flex min-w-0 items-center gap-3"><button className="hidden size-10 place-items-center rounded-xl border border-slate-200 text-slate-600 lg:grid 2xl:hidden" onClick={()=>setMobileNavOpen(true)} aria-label="Open navigation"><Menu className="size-5"/></button><div className="min-w-0"><p className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 sm:text-[11px]">{heading.eyebrow}</p><h1 className="truncate text-lg font-semibold sm:text-xl">{heading.title}</h1></div></div><div className="flex items-center gap-2"><button onClick={()=>void refresh()} className="grid size-10 place-items-center rounded-xl border border-slate-200 text-slate-500" aria-label="Refresh workspace"><RefreshCw className={`size-4 ${loading?"animate-spin":""}`}/></button><div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:block">{session?.user.email||"Studio user"} · {role}</div><button onClick={()=>setMobileCopilotOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-950 px-3 text-sm font-medium text-white 2xl:hidden"><Sparkles className="size-4"/><span className="hidden sm:inline">Copilot</span></button></div></div>{error?<div className="border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800 sm:px-6 lg:px-8">Workspace error: {error}</div>:null}</header>
-        <main className="px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">{pathname === "/schedule" ? <><div className="md:hidden"><MobileScheduleView/></div><div className="hidden md:block">{children}</div></> : children}</main>
+        <main className="px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">{pathname === "/schedule" ? <div className="space-y-5"><ScheduleBuilderPanel/><div className="md:hidden"><MobileScheduleView/></div><div className="hidden md:block">{children}</div></div> : children}</main>
       </div>
       <div className="sticky top-0 hidden h-screen 2xl:block"><CopilotPanel/></div>
     </div>
