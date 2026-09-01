@@ -53,6 +53,7 @@ export function ScheduleBuilderPanel() {
   );
 
   if (!state) return null;
+  const studio = state;
 
   const classMap = new Map(state.classes.map((item) => [item.id, item]));
   const sessionMap = new Map(state.sessions.map((item) => [item.id, item]));
@@ -91,13 +92,13 @@ export function ScheduleBuilderPanel() {
   function beginPlace(session: ClassSession) {
     const klass = klassForSession(session);
     const firstEligible = klass?.eligibleTeacherIds?.length
-      ? state.teachers.find((teacher) => klass.eligibleTeacherIds.includes(teacher.id))
-      : state.teachers[0];
+      ? studio.teachers.find((teacher) => klass.eligibleTeacherIds.includes(teacher.id))
+      : studio.teachers[0];
     const nextDay: Day = "Monday";
     setDay(nextDay);
     setStartTime(defaultStartTime(nextDay));
     setTeacherId(firstEligible?.id || "");
-    setRoomId(state.rooms[0]?.id || "");
+    setRoomId(studio.rooms[0]?.id || "");
     setNotice("");
     setPlacing(session);
   }
