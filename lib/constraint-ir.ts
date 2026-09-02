@@ -9,6 +9,7 @@ export type ConstraintIRKind =
   | "MAX_ATTENDANCE_DAYS"
   | "REQUIRED_ROOM"
   | "REQUIRED_TEACHER"
+  | "REQUIRED_LOWER_LEVEL"
   | "TEACHER_SUBJECT_DOMAIN"
   | "TEACHER_DAY_WINDOW"
   | "DIRECTLY_AFTER"
@@ -22,6 +23,7 @@ export interface ConstraintSelectorIR {
   levels?: string[];
   teacherNames?: string[];
   roomNames?: string[];
+  studentNames?: string[];
   studentRelation?: string;
 }
 
