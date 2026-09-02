@@ -1,7 +1,8 @@
 import type { Assignment, SchedulePatch, StudioState, ValidationResult } from "@/lib/domain";
 import type { ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
-import { validateConstraintModelSchedule, type ConstraintEngineResult } from "@/lib/constraint-engine-v2";
+import type { ConstraintEngineResult } from "@/lib/constraint-engine";
+import { validateConstraintModelSchedule } from "@/lib/constraint-engine-v2";
 import { buildScheduleCommandCandidate, type ScheduleCommandCandidate } from "@/lib/schedule-command-candidate";
 import { validateSchedule } from "@/lib/validator";
 
