@@ -277,8 +277,9 @@ create index if not exists idx_schedule_versions_planning_dataset_fk
 create index if not exists idx_scenarios_planning_dataset_fk
   on public.scenarios(studio_id, base_planning_dataset_version);
 
--- Pin every future ScheduleVersion insert to the current planning dataset without
--- forcing every legacy schedule-writing RPC to grow a new parameter at once.
+-- Pin every future ScheduleVersion insert to the exact current snapshot. Calling
+-- ensure here also handles the edge case where planning facts changed earlier in
+-- the same transaction and the deferred refresh trigger has not fired yet.
 create or replace function private.pin_schedule_planning_dataset_v25()
 returns trigger
 language plpgsql
@@ -289,20 +290,12 @@ declare
   v_version integer;
 begin
   if new.planning_dataset_version is null then
-    select version into v_version
-    from public.planning_dataset_versions
-    where studio_id=new.studio_id and status='CURRENT'
-    limit 1;
-
-    if v_version is null then
-      v_version := private.ensure_planning_dataset_version_v25(
-        new.studio_id,
-        new.actor_user_id,
-        coalesce(new.actor_label,'Schedule writer'),
-        'Planning dataset snapshot created while pinning ScheduleVersion'
-      );
-    end if;
-
+    v_version := private.ensure_planning_dataset_version_v25(
+      new.studio_id,
+      new.actor_user_id,
+      coalesce(new.actor_label,'Schedule writer'),
+      'Planning dataset snapshot pinned to ScheduleVersion'
+    );
     new.planning_dataset_version := v_version;
   end if;
   return new;
@@ -326,18 +319,12 @@ declare
   v_version integer;
 begin
   if new.base_planning_dataset_version is null then
-    select version into v_version
-    from public.planning_dataset_versions
-    where studio_id=new.studio_id and status='CURRENT'
-    limit 1;
-    if v_version is null then
-      v_version := private.ensure_planning_dataset_version_v25(
-        new.studio_id,
-        new.created_by,
-        'Scenario writer',
-        'Planning dataset snapshot created while pinning Scenario'
-      );
-    end if;
+    v_version := private.ensure_planning_dataset_version_v25(
+      new.studio_id,
+      new.created_by,
+      'Scenario writer',
+      'Planning dataset snapshot pinned to Scenario'
+    );
     new.base_planning_dataset_version := v_version;
   end if;
   return new;
@@ -352,9 +339,10 @@ before insert on public.scenarios
 for each row execute function private.pin_scenario_planning_dataset_v25();
 
 -- Scheduling-significant mutable facts create a new dataset version only when the
--- resulting content hash actually changes. Cosmetic fields such as names, notes,
--- teacher display colors, and legacy eligible_teacher_ids are intentionally not
--- watched.
+-- resulting content hash actually changes. Constraint triggers are deferred to
+-- transaction end, so multi-row edits produce one final snapshot rather than a
+-- version for every changed row. Presentation-only edits still invoke the hash
+-- check but create no version because their snapshot content is unchanged.
 create or replace function private.refresh_planning_dataset_after_change_v25()
 returns trigger
 language plpgsql
@@ -365,52 +353,62 @@ declare
   v_studio uuid;
   v_uid uuid:=auth.uid();
 begin
-  v_studio := coalesce(new.studio_id, old.studio_id);
+  if tg_op='DELETE' then
+    v_studio := old.studio_id;
+  else
+    v_studio := new.studio_id;
+  end if;
+
   perform private.ensure_planning_dataset_version_v25(
     v_studio,
     v_uid,
     'Planning data change',
-    format('%s scheduling-significant facts changed', tg_table_name)
+    format('%s scheduling-significant snapshot changed', tg_table_name)
   );
-  return coalesce(new, old);
+
+  if tg_op='DELETE' then
+    return old;
+  end if;
+  return new;
 end
 $function$;
 
 revoke all on function private.refresh_planning_dataset_after_change_v25() from public, anon, authenticated;
 
-drop trigger if exists trg_teachers_planning_dataset_insert_delete_v25 on public.teachers;
-create trigger trg_teachers_planning_dataset_insert_delete_v25
-after insert or delete on public.teachers
-for each row execute function private.refresh_planning_dataset_after_change_v25();
-
-drop trigger if exists trg_teachers_planning_dataset_id_v25 on public.teachers;
-create trigger trg_teachers_planning_dataset_id_v25
-after update of id on public.teachers
+drop trigger if exists trg_teachers_planning_dataset_v25 on public.teachers;
+create constraint trigger trg_teachers_planning_dataset_v25
+after insert or update or delete on public.teachers
+deferrable initially deferred
 for each row execute function private.refresh_planning_dataset_after_change_v25();
 
 drop trigger if exists trg_rooms_planning_dataset_v25 on public.rooms;
-create trigger trg_rooms_planning_dataset_v25
-after insert or delete or update of id, capacity, features on public.rooms
+create constraint trigger trg_rooms_planning_dataset_v25
+after insert or update or delete on public.rooms
+deferrable initially deferred
 for each row execute function private.refresh_planning_dataset_after_change_v25();
 
 drop trigger if exists trg_students_planning_dataset_v25 on public.students;
-create trigger trg_students_planning_dataset_v25
-after insert or delete or update of id, level, cohort_ids on public.students
+create constraint trigger trg_students_planning_dataset_v25
+after insert or update or delete on public.students
+deferrable initially deferred
 for each row execute function private.refresh_planning_dataset_after_change_v25();
 
 drop trigger if exists trg_cohorts_planning_dataset_v25 on public.cohorts;
-create trigger trg_cohorts_planning_dataset_v25
-after insert or delete or update of id, student_ids on public.cohorts
+create constraint trigger trg_cohorts_planning_dataset_v25
+after insert or update or delete on public.cohorts
+deferrable initially deferred
 for each row execute function private.refresh_planning_dataset_after_change_v25();
 
 drop trigger if exists trg_classes_planning_dataset_v25 on public.class_definitions;
-create trigger trg_classes_planning_dataset_v25
-after insert or delete or update of id, subject, level, duration_minutes, weekly_frequency, roster_student_ids, company_only on public.class_definitions
+create constraint trigger trg_classes_planning_dataset_v25
+after insert or update or delete on public.class_definitions
+deferrable initially deferred
 for each row execute function private.refresh_planning_dataset_after_change_v25();
 
 drop trigger if exists trg_sessions_planning_dataset_v25 on public.class_sessions;
-create trigger trg_sessions_planning_dataset_v25
-after insert or delete or update of id, class_id, ordinal, locked on public.class_sessions
+create constraint trigger trg_sessions_planning_dataset_v25
+after insert or update or delete on public.class_sessions
+deferrable initially deferred
 for each row execute function private.refresh_planning_dataset_after_change_v25();
 
 -- Read-only, membership-scoped helper for the application and diagnostics.
