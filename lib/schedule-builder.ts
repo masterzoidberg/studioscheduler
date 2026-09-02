@@ -23,5 +23,5 @@ export function placementEndTime(startTime: string, klass: Pick<ClassDefinition,
 }
 
 export function defaultStartTime(day: Assignment["day"]) {
-  return day === "Saturday" ? "09:00" : "16:15";
+  return day === "Saturday" ? "09:00" : "16:45";
 }
