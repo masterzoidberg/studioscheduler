@@ -36,8 +36,8 @@ export interface RuleExecutionEntry {
 const HARD_DATA_PRECONDITION = [
   "BAL-001", "BAL-002", "BAL-003", "BAL-004", "BAL-005", "BAL-006", "BAL-007",
   "BAL-008", "BAL-009", "BAL-010", "BAL-011", "BAL-012", "BAL-013", "BAL-014",
-  "CUR-001", "CUR-002", "CUR-003", "CUR-004", "CUR-005", "CUR-006", "CUR-007",
-  "KAR-008", "STU-001", "STU-002", "STU-004", "REV-001",
+  "CUR-001", "CUR-002", "CUR-003", "CUR-004", "CUR-005", "CUR-006",
+  "STU-002", "REV-001",
 ] as const;
 
 const FIXED_ANCHOR = [
@@ -50,7 +50,7 @@ const EXCEPTION = [
 ] as const;
 
 const DATA_FACT = [
-  "ADV-002",
+  "ADV-002", "KAR-008",
   "DATA-001", "DATA-002", "DATA-003", "DATA-004", "DATA-005", "DATA-006", "DATA-007",
   "ROOM-001", "ROOM-004", "ROOM-005", "ROOM-006",
 ] as const;
@@ -58,8 +58,8 @@ const DATA_FACT = [
 const INFORMATIONAL = ["REV-002"] as const;
 
 const NO_RUNTIME_EFFECT = [
-  "DATA-008", "FIX-003", "JAE-003", "KAR-010", "OPS-011", "OPS-012", "OPS-016",
-  "SEQ-009", "STU-022",
+  "CUR-007", "DATA-008", "FIX-003", "JAE-003", "KAR-010", "OPS-011", "OPS-012", "OPS-016",
+  "SEQ-009", "STU-001", "STU-004", "STU-022",
 ] as const;
 
 const SOFT_OBJECTIVE = [
