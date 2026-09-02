@@ -5,6 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import type {
   Assignment,
   ClassDefinition,
+  PlanningDatasetVersion,
   RuleEnforcementMapping,
   RuleEnforcementProposal,
   RuleEnforcementVersion,
@@ -44,9 +45,11 @@ interface WorkspaceContextValue {
   currentAssignments: Assignment[];
   currentRulebookVersion: number;
   currentEnforcementVersion: number;
+  currentPlanningDatasetVersion: number;
   currentScheduleVersion: number;
   currentScheduleRulebookVersion: number;
   currentScheduleEnforcementVersion: number;
+  currentSchedulePlanningDatasetVersion: number;
   scheduleIsStale: boolean;
   validation: ValidationResult;
   refresh: () => Promise<void>;
@@ -113,6 +116,14 @@ function mapEnforcementVersion(row: Record<string, unknown>): RuleEnforcementVer
   };
 }
 
+function mapPlanningDatasetVersion(row: Record<string, unknown>): PlanningDatasetVersion {
+  return {
+    id: String(row.id), version: Number(row.version), createdAt: String(row.created_at), actor: String(row.actor_label || ""),
+    reason: String(row.reason || ""), snapshot: row.snapshot as PlanningDatasetVersion["snapshot"], snapshotHash: String(row.snapshot_hash || ""),
+    status: row.status as PlanningDatasetVersion["status"],
+  };
+}
+
 function mapEnforcementProposal(row: Record<string, unknown>): RuleEnforcementProposal {
   return {
     id: String(row.id), ruleId: String(row.rule_id), baseRulebookVersion: Number(row.base_rulebook_version),
@@ -159,7 +170,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const nextRole = membershipQ.data.role as StudioRole;
       setRole(nextRole);
 
-      const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ] = await Promise.all([
+      const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ] = await Promise.all([
         supabase.from("studios").select("*").eq("id", STUDIO_ID).single(),
         supabase.from("teachers").select("*").eq("studio_id", STUDIO_ID).order("name"),
         supabase.from("rooms").select("*").eq("studio_id", STUDIO_ID).order("name"),
@@ -170,6 +181,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         supabase.from("rules").select("*").eq("studio_id", STUDIO_ID).order("id"),
         supabase.from("rulebook_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
         supabase.from("rule_enforcement_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
+        supabase.from("planning_dataset_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
         supabase.from("rule_enforcement_proposals").select("*").eq("studio_id", STUDIO_ID).order("created_at", { ascending: false }),
         supabase.from("rule_history").select("*").eq("studio_id", STUDIO_ID).order("changed_at", { ascending: false }),
         supabase.from("schedule_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
@@ -177,7 +189,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         supabase.from("audit_events").select("*").eq("studio_id", STUDIO_ID).order("created_at", { ascending: false }).limit(100),
         supabase.rpc("list_studio_members_v21"),
       ]);
-      const queryError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ].find((query) => query.error)?.error;
+      const queryError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ].find((query) => query.error)?.error;
       if (queryError) throw queryError;
 
       const currentScheduleRow = (scheduleQ.data || []).find((row) => row.is_current);
@@ -187,14 +199,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (assignmentQ.error) throw assignmentQ.error;
       const assignments = (assignmentQ.data || []).map((row) => mapAssignment(row as Record<string, unknown>));
       const scheduleVersions: ScheduleVersion[] = (scheduleQ.data || []).map((row) => ({
-        id: row.id, version: row.version, rulebookVersion: row.rulebook_version, enforcementVersion: Number(row.enforcement_version || 0), createdAt: row.created_at,
+        id: row.id, version: row.version, rulebookVersion: row.rulebook_version, enforcementVersion: Number(row.enforcement_version || 0),
+        planningDatasetVersion: row.planning_dataset_version == null ? undefined : Number(row.planning_dataset_version), createdAt: row.created_at,
         actor: row.actor_label, reason: row.reason, assignments: row.id === currentScheduleRow?.id ? assignments : [],
         isCurrent: Boolean(row.is_current), validationResult: row.validation_result as ValidationResult | null,
       }));
 
       const mapped: StudioState = {
         studioId: STUDIO_ID, studioName: studioQ.data?.name || "DWDE Studio",
-        teachers: (teachersQ.data || []).map((row) => ({ id: row.id, name: row.name, subjects: row.subjects || [], notes: row.notes || undefined })),
+        teachers: (teachersQ.data || []).map((row) => ({ id: row.id, name: row.name, subjects: row.subjects || [], notes: row.notes || undefined, displayColor: row.display_color || undefined })),
         rooms: (roomsQ.data || []).map((row) => ({ id: row.id, name: row.name, capacity: row.capacity ?? undefined, features: row.features || [] })),
         students: (studentsQ.data || []).map((row) => ({ id: row.id, name: row.name, level: row.level, cohortIds: row.cohort_ids || [] })),
         cohorts: (cohortsQ.data || []).map((row) => ({ id: row.id, name: row.name, studentIds: row.student_ids || [] })),
@@ -202,7 +215,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           id: row.id, name: row.name, subject: row.subject, level: row.level, durationMinutes: row.duration_minutes,
           weeklyFrequency: row.weekly_frequency, rosterStudentIds: row.roster_student_ids || [], eligibleTeacherIds: row.eligible_teacher_ids || [], companyOnly: row.company_only,
         })),
-        sessions: (sessionsQ.data || []).map((row) => ({ id: row.id, classId: row.class_id, ordinal: row.ordinal, locked: row.locked })),
+        sessions: (sessionsQ.data || []).map((row) => ({
+          id: row.id, classId: row.class_id, ordinal: row.ordinal,
+          durationMinutes: row.duration_minutes == null ? undefined : Number(row.duration_minutes), locked: row.locked,
+        })),
         rules: (rulesQ.data || []).map((row) => mapRule(row as Record<string, unknown>)),
         rulebookVersions: (rbvQ.data || []).map((row) => ({
           id: row.id, version: row.version, name: row.name, createdAt: row.created_at, actor: row.actor_label, reason: row.reason,
@@ -212,11 +228,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           documentType: row.document_type || undefined, sourceMetadata: object(row.source_metadata),
         } as RulebookVersion)),
         enforcementVersions: (enforcementQ.data || []).map((row) => mapEnforcementVersion(row as Record<string, unknown>)),
+        planningDatasetVersions: (planningQ.data || []).map((row) => mapPlanningDatasetVersion(row as Record<string, unknown>)),
         enforcementProposals: (proposalsQ.data || []).map((row) => mapEnforcementProposal(row as Record<string, unknown>)),
         ruleHistory: (historyQ.data || []).map((row) => mapHistory(row as Record<string, unknown>)),
         scheduleVersions,
         scenarios: (scenariosQ.data || []).map((row) => ({
           id: row.id, name: row.name, baseRulebookVersion: row.base_rulebook_version, baseScheduleVersion: row.base_schedule_version,
+          baseEnforcementVersion: row.base_enforcement_version == null ? undefined : Number(row.base_enforcement_version),
+          basePlanningDatasetVersion: row.base_planning_dataset_version == null ? undefined : Number(row.base_planning_dataset_version),
           rulePatches: (row.rule_patches || []) as unknown as RulePatch[], schedulePatches: (row.schedule_patches || []) as unknown as SchedulePatch[], createdAt: row.created_at,
         } as Scenario)),
         auditEvents: (auditQ.data || []).map((row) => ({ id: row.id, at: row.created_at, actor: row.actor_label, action: row.action, entityType: row.entity_type, entityId: row.entity_id || undefined, detail: row.detail })),
@@ -249,11 +268,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const currentAssignments = useMemo(() => currentSchedule?.assignments || [], [currentSchedule]);
   const currentRulebookVersion = state?.rulebookVersions.find((version) => version.status === "CURRENT")?.version ?? 0;
   const currentEnforcementVersion = state?.enforcementVersions.find((version) => version.status === "CURRENT")?.version ?? 0;
+  const currentPlanningDatasetVersion = state?.planningDatasetVersions?.find((version) => version.status === "CURRENT")?.version ?? 0;
   const currentScheduleVersion = currentSchedule?.version ?? 0;
   const currentScheduleRulebookVersion = currentSchedule?.rulebookVersion ?? 0;
   const currentScheduleEnforcementVersion = currentSchedule?.enforcementVersion ?? 0;
+  const currentSchedulePlanningDatasetVersion = currentSchedule?.planningDatasetVersion ?? 0;
   const scheduleIsStale = Boolean(currentSchedule && (
-    currentScheduleRulebookVersion !== currentRulebookVersion || currentScheduleEnforcementVersion !== currentEnforcementVersion
+    currentScheduleRulebookVersion !== currentRulebookVersion
+    || currentScheduleEnforcementVersion !== currentEnforcementVersion
+    || currentSchedulePlanningDatasetVersion !== currentPlanningDatasetVersion
   ));
   const validation = useMemo(() => state ? validateSchedule(state, currentAssignments) : emptyValidation(), [state, currentAssignments]);
 
@@ -289,7 +312,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (patch.operation !== "MOVE") return { ok: false, error: "V2.2 applies moves to existing assignments. Add/unassign belongs to the later full schedule-builder workflow." };
     if (scheduleIsStale) return {
       ok: false,
-      error: `Schedule v${currentScheduleVersion} is linked to Rulebook v${currentScheduleRulebookVersion} / Enforcement v${currentScheduleEnforcementVersion}. Revalidate it against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} first.`,
+      error: `Schedule v${currentScheduleVersion} is linked to Rulebook v${currentScheduleRulebookVersion} / Enforcement v${currentScheduleEnforcementVersion} / Planning Dataset v${currentSchedulePlanningDatasetVersion || "unversioned"}. Revalidate it against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} / Planning Dataset v${currentPlanningDatasetVersion} first.`,
     };
     const existing = currentAssignments.find((assignment) => assignment.id === patch.assignmentId);
     if (!existing) return { ok: false, error: "Assignment does not exist." };
@@ -317,11 +340,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function rebaseSchedule(): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("rebase_current_schedule_v22", {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("rebase_current_schedule_v25", {
         p_expected_schedule_version: currentScheduleVersion,
         p_expected_rulebook_version: currentRulebookVersion,
         p_expected_enforcement_version: currentEnforcementVersion,
-        p_reason: `Revalidate unchanged assignments against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion}`,
+        p_expected_planning_dataset_version: currentPlanningDatasetVersion,
+        p_reason: `Revalidate unchanged assignments against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} / Planning Dataset v${currentPlanningDatasetVersion}`,
       });
       if (rpcError) throw rpcError;
       const details = object(data); await load();
@@ -365,6 +389,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!state) return null;
     const current = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? state.rulebookVersions[0];
     const currentEnforcement = state.enforcementVersions.find((version) => version.status === "CURRENT") ?? state.enforcementVersions[0];
+    const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
     const verified = state.rules.filter((rule) => (rule.reviewStatus ?? rule.verificationStatus) === "VERIFIED").length;
     const approved = state.rules.filter((rule) => rule.review?.decision === "APPROVED").length;
     const edited = state.rules.filter((rule) => rule.review?.decision === "EDIT").length;
@@ -380,6 +405,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         version: currentEnforcement.version,
         rulebook_version: currentEnforcement.rulebookVersion,
         mappings: currentEnforcement.snapshot,
+      } : null,
+      planning_dataset: currentPlanning ? {
+        version: currentPlanning.version,
+        snapshot_hash: currentPlanning.snapshotHash,
+        schema_version: currentPlanning.snapshot.schemaVersion,
       } : null,
       rules: state.rules.map((rule) => ({
         id: rule.id, category: rule.category, classification: rule.classificationRaw ?? rule.strength?.replaceAll("_", " ") ?? "UNCLASSIFIED",
@@ -471,7 +501,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const value: WorkspaceContextValue = {
     loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
-    currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,scheduleIsStale,validation,
+    currentPlanningDatasetVersion,currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,currentSchedulePlanningDatasetVersion,
+    scheduleIsStale,validation,
     refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySchedulePatch,rebaseSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
     updateTeacher,updateRoom,updateClass,createScenario,inviteMember,setMemberRole,removeMember,cancelInvite,
   };
