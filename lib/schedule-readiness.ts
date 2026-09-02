@@ -30,9 +30,6 @@ type StructureRequirement = {
   durations?: number[];
 };
 
-// These are deterministic engineering interpretations of the reviewed BAL-001..BAL-014
-// class-structure facts. They are intentionally declarative so the same facts can later
-// feed the Constraint IR rather than being rewritten separately in validator and solver code.
 export const BALLET_STRUCTURE_REQUIREMENTS: StructureRequirement[] = [
   { ruleIds: ["BAL-001"], className: "Elementary Ballet 1", frequency: 1, durations: [60] },
   { ruleIds: ["BAL-002"], className: "Elementary Ballet 2", frequency: 2, durations: [75, 75] },
@@ -49,7 +46,6 @@ export const BALLET_STRUCTURE_REQUIREMENTS: StructureRequirement[] = [
 ];
 
 const SOURCE_MANIFEST_RULE_IDS = ["CUR-001", "CUR-002", "CUR-003", "CUR-004", "CUR-005", "CUR-006", "STU-002"];
-
 const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 const sorted = (values: number[]) => [...values].sort((a, b) => a - b);
 const sortedStrings = (values: string[]) => [...values].sort();
@@ -83,14 +79,19 @@ function effectiveDurations(klass: ClassDefinition, sessions: ClassSession[]) {
   return sorted(sessions.map((session) => sessionDurationMinutes(session, klass)));
 }
 
+// External source manifests are comparison/provenance baselines. The current
+// PlanningDatasetVersion is the authoritative working inventory because DWDE's
+// students, rosters, classes, teachers and rooms intentionally change over time.
 function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatasetVersion | null, issues: ScheduleReadinessIssue[]) {
   const pin = currentPlanning?.snapshot.sourceManifest ?? null;
   if (!pin) {
     add(
       issues,
       "SOURCE_MANIFEST_NOT_PINNED",
-      "No immutable authoritative class-inventory and roster source manifest is pinned to the current Planning Dataset. The system cannot yet prove that classes or enrollments were not silently omitted, added, merged, or split.",
+      "No external source manifest is pinned. This is allowed for fluid inventory: the current Planning Dataset is the authoritative working set. Pin a manifest only when a frozen comparison baseline is useful.",
       SOURCE_MANIFEST_RULE_IDS,
+      [],
+      "WARNING",
     );
     return;
   }
@@ -99,13 +100,22 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
     add(
       issues,
       "SOURCE_MANIFEST_INCOMPLETE",
-      `Planning Source Manifest v${pin.version} is pinned but is not marked complete, so automatic scheduling remains blocked.`,
+      `Planning Source Manifest v${pin.version} is an incomplete comparison baseline. The current Planning Dataset remains authoritative.`,
       SOURCE_MANIFEST_RULE_IDS,
+      [],
+      "WARNING",
     );
   }
 
   if (pin.snapshot.schemaVersion !== "1.0") {
-    add(issues, "SOURCE_MANIFEST_SCHEMA_UNSUPPORTED", `Planning Source Manifest v${pin.version} uses unsupported schema ${pin.snapshot.schemaVersion}.`, SOURCE_MANIFEST_RULE_IDS);
+    add(
+      issues,
+      "SOURCE_MANIFEST_SCHEMA_UNSUPPORTED",
+      `Planning Source Manifest v${pin.version} uses unsupported schema ${pin.snapshot.schemaVersion}; it cannot be compared to current planning data.`,
+      SOURCE_MANIFEST_RULE_IDS,
+      [],
+      "WARNING",
+    );
     return;
   }
 
@@ -119,9 +129,10 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
     add(
       issues,
       "SOURCE_MANIFEST_CLASS_SET_MISMATCH",
-      `Planning data does not match the authoritative source manifest class inventory: ${missing.length} missing and ${extra.length} unmanifested class${extra.length === 1 ? "" : "es"}.`,
+      `Current planning inventory differs from Source Manifest v${pin.version}: ${missing.length} former class${missing.length === 1 ? "" : "es"} absent and ${extra.length} newer class${extra.length === 1 ? "" : "es"} present. This is informational drift, not automatic illegality.`,
       ["CUR-001", "CUR-002", "CUR-003", "CUR-004"],
       [...missing, ...extra],
+      "WARNING",
     );
   }
 
@@ -134,9 +145,10 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
       add(
         issues,
         "SOURCE_MANIFEST_FREQUENCY_MISMATCH",
-        `${klass.name} does not match Source Manifest v${pin.version}: expected ${expected.weeklyFrequency} weekly session(s), planning data has frequency ${klass.weeklyFrequency} and ${sessions.length} session row(s).`,
+        `${klass.name} differs from Source Manifest v${pin.version}: baseline ${expected.weeklyFrequency} weekly session(s), current planning frequency ${klass.weeklyFrequency} with ${sessions.length} session row(s).`,
         ["CUR-001", "CUR-006"],
         [klass.id, ...sessions.map((session) => session.id)],
+        "WARNING",
       );
     }
 
@@ -146,9 +158,10 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
       add(
         issues,
         "SOURCE_MANIFEST_DURATION_MISMATCH",
-        `${klass.name} session durations do not match Source Manifest v${pin.version}: expected ${expectedDurations.join("/")} minutes, planning data resolves to ${actualDurations.join("/") || "none"}.`,
+        `${klass.name} duration data differs from Source Manifest v${pin.version}: baseline ${expectedDurations.join("/")} minutes, current planning ${actualDurations.join("/") || "none"}.`,
         ["CUR-005"],
         [klass.id, ...sessions.map((session) => session.id)],
+        "WARNING",
       );
     }
 
@@ -156,9 +169,10 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
       add(
         issues,
         "SOURCE_MANIFEST_ROSTER_MISMATCH",
-        `${klass.name}'s planning roster does not match the authoritative roster captured in Source Manifest v${pin.version}.`,
+        `${klass.name}'s current roster differs from Source Manifest v${pin.version}. Current Planning Dataset enrollment is authoritative.`,
         ["STU-002"],
         [klass.id, ...new Set([...klass.rosterStudentIds, ...expected.rosterStudentIds])],
+        "WARNING",
       );
     }
   }
@@ -168,12 +182,7 @@ function checkStructure(state: StudioState, issues: ScheduleReadinessIssue[]) {
   for (const requirement of BALLET_STRUCTURE_REQUIREMENTS) {
     const klass = findClass(state, requirement.className);
     if (!klass) {
-      add(
-        issues,
-        "MISSING_REQUIRED_CLASS",
-        `${requirement.className} is required by the reviewed Rulebook but is not represented in planning data.`,
-        requirement.ruleIds,
-      );
+      add(issues, "MISSING_REQUIRED_CLASS", `${requirement.className} is required by the reviewed Rulebook but is not represented in planning data.`, requirement.ruleIds);
       continue;
     }
 
@@ -222,7 +231,7 @@ function checkAdvancedBalletParticipation(state: StudioState, issues: ScheduleRe
         add(
           issues,
           "ADVANCED_BALLET_ROSTER_MISMATCH",
-          `${missing.length} ${requirement.level} dancer${missing.length === 1 ? " is" : "s are"} missing from ${klass.name}'s authoritative roster.`,
+          `${missing.length} ${requirement.level} dancer${missing.length === 1 ? " is" : "s are"} missing from ${klass.name}'s working roster despite the reviewed advanced-Ballet participation rule.`,
           [requirement.ruleId, "STU-002"],
           [klass.id, ...missing.map((student) => student.id)],
         );
