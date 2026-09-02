@@ -21,6 +21,7 @@ const productionTrackedMigrations = [
   "20260901054230_milestone_1_teacher_display_colors.sql",
   "20260901200406_add_schedule_builder_assign_unassign_v23.sql",
   "20260901202548_add_schedule_undo_v23.sql",
+  "20260902080544_planning_dataset_versions_v25.sql",
 ];
 
 const archivedProductionHotfix = "20260901041429_fix_list_studio_members_v21_return_types.sql";
