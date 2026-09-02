@@ -6,9 +6,11 @@ const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 
 const sortStrings = (values: string[] | undefined) => [...(values || [])].sort(compareCanonicalStrings);
 
 export function buildPlanningDatasetSnapshot(state: StudioState): PlanningDatasetSnapshotV1 {
+  const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
   return {
-    schemaVersion: "1.1",
+    schemaVersion: "1.2",
     studioId: state.studioId,
+    sourceManifest: currentPlanning?.snapshot.sourceManifest ?? null,
     teacherIds: state.teachers.map((teacher) => teacher.id).sort(compareCanonicalStrings),
     rooms: state.rooms
       .map((room) => ({
