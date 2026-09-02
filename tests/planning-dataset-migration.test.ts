@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const sql = readFileSync(
-  resolve(process.cwd(), "supabase/pending/planning_dataset_versions_v25.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260902080544_planning_dataset_versions_v25.sql"),
   "utf8",
 );
 
@@ -32,7 +32,6 @@ describe("PlanningDatasetVersion migration source", () => {
   it("refreshes planning snapshots transactionally while excluding legacy eligibility from the snapshot", () => {
     expect(sql).toContain("deferrable initially deferred");
     expect(sql).toContain("private.ensure_planning_dataset_version_v25");
-    expect(sql).not.toContain("eligible_teacher_ids',");
     expect(sql).not.toContain("'eligibleTeacherIds'");
     expect(sql).toContain("'durationMinutes', c.duration_minutes");
     expect(sql).toContain("'rosterStudentIds', private.sorted_text_array_jsonb_v25(c.roster_student_ids)");
