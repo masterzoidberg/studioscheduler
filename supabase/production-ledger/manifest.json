@@ -1,6 +1,6 @@
 {
   "source": "production supabase_migrations.schema_migrations",
-  "verified_at": "2026-08-31",
+  "verified_at": "2026-09-02",
   "entries": [
     {"version":"20260831080928","name":"v2_1_auth_rls","file":"20260831080928_v2_1_auth_rls.sql","bytes":11361,"git_blob_sha1":"d2c588022964f3d2e3a735ddf161a165b933aaaf"},
     {"version":"20260831123403","name":"v2_1_governed_infrastructure","file":"20260831123403_v2_1_governed_infrastructure.sql","bytes":3740,"git_blob_sha1":"27207c866560ebd45923537a02a3284ef6095f02"},
@@ -12,6 +12,7 @@
     {"version":"20260831124009","name":"v2_1_membership_read_api","file":"20260831124009_v2_1_membership_read_api.sql","bytes":1864,"git_blob_sha1":"b18bbf09dc150b0522ddb237a8956003e615b959"},
     {"version":"20260831124036","name":"v2_1_schedule_rebase_api","file":"20260831124036_v2_1_schedule_rebase_api.sql","bytes":3229,"git_blob_sha1":"bd633f9169e6b5276f0a7e6e66df89df99fe961c"},
     {"version":"20260831132248","name":"v2_1_remove_legacy_invite_rpc","file":"20260831132248_v2_1_remove_legacy_invite_rpc.sql","bytes":63,"git_blob_sha1":"f43e1c285f1303b39c474e0c8ebdf0c5aae75c83"},
-    {"version":"20260831132415","name":"v2_1_rls_performance_cleanup","file":"20260831132415_v2_1_rls_performance_cleanup.sql","bytes":892,"git_blob_sha1":"1efdb2b905a39ef94329a1062431593dfc4bf91d"}
+    {"version":"20260831132415","name":"v2_1_rls_performance_cleanup","file":"20260831132415_v2_1_rls_performance_cleanup.sql","bytes":892,"git_blob_sha1":"1efdb2b905a39ef94329a1062431593dfc4bf91d"},
+    {"version":"20260901041429","name":"fix_list_studio_members_v21_return_types","file":"20260901041429_fix_list_studio_members_v21_return_types.sql","bytes":1343,"git_blob_sha1":"31fa3c0c2f9b3aaeb82aa989aa7f3eb6fd343430"}
   ]
 }
