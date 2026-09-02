@@ -12,8 +12,8 @@ const assignments: Assignment[] = [
     id: "assignment-a",
     sessionId: "session-a",
     day: "Monday",
-    startTime: "16:15",
-    endTime: "17:15",
+    startTime: "16:45",
+    endTime: "17:45",
     teacherId: "teacher-a",
     roomId: "room-a",
   },
@@ -32,8 +32,8 @@ describe("schedule builder helpers", () => {
     expect(placementEndTime("16:45", { durationMinutes: 90 })).toBe("18:15");
   });
 
-  it("uses studio opening defaults for weekdays and Saturday", () => {
-    expect(defaultStartTime("Monday")).toBe("16:15");
+  it("uses the reviewed normal weekday default and Saturday opening", () => {
+    expect(defaultStartTime("Monday")).toBe("16:45");
     expect(defaultStartTime("Saturday")).toBe("09:00");
   });
 });
