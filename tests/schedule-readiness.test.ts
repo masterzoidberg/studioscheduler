@@ -58,10 +58,10 @@ function state(): StudioState {
     studioName: "DWDE",
     teachers: [], rooms: [], students: [], cohorts: [], classes, sessions,
     rules: ruleIds.map(rule),
-    rulebookVersions: [{ id: "rb2", version: 2, name: "Rulebook V2", createdAt: now, actor: "test", reason: "test", changedRuleIds: [], status: "CURRENT" }],
-    enforcementVersions: [{ id: "ev1", version: 1, rulebookVersion: 2, createdAt: now, actor: "test", reason: "test", changedRuleIds: [], snapshot: [], status: "CURRENT" }],
+    rulebookVersions: [{ id: "rb3", version: 3, name: "Rulebook V3", createdAt: now, actor: "test", reason: "test", changedRuleIds: [], status: "CURRENT" }],
+    enforcementVersions: [{ id: "ev1", version: 1, rulebookVersion: 3, createdAt: now, actor: "test", reason: "test", changedRuleIds: [], snapshot: [], status: "CURRENT" }],
     enforcementProposals: [], ruleHistory: [],
-    scheduleVersions: [{ id: "sv1", version: 1, rulebookVersion: 2, enforcementVersion: 1, planningDatasetVersion: 1, createdAt: now, actor: "test", reason: "test", assignments: [], isCurrent: true }],
+    scheduleVersions: [{ id: "sv1", version: 1, rulebookVersion: 3, enforcementVersion: 1, planningDatasetVersion: 1, createdAt: now, actor: "test", reason: "test", assignments: [], isCurrent: true }],
     scenarios: [], auditEvents: [],
   };
   base.planningDatasetVersions = [{ id: "pdv1", version: 1, createdAt: now, actor: "test", reason: "test", snapshot: buildPlanningDatasetSnapshot(base), snapshotHash: "0".repeat(64), status: "CURRENT" }];
@@ -76,7 +76,7 @@ function pinCompleteSourceManifest(s: StudioState) {
     complete: true,
     snapshot: {
       schemaVersion: "1.0",
-      sources: [{ sourceId: "authoritative-rosters", kind: "ROSTER_SET", label: "Authoritative 2026-27 class and roster sources", sha256: "e".repeat(64) }],
+      sources: [{ sourceId: "historical-rosters", kind: "ROSTER_SET", label: "Frozen class and roster comparison baseline", sha256: "e".repeat(64) }],
       classes: s.classes.map((klass) => {
         const sessions = s.sessions.filter((session) => session.classId === klass.id).sort((a, b) => a.ordinal - b.ordinal);
         return {
@@ -99,30 +99,36 @@ describe("Ready-to-Schedule gate", () => {
     expect(report.blockers.some((issue) => issue.code === "CLASS_FREQUENCY_MISMATCH" && issue.ruleIds.includes("BAL-009"))).toBe(false);
   });
 
-  it("blocks automatic solving until an immutable complete source manifest is pinned", () => {
+  it("treats the current PlanningDatasetVersion as authoritative when no frozen source manifest is pinned", () => {
     const report = evaluateScheduleReadiness(state());
-    expect(report.ready).toBe(false);
-    const source = report.blockers.find((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED");
-    expect(source?.ruleIds).toEqual(["CUR-001", "CUR-002", "CUR-003", "CUR-004", "CUR-005", "CUR-006", "STU-002"]);
+    expect(report.ready).toBe(true);
+    expect(report.blockers.some((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED")).toBe(false);
+    const source = report.warnings.find((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED");
+    expect(source?.severity).toBe("WARNING");
+    expect(source?.message).toContain("fluid inventory");
     expect(report.sourceManifestVersion).toBeNull();
     expect(report.sourceManifestComplete).toBe(false);
   });
 
-  it("accepts a complete source manifest only when live inventory, durations, frequency, and rosters match", () => {
+  it("uses a pinned source manifest as a comparison baseline, not a freeze on future roster changes", () => {
     const s = state();
     pinCompleteSourceManifest(s);
     const report = evaluateScheduleReadiness(s);
     expect(report.sourceManifestVersion).toBe(1);
     expect(report.sourceManifestComplete).toBe(true);
-    expect(report.blockers.filter((issue) => issue.code.startsWith("SOURCE_MANIFEST_"))).toEqual([]);
+    expect(report.warnings.filter((issue) => issue.code.startsWith("SOURCE_MANIFEST_")).length).toBe(0);
     expect(report.ready).toBe(true);
 
-    s.classes[0].rosterStudentIds = ["student-not-in-manifest"];
+    s.students.push({ id: "student-new", name: "New Student", level: "test", cohortIds: [] });
+    s.classes[0].rosterStudentIds = ["student-new"];
     const changed = evaluateScheduleReadiness(s);
-    expect(changed.blockers.some((issue) => issue.code === "SOURCE_MANIFEST_ROSTER_MISMATCH")).toBe(true);
+    expect(changed.blockers.some((issue) => issue.code === "SOURCE_MANIFEST_ROSTER_MISMATCH")).toBe(false);
+    expect(changed.warnings.some((issue) => issue.code === "SOURCE_MANIFEST_ROSTER_MISMATCH")).toBe(true);
+    expect(changed.blockers.some((issue) => issue.code === "ROSTER_STUDENT_MISSING")).toBe(false);
+    expect(changed.ready).toBe(true);
   });
 
-  it("reports the representative-alpha curriculum mismatches instead of solving through them", () => {
+  it("still blocks Rulebook-required curriculum structure mismatches in fluid inventory", () => {
     const s = state();
     const elementary2 = s.classes.find((klass) => klass.name === "Elementary Ballet 2")!;
     elementary2.durationMinutes = 60;
@@ -136,6 +142,13 @@ describe("Ready-to-Schedule gate", () => {
     const report = evaluateScheduleReadiness(s);
     expect(report.blockers.some((issue) => issue.code === "CLASS_FREQUENCY_MISMATCH" && issue.ruleIds.includes("BAL-002"))).toBe(true);
     expect(report.blockers.some((issue) => issue.code === "CLASS_FREQUENCY_MISMATCH" && issue.ruleIds.includes("BAL-005"))).toBe(true);
+  });
+
+  it("blocks dangling roster references even though enrollment itself is fluid", () => {
+    const s = state();
+    s.classes[0].rosterStudentIds = ["student-does-not-exist"];
+    const report = evaluateScheduleReadiness(s);
+    expect(report.blockers.some((issue) => issue.code === "ROSTER_STUDENT_MISSING")).toBe(true);
   });
 
   it("treats a newer PlanningDatasetVersion as schedule staleness", () => {
