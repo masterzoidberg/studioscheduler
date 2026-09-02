@@ -1,0 +1,26 @@
+name: Solver CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "solver/**"
+      - ".github/workflows/solver-ci.yml"
+
+jobs:
+  cp-sat-feasibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: solver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned solver dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run CP-SAT bake-off fixtures
+        run: python -m pytest -q
