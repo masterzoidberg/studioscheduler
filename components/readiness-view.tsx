@@ -6,6 +6,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
 import { constraintModelDefinition } from "@/lib/constraint-model-version";
 import { validateConstraintModelSchedule } from "@/lib/constraint-engine-v2";
+import { legacySafetyBridgeReport } from "@/lib/legacy-safety-bridge";
 import { evaluateScheduleReadiness } from "@/lib/schedule-readiness";
 import { getBrowserSupabase } from "@/lib/supabase";
 
@@ -48,6 +49,10 @@ export function ReadinessView() {
   const engine = useMemo(
     () => state && model ? validateConstraintModelSchedule(state, model, currentAssignments) : null,
     [state, model, currentAssignments],
+  );
+  const legacyBridge = useMemo(
+    () => state && model ? legacySafetyBridgeReport(state, model) : null,
+    [state, model],
   );
 
   useEffect(() => {
@@ -148,7 +153,7 @@ export function ReadinessView() {
     setSyncing(false);
   }
 
-  if (!state || !model || !definition || !readiness || !engine) return null;
+  if (!state || !model || !definition || !readiness || !engine || !legacyBridge) return null;
 
   const modelCurrent = Boolean(
     published
@@ -156,6 +161,7 @@ export function ReadinessView() {
     && published.compilerVersion === definition.compilerVersion
     && published.complete,
   );
+  const overallReady = readiness.ready && engine.valid && modelCurrent && legacyBridge.complete;
 
   const cards = [
     {
@@ -188,18 +194,18 @@ export function ReadinessView() {
 
   return (
     <div className="space-y-6">
-      <section className={`rounded-3xl border p-5 sm:p-6 ${readiness.ready && engine.valid && modelCurrent ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+      <section className={`rounded-3xl border p-5 sm:p-6 ${overallReady ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
-              {readiness.ready && engine.valid && modelCurrent ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-amber-600" />}
+              {overallReady ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-amber-600" />}
               Automatic scheduling readiness
             </div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight">
-              {readiness.ready && engine.valid && modelCurrent ? "Scheduling knowledge is ready for a feasibility solver" : "Foundation checks still need attention"}
+              {overallReady ? "Scheduling knowledge is ready for a feasibility solver" : "Foundation checks still need attention"}
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              This gate combines the reviewed Rulebook, the current fluid Planning Dataset, the canonical Constraint IR compiler, and an independent runtime evaluation of the current assignments. Inventory changes are expected. They create a new Planning Dataset version instead of rewriting history.
+              This gate combines the reviewed Rulebook, the current fluid Planning Dataset, the canonical Constraint IR compiler, an independent runtime evaluation of the current assignments, and an explicit bridge for every protection still present in the legacy production validator.
             </p>
           </div>
           {canEdit ? (
@@ -224,6 +230,30 @@ export function ReadinessView() {
             <p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p>
           </article>
         ))}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Migration safety bridge</p>
+            <h3 className="mt-1 text-lg font-semibold">Legacy production protections cannot disappear during the IR cutover</h3>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+              Enforcement v{legacyBridge.enforcementVersion ?? "?"} still contains {legacyBridge.mappingCount} compatibility protections. Each must have an explicit home in canonical command construction or typed Constraint IR before the old validator can be retired.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${legacyBridge.complete ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+            {legacyBridge.complete ? `${legacyBridge.coveredCount}/${legacyBridge.mappingCount} bridged` : `${legacyBridge.uncoveredRuleIds.length} unaccounted`}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {legacyBridge.entries.map((entry) => (
+            <div key={`${entry.ruleId}-${entry.mappingType}`} className={`rounded-xl border p-3 ${entry.covered ? "border-slate-200 bg-slate-50" : "border-red-200 bg-red-50"}`}>
+              <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs font-semibold">{entry.ruleId}</span><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{entry.layer.replaceAll("_", " ")}</span></div>
+              <p className="mt-1 text-xs font-medium text-slate-800">{entry.mappingType}</p>
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">{entry.detail}</p>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
@@ -270,7 +300,7 @@ export function ReadinessView() {
       </section>
 
       <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950">
-        <strong>Important:</strong> this page does not claim the current schedule is fully legal merely because the candidate has no IR finding. Automatic solving remains blocked until the planning gate is clear, the published model matches the current Rulebook/compiler, and the solver itself passes independent golden-fixture validation.
+        <strong>Important:</strong> this page does not claim the current schedule is fully legal merely because the candidate has no IR finding. Automatic solving remains blocked until the planning gate is clear, the published model matches the current Rulebook/compiler, every legacy protection has an explicit bridge, and the solver itself passes independent golden-fixture validation.
       </section>
     </div>
   );
