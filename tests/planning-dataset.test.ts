@@ -47,13 +47,15 @@ function fixture(): StudioState {
 }
 
 describe("planning dataset snapshot", () => {
-  it("is deterministic and order-normalized", () => {
+  it("is deterministic, order-normalized, and identifies schema 1.1", () => {
     const state = fixture();
     const snapshot = buildPlanningDatasetSnapshot(state);
+    expect(snapshot.schemaVersion).toBe("1.1");
     expect(snapshot.teacherIds).toEqual(["teacher-a", "teacher-b"]);
     expect(snapshot.rooms.map((room) => room.id)).toEqual(["room-a", "room-b"]);
     expect(snapshot.classes[0].rosterStudentIds).toEqual(["student-a", "student-b"]);
     expect(snapshot.students[1].cohortIds).toEqual(["cohort-a", "cohort-b"]);
+    expect(snapshot.sessions[0].durationMinutes).toBeNull();
   });
 
   it("ignores presentation-only and legacy teacher-eligibility changes", () => {
@@ -81,6 +83,10 @@ describe("planning dataset snapshot", () => {
     const durationChanged = fixture();
     durationChanged.classes[0].durationMinutes = 75;
     expect(planningDatasetMatches(before, buildPlanningDatasetSnapshot(durationChanged))).toBe(false);
+
+    const sessionDurationChanged = fixture();
+    sessionDurationChanged.sessions[0].durationMinutes = 75;
+    expect(planningDatasetMatches(before, buildPlanningDatasetSnapshot(sessionDurationChanged))).toBe(false);
 
     const capacityChanged = fixture();
     capacityChanged.rooms[0].capacity = 25;
