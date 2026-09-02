@@ -18,8 +18,13 @@ export function timeFromMinutes(total: number) {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export function placementEndTime(startTime: string, klass: Pick<ClassDefinition, "durationMinutes">) {
-  return timeFromMinutes(toMinutes(startTime) + klass.durationMinutes);
+export function sessionDurationMinutes(session: Pick<ClassSession, "durationMinutes">, klass: Pick<ClassDefinition, "durationMinutes">) {
+  return session.durationMinutes ?? klass.durationMinutes;
+}
+
+export function placementEndTime(startTime: string, duration: number | Pick<ClassDefinition, "durationMinutes">) {
+  const durationMinutes = typeof duration === "number" ? duration : duration.durationMinutes;
+  return timeFromMinutes(toMinutes(startTime) + durationMinutes);
 }
 
 export function defaultStartTime(day: Assignment["day"]) {
