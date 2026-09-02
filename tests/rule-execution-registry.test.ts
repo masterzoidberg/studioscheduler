@@ -80,6 +80,14 @@ describe("178-rule execution registry", () => {
     expect(executionDispositionForRule("STU-001")).toBe("NO_RUNTIME_EFFECT");
     expect(executionDispositionForRule("STU-004")).toBe("NO_RUNTIME_EFFECT");
     expect(executionDispositionForRule("CUR-007")).toBe("NO_RUNTIME_EFFECT");
+    expect(executionDispositionForRule("STU-020")).toBe("NO_RUNTIME_EFFECT");
+    expect(executionDispositionForRule("STU-021")).toBe("NO_RUNTIME_EFFECT");
+  });
+
+  it("keeps the Ballet 2 Friday exception in the soft objective layer", () => {
+    expect(executionDispositionForRule("FRI-001")).toBe("SOFT_OBJECTIVE");
+    expect(executionDispositionForRule("FRI-002")).toBe("SOFT_OBJECTIVE");
+    expect(executionDispositionForRule("FRI-003")).toBe("HARD_CONSTRAINT");
   });
 
   it("resolves the five raw NEEDS REVIEW labels from their approved semantics", () => {
