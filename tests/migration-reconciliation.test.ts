@@ -28,6 +28,8 @@ const productionTrackedMigrations = [
   "20260902122920_planning_dataset_canonical_collation_v25.sql",
   "20260902123142_planning_source_manifest_v26.sql",
   "20260902130713_rulebook_v3_post_review_confirmations.sql",
+  "20260902132207_constraint_model_versions_v27.sql",
+  "20260902133511_fluid_planning_inventory_v28.sql",
 ];
 
 const archivedProductionHotfix = "20260901041429_fix_list_studio_members_v21_return_types.sql";
