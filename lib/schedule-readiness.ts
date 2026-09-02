@@ -1,4 +1,4 @@
-import type { ClassDefinition, ClassSession, StudioState } from "@/lib/domain";
+import type { ClassDefinition, ClassSession, PlanningDatasetVersion, StudioState } from "@/lib/domain";
 import { ruleExecutionCoverage } from "@/lib/rule-execution-registry";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
@@ -19,6 +19,8 @@ export interface ScheduleReadinessReport {
   ruleCoverage: ReturnType<typeof ruleExecutionCoverage>;
   currentPlanningDatasetVersion: number | null;
   schedulePlanningDatasetVersion: number | null;
+  sourceManifestVersion: number | null;
+  sourceManifestComplete: boolean;
 }
 
 type StructureRequirement = {
@@ -46,10 +48,16 @@ export const BALLET_STRUCTURE_REQUIREMENTS: StructureRequirement[] = [
   { ruleIds: ["BAL-014"], className: "Pointe 2/3", frequency: 1, durations: [60] },
 ];
 
-const SOURCE_MANIFEST_RULE_IDS = ["CUR-001", "CUR-002", "CUR-003", "CUR-004", "STU-002"];
+const SOURCE_MANIFEST_RULE_IDS = ["CUR-001", "CUR-002", "CUR-003", "CUR-004", "CUR-005", "CUR-006", "STU-002"];
 
 const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 const sorted = (values: number[]) => [...values].sort((a, b) => a - b);
+const sortedStrings = (values: string[]) => [...values].sort();
+const sameStrings = (a: string[], b: string[]) => {
+  const left = sortedStrings(a);
+  const right = sortedStrings(b);
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+};
 
 function add(
   issues: ScheduleReadinessIssue[],
@@ -73,6 +81,87 @@ function sessionsFor(state: StudioState, klass: ClassDefinition) {
 
 function effectiveDurations(klass: ClassDefinition, sessions: ClassSession[]) {
   return sorted(sessions.map((session) => sessionDurationMinutes(session, klass)));
+}
+
+function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatasetVersion | null, issues: ScheduleReadinessIssue[]) {
+  const pin = currentPlanning?.snapshot.sourceManifest ?? null;
+  if (!pin) {
+    add(
+      issues,
+      "SOURCE_MANIFEST_NOT_PINNED",
+      "No immutable authoritative class-inventory and roster source manifest is pinned to the current Planning Dataset. The system cannot yet prove that classes or enrollments were not silently omitted, added, merged, or split.",
+      SOURCE_MANIFEST_RULE_IDS,
+    );
+    return;
+  }
+
+  if (!pin.complete) {
+    add(
+      issues,
+      "SOURCE_MANIFEST_INCOMPLETE",
+      `Planning Source Manifest v${pin.version} is pinned but is not marked complete, so automatic scheduling remains blocked.`,
+      SOURCE_MANIFEST_RULE_IDS,
+    );
+  }
+
+  if (pin.snapshot.schemaVersion !== "1.0") {
+    add(issues, "SOURCE_MANIFEST_SCHEMA_UNSUPPORTED", `Planning Source Manifest v${pin.version} uses unsupported schema ${pin.snapshot.schemaVersion}.`, SOURCE_MANIFEST_RULE_IDS);
+    return;
+  }
+
+  const manifestIds = pin.snapshot.classes.map((item) => item.id);
+  const liveIds = state.classes.map((item) => item.id);
+  if (!sameStrings(manifestIds, liveIds)) {
+    const manifestSet = new Set(manifestIds);
+    const liveSet = new Set(liveIds);
+    const missing = manifestIds.filter((id) => !liveSet.has(id));
+    const extra = liveIds.filter((id) => !manifestSet.has(id));
+    add(
+      issues,
+      "SOURCE_MANIFEST_CLASS_SET_MISMATCH",
+      `Planning data does not match the authoritative source manifest class inventory: ${missing.length} missing and ${extra.length} unmanifested class${extra.length === 1 ? "" : "es"}.`,
+      ["CUR-001", "CUR-002", "CUR-003", "CUR-004"],
+      [...missing, ...extra],
+    );
+  }
+
+  const liveById = new Map(state.classes.map((klass) => [klass.id, klass]));
+  for (const expected of pin.snapshot.classes) {
+    const klass = liveById.get(expected.id);
+    if (!klass) continue;
+    const sessions = sessionsFor(state, klass);
+    if (klass.weeklyFrequency !== expected.weeklyFrequency || sessions.length !== expected.weeklyFrequency) {
+      add(
+        issues,
+        "SOURCE_MANIFEST_FREQUENCY_MISMATCH",
+        `${klass.name} does not match Source Manifest v${pin.version}: expected ${expected.weeklyFrequency} weekly session(s), planning data has frequency ${klass.weeklyFrequency} and ${sessions.length} session row(s).`,
+        ["CUR-001", "CUR-006"],
+        [klass.id, ...sessions.map((session) => session.id)],
+      );
+    }
+
+    const actualDurations = effectiveDurations(klass, sessions);
+    const expectedDurations = sorted(expected.sessionDurations);
+    if (actualDurations.length !== expectedDurations.length || actualDurations.some((value, index) => value !== expectedDurations[index])) {
+      add(
+        issues,
+        "SOURCE_MANIFEST_DURATION_MISMATCH",
+        `${klass.name} session durations do not match Source Manifest v${pin.version}: expected ${expectedDurations.join("/")} minutes, planning data resolves to ${actualDurations.join("/") || "none"}.`,
+        ["CUR-005"],
+        [klass.id, ...sessions.map((session) => session.id)],
+      );
+    }
+
+    if (!sameStrings(klass.rosterStudentIds, expected.rosterStudentIds)) {
+      add(
+        issues,
+        "SOURCE_MANIFEST_ROSTER_MISMATCH",
+        `${klass.name}'s planning roster does not match the authoritative roster captured in Source Manifest v${pin.version}.`,
+        ["STU-002"],
+        [klass.id, ...new Set([...klass.rosterStudentIds, ...expected.rosterStudentIds])],
+      );
+    }
+  }
 }
 
 function checkStructure(state: StudioState, issues: ScheduleReadinessIssue[]) {
@@ -224,19 +313,11 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
   checkGenericPlanningIntegrity(state, issues);
   checkStructure(state, issues);
   checkAdvancedBalletParticipation(state, issues);
-
-  // The current application has no immutable source-inventory/roster manifest yet. Without
-  // that source-side manifest CUR-001..004 and STU-002 cannot be proven merely by checking
-  // that today's mutable tables are internally consistent.
-  add(
-    issues,
-    "SOURCE_MANIFEST_NOT_PINNED",
-    "The authoritative class-inventory and roster source manifest is not yet pinned to the Planning Dataset, so the system cannot prove that classes or enrollments were not silently omitted, added, merged, or split.",
-    SOURCE_MANIFEST_RULE_IDS,
-  );
+  checkSourceManifest(state, currentPlanning, issues);
 
   const blockers = issues.filter((issue) => issue.severity === "BLOCKER");
   const warnings = issues.filter((issue) => issue.severity === "WARNING");
+  const sourceManifest = currentPlanning?.snapshot.sourceManifest ?? null;
   return {
     ready: blockers.length === 0,
     blockers,
@@ -244,5 +325,7 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
     ruleCoverage,
     currentPlanningDatasetVersion: currentPlanning?.version ?? null,
     schedulePlanningDatasetVersion: schedulePlanningVersion,
+    sourceManifestVersion: sourceManifest?.version ?? null,
+    sourceManifestComplete: Boolean(sourceManifest?.complete),
   };
 }
