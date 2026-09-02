@@ -202,6 +202,9 @@ export interface PlanningDatasetVersion {
   snapshot: PlanningDatasetSnapshotV1;
   snapshotHash: string;
   status: "CURRENT" | "HISTORICAL";
+  confirmedForSchedulingAt?: string | null;
+  confirmedForSchedulingByLabel?: string | null;
+  schedulingConfirmationNote?: string | null;
 }
 
 export interface RulebookVersion {

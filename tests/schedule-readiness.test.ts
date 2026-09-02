@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ClassDefinition, ClassSession, StudioRule, StudioState } from "@/lib/domain";
+import type { ClassDefinition, ClassSession, PlanningDatasetVersion, StudioRule, StudioState } from "@/lib/domain";
 import { buildPlanningDatasetSnapshot } from "@/lib/planning-dataset";
 import { BALLET_STRUCTURE_REQUIREMENTS, evaluateScheduleReadiness } from "@/lib/schedule-readiness";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
@@ -64,7 +64,11 @@ function state(): StudioState {
     scheduleVersions: [{ id: "sv1", version: 1, rulebookVersion: 3, enforcementVersion: 1, planningDatasetVersion: 1, createdAt: now, actor: "test", reason: "test", assignments: [], isCurrent: true }],
     scenarios: [], auditEvents: [],
   };
-  base.planningDatasetVersions = [{ id: "pdv1", version: 1, createdAt: now, actor: "test", reason: "test", snapshot: buildPlanningDatasetSnapshot(base), snapshotHash: "0".repeat(64), status: "CURRENT" }];
+  base.planningDatasetVersions = [{
+    id: "pdv1", version: 1, createdAt: now, actor: "test", reason: "test",
+    snapshot: buildPlanningDatasetSnapshot(base), snapshotHash: "0".repeat(64), status: "CURRENT",
+    ...{ confirmedForSchedulingAt: now },
+  } as PlanningDatasetVersion];
   return base;
 }
 
@@ -99,15 +103,23 @@ describe("Ready-to-Schedule gate", () => {
     expect(report.blockers.some((issue) => issue.code === "CLASS_FREQUENCY_MISMATCH" && issue.ruleIds.includes("BAL-009"))).toBe(false);
   });
 
-  it("blocks automatic solving when no authoritative roster/source baseline is pinned", () => {
+  it("treats a missing external source manifest as a warning for fluid inventory", () => {
     const report = evaluateScheduleReadiness(state());
-    expect(report.ready).toBe(false);
-    const source = report.blockers.find((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED");
-    expect(source?.severity).toBe("BLOCKER");
-    expect(source?.message).toContain("automatic solving is blocked");
-    expect(report.warnings.some((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED")).toBe(false);
+    expect(report.blockers.some((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED")).toBe(false);
+    const source = report.warnings.find((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED");
+    expect(source?.severity).toBe("WARNING");
+    expect(source?.message).toContain("allowed for fluid planning");
     expect(report.sourceManifestVersion).toBeNull();
     expect(report.sourceManifestComplete).toBe(false);
+  });
+
+  it("blocks automatic solving until the current immutable Planning Dataset version is confirmed", () => {
+    const s = state();
+    const current = s.planningDatasetVersions![0] as PlanningDatasetVersion & { confirmedForSchedulingAt?: string | null };
+    current.confirmedForSchedulingAt = null;
+    const report = evaluateScheduleReadiness(s);
+    expect(report.planningDatasetConfirmed).toBe(false);
+    expect(report.blockers).toContainEqual(expect.objectContaining({ code: "PLANNING_DATASET_NOT_CONFIRMED" }));
   });
 
   it("uses a complete source manifest as provenance while later roster drift remains a warning", () => {

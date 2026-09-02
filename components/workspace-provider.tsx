@@ -121,7 +121,12 @@ function mapPlanningDatasetVersion(row: Record<string, unknown>): PlanningDatase
     id: String(row.id), version: Number(row.version), createdAt: String(row.created_at), actor: String(row.actor_label || ""),
     reason: String(row.reason || ""), snapshot: row.snapshot as PlanningDatasetVersion["snapshot"], snapshotHash: String(row.snapshot_hash || ""),
     status: row.status as PlanningDatasetVersion["status"],
-  };
+    ...{
+      confirmedForSchedulingAt: row.confirmed_for_scheduling_at ? String(row.confirmed_for_scheduling_at) : null,
+      confirmedForSchedulingByLabel: row.confirmed_for_scheduling_by_label ? String(row.confirmed_for_scheduling_by_label) : null,
+      schedulingConfirmationNote: row.scheduling_confirmation_note ? String(row.scheduling_confirmation_note) : null,
+    },
+  } as PlanningDatasetVersion;
 }
 
 function mapEnforcementProposal(row: Record<string, unknown>): RuleEnforcementProposal {

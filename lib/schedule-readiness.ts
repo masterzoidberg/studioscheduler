@@ -24,6 +24,7 @@ export interface ScheduleReadinessReport {
   schedulePlanningDatasetVersion: number | null;
   sourceManifestVersion: number | null;
   sourceManifestComplete: boolean;
+  planningDatasetConfirmed: boolean;
 }
 
 type StructureRequirement = {
@@ -95,17 +96,20 @@ function effectiveDurations(klass: ClassDefinition, sessions: ClassSession[]) {
   return sorted(sessions.map((session) => sessionDurationMinutes(session, klass)));
 }
 
-// A source manifest is optional for ordinary editing, but automatic solving has a
-// stronger provenance burden. STU-002 says the uploaded rosters are authoritative,
-// so the solver must be able to prove the baseline enrollment set it started from.
+// External source manifests are optional provenance/comparison baselines. DWDE's
+// working teachers, dancers, rooms, classes and rosters are intentionally fluid.
+// Solver provenance is established by confirming the immutable current
+// PlanningDatasetVersion after the manager has reviewed those working facts.
 function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatasetVersion | null, issues: ScheduleReadinessIssue[]) {
   const pin = currentPlanning?.snapshot.sourceManifest ?? null;
   if (!pin) {
     add(
       issues,
       "SOURCE_MANIFEST_NOT_PINNED",
-      "No complete roster/source baseline is pinned. Manual planning can continue, but automatic solving is blocked because the authoritative 2026-27 enrollment baseline cannot be reproduced.",
+      "No external roster/source manifest is pinned. This is allowed for fluid planning; the confirmed current Planning Dataset is the scheduling authority.",
       SOURCE_MANIFEST_RULE_IDS,
+      [],
+      "WARNING",
     );
     return;
   }
@@ -114,8 +118,10 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
     add(
       issues,
       "SOURCE_MANIFEST_INCOMPLETE",
-      `Planning Source Manifest v${pin.version} is incomplete. Automatic solving requires a complete authoritative roster/source baseline before it may generate a schedule.`,
+      `Planning Source Manifest v${pin.version} is incomplete and is treated only as a provenance baseline.`,
       SOURCE_MANIFEST_RULE_IDS,
+      [],
+      "WARNING",
     );
   }
 
@@ -123,8 +129,10 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
     add(
       issues,
       "SOURCE_MANIFEST_SCHEMA_UNSUPPORTED",
-      `Planning Source Manifest v${pin.version} uses unsupported schema ${pin.snapshot.schemaVersion}; automatic solving cannot verify the baseline against current planning data.`,
+      `Planning Source Manifest v${pin.version} uses unsupported schema ${pin.snapshot.schemaVersion}; it cannot be compared to current planning data.`,
       SOURCE_MANIFEST_RULE_IDS,
+      [],
+      "WARNING",
     );
     return;
   }
@@ -139,7 +147,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
     add(
       issues,
       "SOURCE_MANIFEST_CLASS_SET_MISMATCH",
-      `Current planning inventory differs from Source Manifest v${pin.version}: ${missing.length} former class${missing.length === 1 ? "" : "es"} absent and ${extra.length} newer class${extra.length === 1 ? "" : "es"} present. This is recorded drift, not automatic illegality after the baseline has been established.`,
+      `Current planning inventory differs from Source Manifest v${pin.version}: ${missing.length} former class${missing.length === 1 ? "" : "es"} absent and ${extra.length} newer class${extra.length === 1 ? "" : "es"} present. This is recorded drift, not automatic illegality.`,
       ["CUR-001", "CUR-002", "CUR-003", "CUR-004"],
       [...missing, ...extra],
       "WARNING",
@@ -179,7 +187,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
       add(
         issues,
         "SOURCE_MANIFEST_ROSTER_MISMATCH",
-        `${klass.name}'s current roster differs from Source Manifest v${pin.version}. Current Planning Dataset enrollment is authoritative after the baseline was established.`,
+        `${klass.name}'s current roster differs from Source Manifest v${pin.version}. The confirmed current Planning Dataset is authoritative.`,
         ["STU-002"],
         [klass.id, ...new Set([...klass.rosterStudentIds, ...expected.rosterStudentIds])],
         "WARNING",
@@ -369,6 +377,10 @@ function checkConstraintBindings(state: StudioState, issues: ScheduleReadinessIs
   return binding;
 }
 
+function planningConfirmation(currentPlanning: PlanningDatasetVersion | null) {
+  return currentPlanning as (PlanningDatasetVersion & { confirmedForSchedulingAt?: string | null }) | null;
+}
+
 export function evaluateScheduleReadiness(state: StudioState): ScheduleReadinessReport {
   const issues: ScheduleReadinessIssue[] = [];
   const ruleCoverage = ruleExecutionCoverage(state.rules);
@@ -384,17 +396,28 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
   const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
   const currentSchedule = state.scheduleVersions.find((version) => version.isCurrent) ?? null;
   const schedulePlanningVersion = currentSchedule?.planningDatasetVersion ?? null;
+  const confirmedPlanning = planningConfirmation(currentPlanning);
+  const planningDatasetConfirmed = Boolean(confirmedPlanning?.confirmedForSchedulingAt);
 
   if (!currentPlanning) {
     add(issues, "PLANNING_DATASET_VERSION_MISSING", "No current PlanningDatasetVersion is loaded. Automatic scheduling cannot prove which mutable facts it is using.");
-  } else if (schedulePlanningVersion !== currentPlanning.version) {
-    add(
-      issues,
-      "SCHEDULE_PLANNING_DATASET_STALE",
-      `Current Schedule v${currentSchedule?.version ?? "?"} is pinned to Planning Dataset v${schedulePlanningVersion ?? "unversioned"}, while Planning Dataset v${currentPlanning.version} is current.`,
-      [],
-      currentSchedule ? [currentSchedule.id] : [],
-    );
+  } else {
+    if (!planningDatasetConfirmed) {
+      add(
+        issues,
+        "PLANNING_DATASET_NOT_CONFIRMED",
+        `Planning Dataset v${currentPlanning.version} has not been reviewed and confirmed for automatic scheduling since the latest planning-data change.`,
+      );
+    }
+    if (schedulePlanningVersion !== currentPlanning.version) {
+      add(
+        issues,
+        "SCHEDULE_PLANNING_DATASET_STALE",
+        `Current Schedule v${currentSchedule?.version ?? "?"} is pinned to Planning Dataset v${schedulePlanningVersion ?? "unversioned"}, while Planning Dataset v${currentPlanning.version} is current.`,
+        [],
+        currentSchedule ? [currentSchedule.id] : [],
+      );
+    }
   }
 
   checkGenericPlanningIntegrity(state, issues);
@@ -417,5 +440,6 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
     schedulePlanningDatasetVersion: schedulePlanningVersion,
     sourceManifestVersion: sourceManifest?.version ?? null,
     sourceManifestComplete: Boolean(sourceManifest?.complete),
+    planningDatasetConfirmed,
   };
 }
