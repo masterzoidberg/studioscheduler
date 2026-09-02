@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Cpu, Database, RefreshCw, ShieldCheck } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
@@ -16,6 +16,16 @@ type PublishedModel = {
   snapshotHash: string;
   complete: boolean;
 };
+
+function mapPublished(data: Record<string, unknown>): PublishedModel {
+  return {
+    version: Number(data.version),
+    rulebookVersion: Number(data.rulebook_version),
+    compilerVersion: String(data.compiler_version),
+    snapshotHash: String(data.snapshot_hash),
+    complete: Boolean(data.complete_hard_constraint_compilation),
+  };
+}
 
 export function ReadinessView() {
   const {
@@ -40,64 +50,32 @@ export function ReadinessView() {
     [state, model, currentAssignments],
   );
 
-  const loadPublished = useCallback(async () => {
+  useEffect(() => {
     if (!state) return;
-    const { data, error } = await getBrowserSupabase()
+    let active = true;
+    void getBrowserSupabase()
       .from("constraint_model_versions")
       .select("version,rulebook_version,compiler_version,snapshot_hash,complete_hard_constraint_compilation")
       .eq("studio_id", state.studioId)
       .eq("status", "CURRENT")
-      .maybeSingle();
-
-    if (error) {
-      setNotice(error.message);
-      setPublished(null);
-    } else if (data) {
-      setPublished({
-        version: Number(data.version),
-        rulebookVersion: Number(data.rulebook_version),
-        compilerVersion: String(data.compiler_version),
-        snapshotHash: String(data.snapshot_hash),
-        complete: Boolean(data.complete_hard_constraint_compilation),
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          setNotice(error.message);
+          setPublished(null);
+        } else {
+          setPublished(data ? mapPublished(data as Record<string, unknown>) : null);
+        }
+        setPublishedLoaded(true);
       });
-    } else {
-      setPublished(null);
-    }
-    setPublishedLoaded(true);
+    return () => { active = false; };
   }, [state]);
-
-  const syncModel = useCallback(async (automatic = false) => {
-    if (!definition || !canEdit || syncing) return;
-    setSyncing(true);
-    if (!automatic) setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("publish_constraint_model_v30", {
-      p_snapshot: definition,
-      p_reason: automatic
-        ? `Automatic engineering sync of ${definition.compilerVersion} for Rulebook v${definition.rulebookVersion}`
-        : `Engineering sync of ${definition.compilerVersion} for Rulebook v${definition.rulebookVersion}`,
-      p_expected_rulebook_version: currentRulebookVersion,
-    });
-    setSyncing(false);
-    if (error) {
-      setNotice(`Constraint model sync failed: ${error.message}`);
-      return;
-    }
-    const result = (data || {}) as Record<string, unknown>;
-    setNotice(
-      result.alreadyCurrent
-        ? `Constraint Model v${String(result.constraintModelVersion)} is already current.`
-        : `Published Constraint Model v${String(result.constraintModelVersion)} from the tested TypeScript compiler.`,
-    );
-    await loadPublished();
-  }, [definition, canEdit, syncing, currentRulebookVersion, loadPublished]);
-
-  useEffect(() => {
-    void loadPublished();
-  }, [loadPublished]);
 
   useEffect(() => {
     if (
       autoSyncAttempted.current
+      || !state
       || !publishedLoaded
       || !canEdit
       || !definition
@@ -109,8 +87,66 @@ export function ReadinessView() {
       || published.rulebookVersion !== definition.rulebookVersion
       || published.compilerVersion !== definition.compilerVersion
       || !published.complete;
-    if (stale) void syncModel(true);
-  }, [publishedLoaded, canEdit, definition, model, published, syncModel]);
+    if (!stale) return;
+
+    let active = true;
+    void getBrowserSupabase().rpc("publish_constraint_model_v30", {
+      p_snapshot: definition,
+      p_reason: `Automatic engineering sync of ${definition.compilerVersion} for Rulebook v${definition.rulebookVersion}`,
+      p_expected_rulebook_version: currentRulebookVersion,
+    }).then(async ({ data, error }) => {
+      if (!active) return;
+      if (error) {
+        setNotice(`Constraint model sync failed: ${error.message}`);
+        return;
+      }
+      const result = (data || {}) as Record<string, unknown>;
+      setNotice(
+        result.alreadyCurrent
+          ? `Constraint Model v${String(result.constraintModelVersion)} is already current.`
+          : `Published Constraint Model v${String(result.constraintModelVersion)} from the tested TypeScript compiler.`,
+      );
+      const query = await getBrowserSupabase()
+        .from("constraint_model_versions")
+        .select("version,rulebook_version,compiler_version,snapshot_hash,complete_hard_constraint_compilation")
+        .eq("studio_id", state.studioId)
+        .eq("status", "CURRENT")
+        .maybeSingle();
+      if (!active) return;
+      if (!query.error) setPublished(query.data ? mapPublished(query.data as Record<string, unknown>) : null);
+    });
+    return () => { active = false; };
+  }, [state, publishedLoaded, canEdit, definition, model, published, currentRulebookVersion]);
+
+  async function syncModel() {
+    if (!state || !definition || !canEdit || syncing) return;
+    setSyncing(true);
+    setNotice("");
+    const { data, error } = await getBrowserSupabase().rpc("publish_constraint_model_v30", {
+      p_snapshot: definition,
+      p_reason: `Engineering sync of ${definition.compilerVersion} for Rulebook v${definition.rulebookVersion}`,
+      p_expected_rulebook_version: currentRulebookVersion,
+    });
+    if (error) {
+      setSyncing(false);
+      setNotice(`Constraint model sync failed: ${error.message}`);
+      return;
+    }
+    const result = (data || {}) as Record<string, unknown>;
+    setNotice(
+      result.alreadyCurrent
+        ? `Constraint Model v${String(result.constraintModelVersion)} is already current.`
+        : `Published Constraint Model v${String(result.constraintModelVersion)} from the tested TypeScript compiler.`,
+    );
+    const query = await getBrowserSupabase()
+      .from("constraint_model_versions")
+      .select("version,rulebook_version,compiler_version,snapshot_hash,complete_hard_constraint_compilation")
+      .eq("studio_id", state.studioId)
+      .eq("status", "CURRENT")
+      .maybeSingle();
+    if (!query.error) setPublished(query.data ? mapPublished(query.data as Record<string, unknown>) : null);
+    setSyncing(false);
+  }
 
   if (!state || !model || !definition || !readiness || !engine) return null;
 
@@ -169,7 +205,7 @@ export function ReadinessView() {
           {canEdit ? (
             <button
               disabled={syncing || !model.completeHardConstraintCompilation}
-              onClick={() => void syncModel(false)}
+              onClick={() => void syncModel()}
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50"
             >
               <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} />
