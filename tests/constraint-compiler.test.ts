@@ -15,11 +15,13 @@ function rule(id: string): StudioRule {
   const descriptions: Record<string, string> = {
     "OPS-001": "Regular weekday classes may not start before 4:45 PM unless a level-specific exception applies.",
     "OPS-002": "Only Elementary 1, Elementary 2, Level 4B, Level 4B/5, and Level 5 may start at 4:30 PM when needed. All other regular weekday classes have a HARD 4:45 PM earliest start. 4:45 PM remains the preferred normal weekday start time for all classes, including the exception levels.",
+    "AIM-006": "Do not extend studio operating hours simply to accommodate Aimee.",
     "ADV-001": "For relevant Level 4B and Level 5 dancers marked as required, the dancer must take the immediately lower-level class in the same subject.",
     "ADV-002": "Required lower-level participation applies across Ballet, Jazz, Tap, and Contemporary where indicated by the rosters.",
     "ADV-003": "The required lower-level class does not have to occur on the same day as the advanced class.",
     "ADV-004": "For Kiran Landis, the normal lower-level requirement does not apply to Jazz or Contemporary. Kiran's extra/lower-level Tap class remains a HARD requirement. Kiran's Ballet placement and training remain a priority, but Ballet is not treated as a HARD lower-level requirement under this exception.",
     "CUR-009": "Do not remove required lower-level participation unless Cami explicitly changes the rule.",
+    "SEQ-004": "Because the matching Ballet class may meet more than once weekly while Pointe/Pre-Pointe meets once, the adjacency requirement applies to one designated Ballet meeting, not every Ballet meeting.",
   };
   return {
     id,
@@ -73,7 +75,7 @@ describe("canonical Constraint IR compiler", () => {
     const model = compileConstraintModel(state());
     expect(model).toMatchObject({
       schemaVersion: "1.0",
-      compilerVersion: "dwde-ir-0.2",
+      compilerVersion: "dwde-ir-0.3",
       rulebookVersion: 3,
       planningDatasetVersion: 3,
       activeRuleCount: 178,
@@ -104,6 +106,16 @@ describe("canonical Constraint IR compiler", () => {
     });
   });
 
+  it("compiles Aimee's operating-window guard without inventing a separate window", () => {
+    const model = compileConstraintModel(state());
+    expect(findConstraint(model, "aimee-no-operating-hours-extension")).toMatchObject({
+      kind: "TEACHER_DAY_WINDOW",
+      ruleIds: ["AIM-006"],
+      selector: { teacherNames: ["Aimee"] },
+      parameters: { inheritStudioOperatingWindows: true, mayExtendOperatingHours: false },
+    });
+  });
+
   it("compiles Kiran's V3 progression exception with Tap HARD and Ballet priority only", () => {
     const model = compileConstraintModel(state());
     expect(findConstraint(model, "required-lower-level-progression")).toMatchObject({
@@ -121,6 +133,15 @@ describe("canonical Constraint IR compiler", () => {
         }],
       },
     });
+  });
+
+  it("applies the designated-meeting interpretation to all Pointe adjacency constraints", () => {
+    const model = compileConstraintModel(state());
+    for (const id of ["ballet-3-pre-pointe", "ballet-4a-pointe-1", "ballet-4b5-pointe-23"]) {
+      const node = findConstraint(model, id);
+      expect(node?.ruleIds).toContain("SEQ-004");
+      expect(node?.parameters).toMatchObject({ designatedWeeklyMeeting: true, appliesToEveryMatchingBalletMeeting: false });
+    }
   });
 
   it("structures teacher, room, sequence, fixed-anchor, and relationship rules without legacy class eligibility arrays", () => {
@@ -153,15 +174,10 @@ describe("canonical Constraint IR compiler", () => {
     expect(model.hardConstraints.some((node) => node.ruleIds.includes("DATA-008") || node.ruleIds.includes("STU-001"))).toBe(false);
   });
 
-  it("removes resolved V3 semantics from the uncompiled set but remains explicitly partial", () => {
+  it("accounts for every rule assigned to the Constraint IR layer", () => {
     const model = compileConstraintModel(state());
-    expect(model.completeHardConstraintCompilation).toBe(false);
-    expect(model.uncompiledConstraintRuleIds).not.toContain("OPS-001");
-    expect(model.uncompiledConstraintRuleIds).not.toContain("ADV-001");
-    expect(model.uncompiledConstraintRuleIds).not.toContain("ADV-004");
-    expect(model.uncompiledConstraintRuleIds).not.toContain("CUR-009");
-    expect(model.uncompiledConstraintRuleIds).toContain("AIM-006");
-    expect(model.uncompiledConstraintRuleIds.length).toBeGreaterThan(0);
+    expect(model.completeHardConstraintCompilation).toBe(true);
+    expect(model.uncompiledConstraintRuleIds).toEqual([]);
   });
 
   it("is deterministic when Rulebook input order changes", () => {
