@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const sql = readFileSync(
-  resolve(process.cwd(), "supabase/pending/session_duration_and_planning_rebase_v25.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260902083652_session_duration_and_planning_rebase_v25.sql"),
   "utf8",
 );
 
