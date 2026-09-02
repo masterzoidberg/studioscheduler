@@ -20,9 +20,26 @@ export function PlanningDatasetConfirmationCard() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
 
-  async function load() {
+  useEffect(() => {
     if (!state) return;
-    setLoading(true);
+    let active = true;
+    void getBrowserSupabase()
+      .from("planning_dataset_versions")
+      .select("version,snapshot_hash,confirmed_for_scheduling_at,confirmed_for_scheduling_by_label,scheduling_confirmation_note")
+      .eq("studio_id", state.studioId)
+      .eq("status", "CURRENT")
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) setNotice(error.message);
+        else setRow(data as ConfirmationRow | null);
+        setLoading(false);
+      });
+    return () => { active = false; };
+  }, [state, currentPlanningDatasetVersion]);
+
+  async function refreshConfirmation() {
+    if (!state) return;
     const { data, error } = await getBrowserSupabase()
       .from("planning_dataset_versions")
       .select("version,snapshot_hash,confirmed_for_scheduling_at,confirmed_for_scheduling_by_label,scheduling_confirmation_note")
@@ -31,10 +48,7 @@ export function PlanningDatasetConfirmationCard() {
       .maybeSingle();
     if (error) setNotice(error.message);
     else setRow(data as ConfirmationRow | null);
-    setLoading(false);
   }
-
-  useEffect(() => { void load(); }, [state, currentPlanningDatasetVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function confirm() {
     if (!canEdit || saving) return;
@@ -48,7 +62,7 @@ export function PlanningDatasetConfirmationCard() {
     else {
       const result = (data || {}) as Record<string, unknown>;
       setNotice(`Planning Dataset v${String(result.planningDatasetVersion || currentPlanningDatasetVersion)} confirmed for scheduling.`);
-      await load();
+      await refreshConfirmation();
     }
     setSaving(false);
   }
