@@ -9,6 +9,7 @@ import type {
   ValidationResult,
   ValidationViolation,
 } from "@/lib/domain";
+import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 
@@ -95,7 +96,8 @@ export function validateSchedule(state: StudioState, assignments?: Assignment[])
   const teachers = new Map(state.teachers.map((item) => [item.id, item]));
   const rooms = new Map(state.rooms.map((item) => [item.id, item]));
   const rules = new Map(state.rules.map((item) => [item.id, item]));
-  const classFor = (assignment: Assignment) => classes.get(sessions.get(assignment.sessionId)?.classId || "");
+  const sessionFor = (assignment: Assignment) => sessions.get(assignment.sessionId);
+  const classFor = (assignment: Assignment) => classes.get(sessionFor(assignment)?.classId || "");
 
   // Referential-integrity failures are system failures, not inferred Rulebook mappings.
   for (const assignment of current) {
@@ -114,9 +116,12 @@ export function validateSchedule(state: StudioState, assignments?: Assignment[])
 
     if (mapping.type === "CLASS_DURATION") {
       for (const assignment of current) {
+        const session = sessionFor(assignment);
         const klass = classFor(assignment);
-        if (klass && minutes(assignment.endTime) - minutes(assignment.startTime) !== klass.durationMinutes) {
-          violations.push(violation(rule, `${klass.name} must preserve its ${klass.durationMinutes}-minute curriculum duration.`, [assignment], [klass.id]));
+        if (!session || !klass) continue;
+        const expectedDuration = sessionDurationMinutes(session, klass);
+        if (minutes(assignment.endTime) - minutes(assignment.startTime) !== expectedDuration) {
+          violations.push(violation(rule, `${klass.name} must preserve its ${expectedDuration}-minute session duration.`, [assignment], [klass.id, session.id]));
         }
       }
     }
