@@ -309,7 +309,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   async function applySchedulePatch(patch: SchedulePatch): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
-    if (patch.operation !== "MOVE") return { ok: false, error: "V2.2 applies moves to existing assignments. Add/unassign belongs to the later full schedule-builder workflow." };
+    if (patch.operation !== "MOVE") return { ok: false, error: "This command path moves an existing assignment only." };
     if (scheduleIsStale) return {
       ok: false,
       error: `Schedule v${currentScheduleVersion} is linked to Rulebook v${currentScheduleRulebookVersion} / Enforcement v${currentScheduleEnforcementVersion} / Planning Dataset v${currentSchedulePlanningDatasetVersion || "unversioned"}. Revalidate it against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} / Planning Dataset v${currentPlanningDatasetVersion} first.`,
@@ -325,11 +325,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (validation.hardViolations > 0 && preview.hardViolations >= validation.hardViolations) {
       return { ok: false, error: `Repair mode: this schedule currently has ${validation.hardViolations} HARD violation(s). A move must strictly reduce that count.`, validation: preview };
     }
+    const changes = {
+      day: patch.changes.day ?? existing.day,
+      startTime: patch.changes.startTime ?? existing.startTime,
+      teacherId: patch.changes.teacherId ?? existing.teacherId,
+      roomId: patch.changes.roomId ?? existing.roomId,
+      status: patch.changes.status ?? existing.status ?? "NORMAL",
+    };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("apply_schedule_patch_v22", {
-        p_assignment_id: patch.assignmentId, p_changes: patch.changes, p_reason: patch.reason,
-        p_expected_schedule_version: currentScheduleVersion, p_expected_rulebook_version: currentRulebookVersion,
-        p_expected_enforcement_version: currentEnforcementVersion, p_ai_proposed: patch.proposedBy === "AI",
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("apply_schedule_command_v25", {
+        p_operation: "MOVE",
+        p_assignment_id: patch.assignmentId,
+        p_session_id: existing.sessionId,
+        p_changes: changes,
+        p_reason: patch.reason,
+        p_expected_schedule_version: currentScheduleVersion,
+        p_expected_rulebook_version: currentRulebookVersion,
+        p_expected_enforcement_version: currentEnforcementVersion,
+        p_expected_planning_dataset_version: currentPlanningDatasetVersion,
+        p_ai_proposed: patch.proposedBy === "AI",
       });
       if (rpcError) throw rpcError;
       const details = object(data); await load();
