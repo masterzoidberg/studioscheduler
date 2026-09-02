@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { StudioState } from "@/lib/domain";
+import type { PlanningDatasetVersion, StudioState } from "@/lib/domain";
 import { buildPlanningDatasetSnapshot, planningDatasetMatches } from "@/lib/planning-dataset";
 
 function fixture(): StudioState {
@@ -47,15 +47,46 @@ function fixture(): StudioState {
 }
 
 describe("planning dataset snapshot", () => {
-  it("is deterministic, order-normalized, and identifies schema 1.1", () => {
+  it("is deterministic, order-normalized, and identifies schema 1.2", () => {
     const state = fixture();
     const snapshot = buildPlanningDatasetSnapshot(state);
-    expect(snapshot.schemaVersion).toBe("1.1");
+    expect(snapshot.schemaVersion).toBe("1.2");
+    expect(snapshot.sourceManifest).toBeNull();
     expect(snapshot.teacherIds).toEqual(["teacher-a", "teacher-b"]);
     expect(snapshot.rooms.map((room) => room.id)).toEqual(["room-a", "room-b"]);
     expect(snapshot.classes[0].rosterStudentIds).toEqual(["student-a", "student-b"]);
     expect(snapshot.students[1].cohortIds).toEqual(["cohort-a", "cohort-b"]);
     expect(snapshot.sessions[0].durationMinutes).toBeNull();
+  });
+
+  it("pins the current source manifest identity into rebuilt snapshots", () => {
+    const state = fixture();
+    const current: PlanningDatasetVersion = {
+      id: "pdv-1",
+      version: 1,
+      createdAt: "2026-09-02T00:00:00Z",
+      actor: "test",
+      reason: "test",
+      snapshotHash: "a".repeat(64),
+      status: "CURRENT",
+      snapshot: {
+        ...buildPlanningDatasetSnapshot(state),
+        sourceManifest: {
+          version: 7,
+          snapshotHash: "b".repeat(64),
+          complete: true,
+          snapshot: {
+            schemaVersion: "1.0",
+            sources: [{ sourceId: "rosters", kind: "ROSTER", label: "2026-27 rosters", sha256: "c".repeat(64) }],
+            classes: [{ id: "class-a", name: "Ballet 1", weeklyFrequency: 1, sessionDurations: [60], rosterStudentIds: ["student-a", "student-b"] }],
+          },
+        },
+      },
+    };
+    state.planningDatasetVersions = [current];
+    const rebuilt = buildPlanningDatasetSnapshot(state);
+    expect(rebuilt.sourceManifest?.version).toBe(7);
+    expect(rebuilt.sourceManifest?.complete).toBe(true);
   });
 
   it("uses locale-independent code-unit ordering for canonical values", () => {
