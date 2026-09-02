@@ -8,13 +8,17 @@ const sortStrings = (values: string[] | undefined) => [...(values || [])].sort(c
 export function buildPlanningDatasetSnapshot(state: StudioState): PlanningDatasetSnapshotV1 {
   const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
   return {
-    schemaVersion: "1.2",
+    schemaVersion: "1.3",
     studioId: state.studioId,
     sourceManifest: currentPlanning?.snapshot.sourceManifest ?? null,
     teacherIds: state.teachers.map((teacher) => teacher.id).sort(compareCanonicalStrings),
+    teachers: state.teachers
+      .map((teacher) => ({ id: teacher.id, name: teacher.name }))
+      .sort((a, b) => compareCanonicalStrings(a.id, b.id)),
     rooms: state.rooms
       .map((room) => ({
         id: room.id,
+        name: room.name,
         capacity: room.capacity ?? null,
         features: sortStrings(room.features),
       }))
@@ -22,6 +26,7 @@ export function buildPlanningDatasetSnapshot(state: StudioState): PlanningDatase
     students: state.students
       .map((student) => ({
         id: student.id,
+        name: student.name,
         level: student.level,
         cohortIds: sortStrings(student.cohortIds),
       }))
@@ -29,12 +34,14 @@ export function buildPlanningDatasetSnapshot(state: StudioState): PlanningDatase
     cohorts: state.cohorts
       .map((cohort) => ({
         id: cohort.id,
+        name: cohort.name,
         studentIds: sortStrings(cohort.studentIds),
       }))
       .sort((a, b) => compareCanonicalStrings(a.id, b.id)),
     classes: state.classes
       .map((klass) => ({
         id: klass.id,
+        name: klass.name,
         subject: klass.subject,
         level: klass.level,
         durationMinutes: klass.durationMinutes,
