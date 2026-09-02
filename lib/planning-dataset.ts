@@ -4,7 +4,7 @@ const sortStrings = (values: string[] | undefined) => [...(values || [])].sort((
 
 export function buildPlanningDatasetSnapshot(state: StudioState): PlanningDatasetSnapshotV1 {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     studioId: state.studioId,
     teacherIds: state.teachers.map((teacher) => teacher.id).sort((a, b) => a.localeCompare(b)),
     rooms: state.rooms
@@ -44,6 +44,7 @@ export function buildPlanningDatasetSnapshot(state: StudioState): PlanningDatase
         classId: session.classId,
         ordinal: session.ordinal,
         locked: Boolean(session.locked),
+        durationMinutes: session.durationMinutes ?? null,
       }))
       .sort((a, b) => a.id.localeCompare(b.id)),
   };
