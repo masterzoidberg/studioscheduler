@@ -143,6 +143,36 @@ export interface ClassDefinition { id: string; name: string; subject: string; le
 export interface ClassSession { id: string; classId: string; ordinal: number; locked?: boolean; }
 export interface Assignment { id: string; sessionId: string; day: Day; startTime: string; endTime: string; teacherId: string; roomId: string; locked?: boolean; status?: "NORMAL" | "WARNING" | "AI_PROPOSED"; }
 
+export interface PlanningDatasetSnapshotV1 {
+  schemaVersion: "1.0";
+  studioId: string;
+  teacherIds: string[];
+  rooms: Array<{ id: string; capacity: number | null; features: string[] }>;
+  students: Array<{ id: string; level: string; cohortIds: string[] }>;
+  cohorts: Array<{ id: string; studentIds: string[] }>;
+  classes: Array<{
+    id: string;
+    subject: string;
+    level: string;
+    durationMinutes: number;
+    weeklyFrequency: number;
+    rosterStudentIds: string[];
+    companyOnly: boolean;
+  }>;
+  sessions: Array<{ id: string; classId: string; ordinal: number; locked: boolean }>;
+}
+
+export interface PlanningDatasetVersion {
+  id: string;
+  version: number;
+  createdAt: string;
+  actor: string;
+  reason: string;
+  snapshot: PlanningDatasetSnapshotV1;
+  snapshotHash: string;
+  status: "CURRENT" | "HISTORICAL";
+}
+
 export interface RulebookVersion {
   id: string; version: number; name: string; createdAt: string; actor: string; reason: string; changedRuleIds: string[];
   rulebookId?: string; status?: "CURRENT" | "HISTORICAL"; importedAt?: string; sourceHash?: string; sourceFileHash?: string;
@@ -153,7 +183,7 @@ export interface RuleHistoryEntry { id: string; ruleId: string; rulebookVersion:
 export interface ValidationViolation { constraintId: string; severity: RuleStrength; message: string; affectedEntityIds: string[]; assignmentIds: string[]; suggestedAction?: string; }
 export interface ValidatorCoverage { applicableHardRules: number; implementedHardRules: number; partialHardRules: number; notImplementedHardRules: number; notApplicableHardRules?: number; uncoveredHardRuleIds: string[]; }
 export interface ValidationResult { valid: boolean; fullyValidated: boolean; hardViolations: number; warnings: number; violations: ValidationViolation[]; coverage: ValidatorCoverage; enforcementVersion?: number; }
-export interface ScheduleVersion { id: string; version: number; rulebookVersion: number; enforcementVersion: number; createdAt: string; actor: string; reason: string; assignments: Assignment[]; isCurrent?: boolean; validationResult?: ValidationResult | null; }
+export interface ScheduleVersion { id: string; version: number; rulebookVersion: number; enforcementVersion: number; planningDatasetVersion?: number; createdAt: string; actor: string; reason: string; assignments: Assignment[]; isCurrent?: boolean; validationResult?: ValidationResult | null; }
 
 export interface RulePatch {
   id: string; ruleId?: string; operation: "CREATE" | "UPDATE" | "RETIRE" | "DISABLE" | "ENABLE"; changes: Partial<StudioRule>;
@@ -164,7 +194,7 @@ export interface SchedulePatch {
   reason: string; proposedBy: "USER" | "AI"; baseRulebookVersion?: number; baseScheduleVersion?: number; baseEnforcementVersion?: number;
 }
 
-export interface Scenario { id: string; name: string; baseRulebookVersion: number; baseScheduleVersion: number; baseEnforcementVersion?: number; rulePatches: RulePatch[]; schedulePatches: SchedulePatch[]; createdAt: string; }
+export interface Scenario { id: string; name: string; baseRulebookVersion: number; baseScheduleVersion: number; baseEnforcementVersion?: number; basePlanningDatasetVersion?: number; rulePatches: RulePatch[]; schedulePatches: SchedulePatch[]; createdAt: string; }
 export interface AuditEvent { id: string; at: string; actor: string; action: string; entityType: string; entityId?: string; detail: string; }
 export interface StudioMember { userId: string; role: StudioRole; displayName?: string; email?: string; createdAt?: string; }
 export interface StudioInvite { id: string; email: string; role: StudioRole; createdAt: string; acceptedAt?: string | null; }
@@ -180,6 +210,7 @@ export interface StudioState {
   rules: StudioRule[];
   rulebookVersions: RulebookVersion[];
   enforcementVersions: RuleEnforcementVersion[];
+  planningDatasetVersions?: PlanningDatasetVersion[];
   enforcementProposals: RuleEnforcementProposal[];
   ruleHistory: RuleHistoryEntry[];
   scheduleVersions: ScheduleVersion[];
