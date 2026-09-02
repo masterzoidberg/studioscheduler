@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ClassDefinition, ClassSession, StudioRule, StudioState } from "@/lib/domain";
 import { buildPlanningDatasetSnapshot } from "@/lib/planning-dataset";
 import { BALLET_STRUCTURE_REQUIREMENTS, evaluateScheduleReadiness } from "@/lib/schedule-readiness";
+import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
 const now = "2026-09-02T08:00:00Z";
 const prefixCounts: Record<string, number> = {
@@ -67,6 +68,29 @@ function state(): StudioState {
   return base;
 }
 
+function pinCompleteSourceManifest(s: StudioState) {
+  const current = s.planningDatasetVersions!.find((version) => version.status === "CURRENT")!;
+  current.snapshot.sourceManifest = {
+    version: 1,
+    snapshotHash: "f".repeat(64),
+    complete: true,
+    snapshot: {
+      schemaVersion: "1.0",
+      sources: [{ sourceId: "authoritative-rosters", kind: "ROSTER_SET", label: "Authoritative 2026-27 class and roster sources", sha256: "e".repeat(64) }],
+      classes: s.classes.map((klass) => {
+        const sessions = s.sessions.filter((session) => session.classId === klass.id).sort((a, b) => a.ordinal - b.ordinal);
+        return {
+          id: klass.id,
+          name: klass.name,
+          weeklyFrequency: klass.weeklyFrequency,
+          sessionDurations: sessions.map((session) => sessionDurationMinutes(session, klass)),
+          rosterStudentIds: [...klass.rosterStudentIds],
+        };
+      }),
+    },
+  };
+}
+
 describe("Ready-to-Schedule gate", () => {
   it("accepts mixed per-session Ballet 4B/5 durations structurally", () => {
     const report = evaluateScheduleReadiness(state());
@@ -75,11 +99,27 @@ describe("Ready-to-Schedule gate", () => {
     expect(report.blockers.some((issue) => issue.code === "CLASS_FREQUENCY_MISMATCH" && issue.ruleIds.includes("BAL-009"))).toBe(false);
   });
 
-  it("still blocks automatic solving until immutable source inventory and roster manifests are pinned", () => {
+  it("blocks automatic solving until an immutable complete source manifest is pinned", () => {
     const report = evaluateScheduleReadiness(state());
     expect(report.ready).toBe(false);
     const source = report.blockers.find((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED");
-    expect(source?.ruleIds).toEqual(["CUR-001", "CUR-002", "CUR-003", "CUR-004", "STU-002"]);
+    expect(source?.ruleIds).toEqual(["CUR-001", "CUR-002", "CUR-003", "CUR-004", "CUR-005", "CUR-006", "STU-002"]);
+    expect(report.sourceManifestVersion).toBeNull();
+    expect(report.sourceManifestComplete).toBe(false);
+  });
+
+  it("accepts a complete source manifest only when live inventory, durations, frequency, and rosters match", () => {
+    const s = state();
+    pinCompleteSourceManifest(s);
+    const report = evaluateScheduleReadiness(s);
+    expect(report.sourceManifestVersion).toBe(1);
+    expect(report.sourceManifestComplete).toBe(true);
+    expect(report.blockers.filter((issue) => issue.code.startsWith("SOURCE_MANIFEST_"))).toEqual([]);
+    expect(report.ready).toBe(true);
+
+    s.classes[0].rosterStudentIds = ["student-not-in-manifest"];
+    const changed = evaluateScheduleReadiness(s);
+    expect(changed.blockers.some((issue) => issue.code === "SOURCE_MANIFEST_ROSTER_MISMATCH")).toBe(true);
   });
 
   it("reports the representative-alpha curriculum mismatches instead of solving through them", () => {
