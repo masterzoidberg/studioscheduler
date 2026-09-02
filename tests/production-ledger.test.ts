@@ -28,11 +28,18 @@ function gitBlobSha1(content: Buffer) {
 }
 
 describe("production Supabase migration ledger archive", () => {
-  it("pins all verified V2.1 production migrations", () => {
+  it("pins every archived direct-production migration", () => {
     expect(manifest.source).toBe("production supabase_migrations.schema_migrations");
-    expect(manifest.entries).toHaveLength(11);
-    expect(new Set(manifest.entries.map((entry) => entry.version)).size).toBe(11);
-    expect(new Set(manifest.entries.map((entry) => entry.file)).size).toBe(11);
+    expect(manifest.entries).toHaveLength(12);
+    expect(new Set(manifest.entries.map((entry) => entry.version)).size).toBe(12);
+    expect(new Set(manifest.entries.map((entry) => entry.file)).size).toBe(12);
+    expect(manifest.entries).toContainEqual(
+      expect.objectContaining({
+        version: "20260901041429",
+        name: "fix_list_studio_members_v21_return_types",
+        file: "20260901041429_fix_list_studio_members_v21_return_types.sql",
+      }),
+    );
   });
 
   it.each(manifest.entries)("keeps $version $name byte-exact", (entry) => {
