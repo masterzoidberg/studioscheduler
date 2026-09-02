@@ -5,7 +5,7 @@ import { AlertTriangle, CheckCircle2, Cpu, Database, RefreshCw, ShieldCheck } fr
 import { useWorkspace } from "@/components/workspace-provider";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
 import { constraintModelDefinition } from "@/lib/constraint-model-version";
-import { validateConstraintModelSchedule } from "@/lib/constraint-engine";
+import { validateConstraintModelSchedule } from "@/lib/constraint-engine-v2";
 import { evaluateScheduleReadiness } from "@/lib/schedule-readiness";
 import { getBrowserSupabase } from "@/lib/supabase";
 
