@@ -18,6 +18,7 @@ export function ScheduleEditControls() {
     currentScheduleVersion,
     currentRulebookVersion,
     currentEnforcementVersion,
+    currentPlanningDatasetVersion,
     scheduleIsStale,
     refresh,
   } = useWorkspace();
@@ -31,17 +32,19 @@ export function ScheduleEditControls() {
     && !scheduleIsStale
     && previous
     && previous.rulebookVersion === currentRulebookVersion
-    && previous.enforcementVersion === currentEnforcementVersion,
+    && previous.enforcementVersion === currentEnforcementVersion
+    && previous.planningDatasetVersion === currentPlanningDatasetVersion,
   );
 
   async function undoLastChange() {
     if (!canUndo || undoing) return;
     setUndoing(true);
     setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("undo_last_schedule_change_v23", {
+    const { data, error } = await getBrowserSupabase().rpc("undo_last_schedule_change_v25", {
       p_expected_schedule_version: currentScheduleVersion,
       p_expected_rulebook_version: currentRulebookVersion,
       p_expected_enforcement_version: currentEnforcementVersion,
+      p_expected_planning_dataset_version: currentPlanningDatasetVersion,
       p_reason: `Undo Schedule v${currentScheduleVersion}`,
     });
     setUndoing(false);
@@ -74,7 +77,7 @@ export function ScheduleEditControls() {
             onClick={() => void undoLastChange()}
             disabled={!canUndo || undoing}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            title={canUndo ? `Restore Schedule v${currentScheduleVersion - 1} as a new version` : "Nothing compatible to undo yet"}
+            title={canUndo ? `Restore Schedule v${currentScheduleVersion - 1} as a new version` : "Nothing compatible to undo under the current scheduling context"}
           >
             <RotateCcw className="size-4" />{undoing ? "Undoing…" : "Undo last change"}
           </button>
