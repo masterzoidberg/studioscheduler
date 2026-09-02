@@ -12,7 +12,6 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { useScheduleEditMode } from "@/components/schedule/schedule-edit-mode";
 
 const days: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
 type Tab = "UNSCHEDULED" | "PLACED";
 
 function pretty(value: string) {
@@ -32,6 +31,7 @@ export function ScheduleBuilderPanel() {
     currentScheduleVersion,
     currentRulebookVersion,
     currentEnforcementVersion,
+    currentPlanningDatasetVersion,
     scheduleIsStale,
     validation,
     refresh,
@@ -59,7 +59,6 @@ export function ScheduleBuilderPanel() {
   if (!state) return null;
   const studio = state;
   const mutationEnabled = canEdit && editingEnabled && !scheduleIsStale;
-
   const classMap = new Map(state.classes.map((item) => [item.id, item]));
   const sessionMap = new Map(state.sessions.map((item) => [item.id, item]));
   const teacherMap = new Map(state.teachers.map((item) => [item.id, item]));
@@ -69,9 +68,6 @@ export function ScheduleBuilderPanel() {
 
   const placingClass = placing ? klassForSession(placing) : undefined;
   const placingDuration = placing && placingClass ? sessionDurationMinutes(placing, placingClass) : 0;
-  // V2.1 eligibleTeacherIds are retained as import provenance only. They are not current Rulebook truth.
-  // Until the reviewed Rulebook compiler provides canonical qualification constraints, show all teachers
-  // and let implemented deterministic validation/server validation decide only what it actually knows.
   const eligibleTeachers = state.teachers;
   const endTime = placingClass ? placementEndTime(startTime, placingDuration) : startTime;
   const candidate: Assignment | null = placing && placingClass && teacherId && roomId
@@ -116,7 +112,7 @@ export function ScheduleBuilderPanel() {
     if (!editingEnabled || !placing || !placingClass || !candidate || !placementAllowed || scheduleIsStale) return;
     setSaving(true);
     setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("apply_schedule_builder_patch_v23", {
+    const { data, error } = await getBrowserSupabase().rpc("apply_schedule_command_v25", {
       p_operation: "ASSIGN",
       p_assignment_id: candidate.id,
       p_session_id: placing.id,
@@ -131,6 +127,7 @@ export function ScheduleBuilderPanel() {
       p_expected_schedule_version: currentScheduleVersion,
       p_expected_rulebook_version: currentRulebookVersion,
       p_expected_enforcement_version: currentEnforcementVersion,
+      p_expected_planning_dataset_version: currentPlanningDatasetVersion,
       p_ai_proposed: false,
     });
     setSaving(false);
@@ -149,7 +146,7 @@ export function ScheduleBuilderPanel() {
     const currentClass = klassForAssignment(pendingUnassign);
     setSaving(true);
     setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("apply_schedule_builder_patch_v23", {
+    const { data, error } = await getBrowserSupabase().rpc("apply_schedule_command_v25", {
       p_operation: "UNASSIGN",
       p_assignment_id: pendingUnassign.id,
       p_session_id: pendingUnassign.sessionId,
@@ -158,6 +155,7 @@ export function ScheduleBuilderPanel() {
       p_expected_schedule_version: currentScheduleVersion,
       p_expected_rulebook_version: currentRulebookVersion,
       p_expected_enforcement_version: currentEnforcementVersion,
+      p_expected_planning_dataset_version: currentPlanningDatasetVersion,
       p_ai_proposed: false,
     });
     setSaving(false);
@@ -190,7 +188,7 @@ export function ScheduleBuilderPanel() {
             <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950">
               <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="size-4" />Automatic scheduling is intentionally locked</div>
               <p className="mt-1 text-xs leading-5 text-violet-800">The Ready-to-Schedule gate found {readiness.blockers.length} blocker{readiness.blockers.length === 1 ? "" : "s"}. Manual scheduling remains available.</p>
-              <div className="mt-2 space-y-1 text-xs leading-5">{readiness.blockers.slice(0, 4).map((issue) => <p key={`${issue.code}-${issue.entityIds.join("-")}`}>• {issue.message}</p>)}</div>
+              <div className="mt-2 space-y-1 text-xs leading-5">{readiness.blockers.slice(0, 4).map((issue, index) => <p key={`${issue.code}-${issue.ruleIds.join("-")}-${index}`}>• {issue.message}</p>)}</div>
               {readiness.blockers.length > 4 ? <p className="mt-2 text-xs font-semibold">+ {readiness.blockers.length - 4} more readiness blockers</p> : null}
             </div>
           ) : null}
@@ -227,16 +225,13 @@ export function ScheduleBuilderPanel() {
         <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/45 sm:items-center sm:p-6">
           <div className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px] sm:p-6">
             <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Place from Unscheduled</p><h2 className="mt-1 text-xl font-semibold"><span aria-hidden="true">{subjectMarker(placingClass.subject, placingClass.name)}</span> {placingClass.name}</h2><p className="mt-1 text-sm text-slate-500">{placingDuration} minutes · {placingClass.level}</p></div><button type="button" onClick={() => setPlacing(null)} className="grid size-10 place-items-center rounded-xl"><X className="size-5" /></button></div>
-
             <div className="mt-5 grid gap-4">
               <div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Day<select value={day} onChange={(event) => changeDay(event.target.value as Day)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{days.map((item) => <option key={item}>{item}</option>)}</select></label><label className="text-xs font-semibold text-slate-600">Start<input type="time" step={900} value={startTime} onChange={(event) => setStartTime(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal" /></label></div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"><Clock3 className="mr-2 inline size-4" />Ends at <strong>{pretty(endTime)}</strong>. Duration is fixed at {placingDuration} minutes.</div>
               <label className="text-xs font-semibold text-slate-600">Teacher<select value={teacherId} onChange={(event) => setTeacherId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">Choose teacher</option>{eligibleTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><AlertTriangle className="mr-1.5 inline size-3.5" />Teacher choices are intentionally not filtered by legacy class eligibility data. Qualification must come from the reviewed Rulebook/constraint model. Current preview only enforces the rules already implemented.</div>
               <label className="text-xs font-semibold text-slate-600">Room<select value={roomId} onChange={(event) => setRoomId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">Choose room</option>{state.rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
-
               <div className={`rounded-xl border p-4 ${placementAllowed ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}><div className="flex items-center gap-2 text-sm font-semibold">{placementAllowed ? <CheckCircle2 className="size-4 text-emerald-700" /> : <AlertTriangle className="size-4 text-red-700" />}Placement preview</div><p className="mt-2 text-sm text-slate-700">{placementPreview?.hardViolations ?? validation.hardViolations} detected HARD violation(s) after placement.</p>{placementPreview && placementPreview.hardViolations > validation.hardViolations ? <div className="mt-2 space-y-1 text-xs text-red-800">{placementPreview.violations.filter((item) => item.severity === "HARD").slice(0, 5).map((item, index) => <p key={index}>• {item.message}</p>)}</div> : null}<p className="mt-2 text-xs text-slate-500">This preview only covers the HARD rules currently implemented. The server checks them again before saving.</p></div>
-
               <div className="flex gap-2"><button type="button" onClick={() => setPlacing(null)} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button type="button" disabled={!mutationEnabled || saving || !candidate || !placementAllowed} onClick={() => void placeSession()} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40"><CalendarPlus2 className="size-4" />{saving ? "Placing…" : "Place class"}</button></div>
             </div>
           </div>
