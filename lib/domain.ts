@@ -143,9 +143,38 @@ export interface ClassDefinition { id: string; name: string; subject: string; le
 export interface ClassSession { id: string; classId: string; ordinal: number; durationMinutes?: number; locked?: boolean; }
 export interface Assignment { id: string; sessionId: string; day: Day; startTime: string; endTime: string; teacherId: string; roomId: string; locked?: boolean; status?: "NORMAL" | "WARNING" | "AI_PROPOSED"; }
 
+export interface PlanningSourceManifestSource {
+  sourceId: string;
+  kind: string;
+  label: string;
+  sha256?: string;
+}
+
+export interface PlanningSourceManifestClass {
+  id: string;
+  name: string;
+  weeklyFrequency: number;
+  sessionDurations: number[];
+  rosterStudentIds: string[];
+}
+
+export interface PlanningSourceManifestSnapshotV1 {
+  schemaVersion: "1.0";
+  sources: PlanningSourceManifestSource[];
+  classes: PlanningSourceManifestClass[];
+}
+
+export interface PlanningDatasetSourceManifestPin {
+  version: number;
+  snapshotHash: string;
+  complete: boolean;
+  snapshot: PlanningSourceManifestSnapshotV1;
+}
+
 export interface PlanningDatasetSnapshotV1 {
-  schemaVersion: "1.0" | "1.1";
+  schemaVersion: "1.0" | "1.1" | "1.2";
   studioId: string;
+  sourceManifest?: PlanningDatasetSourceManifestPin | null;
   teacherIds: string[];
   rooms: Array<{ id: string; capacity: number | null; features: string[] }>;
   students: Array<{ id: string; level: string; cohortIds: string[] }>;
