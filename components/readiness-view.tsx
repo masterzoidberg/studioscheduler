@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Cpu, Database, RefreshCw, ShieldCheck } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
@@ -27,10 +27,10 @@ export function ReadinessView() {
     currentScheduleVersion,
   } = useWorkspace();
   const [published, setPublished] = useState<PublishedModel | null>(null);
-  const [loadingModel, setLoadingModel] = useState(true);
+  const [publishedLoaded, setPublishedLoaded] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState("");
-  const [autoSyncAttempted, setAutoSyncAttempted] = useState(false);
+  const autoSyncAttempted = useRef(false);
 
   const model = useMemo(() => state ? compileConstraintModel(state) : null, [state]);
   const definition = useMemo(() => model ? constraintModelDefinition(model) : null, [model]);
@@ -42,13 +42,13 @@ export function ReadinessView() {
 
   const loadPublished = useCallback(async () => {
     if (!state) return;
-    setLoadingModel(true);
     const { data, error } = await getBrowserSupabase()
       .from("constraint_model_versions")
       .select("version,rulebook_version,compiler_version,snapshot_hash,complete_hard_constraint_compilation")
       .eq("studio_id", state.studioId)
       .eq("status", "CURRENT")
       .maybeSingle();
+
     if (error) {
       setNotice(error.message);
       setPublished(null);
@@ -63,7 +63,7 @@ export function ReadinessView() {
     } else {
       setPublished(null);
     }
-    setLoadingModel(false);
+    setPublishedLoaded(true);
   }, [state]);
 
   const syncModel = useCallback(async (automatic = false) => {
@@ -96,14 +96,21 @@ export function ReadinessView() {
   }, [loadPublished]);
 
   useEffect(() => {
-    if (autoSyncAttempted || loadingModel || !canEdit || !definition || !model?.completeHardConstraintCompilation) return;
+    if (
+      autoSyncAttempted.current
+      || !publishedLoaded
+      || !canEdit
+      || !definition
+      || !model?.completeHardConstraintCompilation
+    ) return;
+
+    autoSyncAttempted.current = true;
     const stale = !published
       || published.rulebookVersion !== definition.rulebookVersion
       || published.compilerVersion !== definition.compilerVersion
       || !published.complete;
-    setAutoSyncAttempted(true);
     if (stale) void syncModel(true);
-  }, [autoSyncAttempted, loadingModel, canEdit, definition, model, published, syncModel]);
+  }, [publishedLoaded, canEdit, definition, model, published, syncModel]);
 
   if (!state || !model || !definition || !readiness || !engine) return null;
 
@@ -135,8 +142,10 @@ export function ReadinessView() {
     },
     {
       label: "Published model",
-      value: published ? `v${published.version}` : "Not synced",
-      detail: published ? `${published.compilerVersion} · Rulebook v${published.rulebookVersion}` : "Will sync from the tested compiler for editors", 
+      value: published ? `v${published.version}` : publishedLoaded ? "Not synced" : "Checking…",
+      detail: published
+        ? `${published.compilerVersion} · Rulebook v${published.rulebookVersion} · ${published.snapshotHash.slice(0, 10)}…`
+        : "Editors can publish only the tested compiler artifact",
       icon: RefreshCw,
     },
   ];
