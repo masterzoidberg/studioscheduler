@@ -99,25 +99,25 @@ describe("Ready-to-Schedule gate", () => {
     expect(report.blockers.some((issue) => issue.code === "CLASS_FREQUENCY_MISMATCH" && issue.ruleIds.includes("BAL-009"))).toBe(false);
   });
 
-  it("treats the current PlanningDatasetVersion as authoritative when no frozen source manifest is pinned", () => {
+  it("blocks automatic solving when no authoritative roster/source baseline is pinned", () => {
     const report = evaluateScheduleReadiness(state());
-    expect(report.ready).toBe(true);
-    expect(report.blockers.some((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED")).toBe(false);
-    const source = report.warnings.find((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED");
-    expect(source?.severity).toBe("WARNING");
-    expect(source?.message).toContain("fluid inventory");
+    expect(report.ready).toBe(false);
+    const source = report.blockers.find((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED");
+    expect(source?.severity).toBe("BLOCKER");
+    expect(source?.message).toContain("automatic solving is blocked");
+    expect(report.warnings.some((issue) => issue.code === "SOURCE_MANIFEST_NOT_PINNED")).toBe(false);
     expect(report.sourceManifestVersion).toBeNull();
     expect(report.sourceManifestComplete).toBe(false);
   });
 
-  it("uses a pinned source manifest as a comparison baseline, not a freeze on future roster changes", () => {
+  it("uses a complete source manifest as provenance while later roster drift remains a warning", () => {
     const s = state();
     pinCompleteSourceManifest(s);
     const report = evaluateScheduleReadiness(s);
     expect(report.sourceManifestVersion).toBe(1);
     expect(report.sourceManifestComplete).toBe(true);
+    expect(report.blockers.filter((issue) => issue.code.startsWith("SOURCE_MANIFEST_")).length).toBe(0);
     expect(report.warnings.filter((issue) => issue.code.startsWith("SOURCE_MANIFEST_")).length).toBe(0);
-    expect(report.ready).toBe(true);
 
     s.students.push({ id: "student-new", name: "New Student", level: "test", cohortIds: [] });
     s.classes[0].rosterStudentIds = ["student-new"];
@@ -125,7 +125,6 @@ describe("Ready-to-Schedule gate", () => {
     expect(changed.blockers.some((issue) => issue.code === "SOURCE_MANIFEST_ROSTER_MISMATCH")).toBe(false);
     expect(changed.warnings.some((issue) => issue.code === "SOURCE_MANIFEST_ROSTER_MISMATCH")).toBe(true);
     expect(changed.blockers.some((issue) => issue.code === "ROSTER_STUDENT_MISSING")).toBe(false);
-    expect(changed.ready).toBe(true);
   });
 
   it("still blocks Rulebook-required curriculum structure mismatches in fluid inventory", () => {
@@ -156,5 +155,39 @@ describe("Ready-to-Schedule gate", () => {
     s.planningDatasetVersions = [{ ...s.planningDatasetVersions![0], id: "pdv2", version: 2 }];
     const report = evaluateScheduleReadiness(s);
     expect(report.blockers.some((issue) => issue.code === "SCHEDULE_PLANNING_DATASET_STALE")).toBe(true);
+  });
+
+  it("checks the reviewed Karly-daughter class list against current enrollment", () => {
+    const s = state();
+    s.students.push({ id: "student-daughter", name: "Karly's daughter", level: "Level 4B", cohortIds: [] });
+    for (const name of ["Jazz 2", "Lyrical 2", "Tap 2", "Hip Hop 2", "Pre-Company Technique 1"]) {
+      s.classes.push({
+        id: `class-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        name,
+        subject: name.split(" ")[0],
+        level: "Level 2",
+        durationMinutes: 60,
+        weeklyFrequency: 1,
+        rosterStudentIds: name === "Hip Hop 2" ? ["student-daughter"] : [],
+        eligibleTeacherIds: [],
+      });
+    }
+    const ballet2 = s.classes.find((klass) => klass.name === "Ballet 2")!;
+    ballet2.rosterStudentIds = ["student-daughter"];
+
+    const report = evaluateScheduleReadiness(s);
+    const rosterFindings = report.blockers.filter((issue) => issue.code === "KARLY_DAUGHTER_ROSTER_MISSING");
+    expect(rosterFindings).toHaveLength(4);
+    expect(rosterFindings.every((issue) => issue.ruleIds.includes("KAR-008") && issue.ruleIds.includes("STU-002"))).toBe(true);
+    expect(report.blockers.some((issue) => issue.code === "KARLY_DAUGHTER_CLASS_MISSING")).toBe(false);
+  });
+
+  it("surfaces unbound named Constraint IR references as readiness blockers", () => {
+    const report = evaluateScheduleReadiness(state());
+    expect(report.constraintBinding.valid).toBe(false);
+    expect(report.blockers).toContainEqual(expect.objectContaining({
+      code: "CONSTRAINT_ENTITY_MISSING",
+      ruleIds: expect.arrayContaining(["CAM-008"]),
+    }));
   });
 });
