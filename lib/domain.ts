@@ -140,11 +140,11 @@ export interface Room { id: string; name: string; capacity?: number; features?: 
 export interface Student { id: string; name: string; level: string; cohortIds?: string[]; }
 export interface Cohort { id: string; name: string; studentIds: string[]; }
 export interface ClassDefinition { id: string; name: string; subject: string; level: string; durationMinutes: number; weeklyFrequency: number; rosterStudentIds: string[]; eligibleTeacherIds: string[]; companyOnly?: boolean; }
-export interface ClassSession { id: string; classId: string; ordinal: number; locked?: boolean; }
+export interface ClassSession { id: string; classId: string; ordinal: number; durationMinutes?: number; locked?: boolean; }
 export interface Assignment { id: string; sessionId: string; day: Day; startTime: string; endTime: string; teacherId: string; roomId: string; locked?: boolean; status?: "NORMAL" | "WARNING" | "AI_PROPOSED"; }
 
 export interface PlanningDatasetSnapshotV1 {
-  schemaVersion: "1.0";
+  schemaVersion: "1.0" | "1.1";
   studioId: string;
   teacherIds: string[];
   rooms: Array<{ id: string; capacity: number | null; features: string[] }>;
@@ -159,7 +159,7 @@ export interface PlanningDatasetSnapshotV1 {
     rosterStudentIds: string[];
     companyOnly: boolean;
   }>;
-  sessions: Array<{ id: string; classId: string; ordinal: number; locked: boolean }>;
+  sessions: Array<{ id: string; classId: string; ordinal: number; locked: boolean; durationMinutes?: number | null }>;
 }
 
 export interface PlanningDatasetVersion {
