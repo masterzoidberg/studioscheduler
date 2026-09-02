@@ -21,6 +21,16 @@ const productionTrackedMigrations = [
   "20260901054230_milestone_1_teacher_display_colors.sql",
   "20260901200406_add_schedule_builder_assign_unassign_v23.sql",
   "20260901202548_add_schedule_undo_v23.sql",
+  "20260902080544_planning_dataset_versions_v25.sql",
+  "20260902080838_planning_dataset_advisor_cleanup_v25.sql",
+  "20260902083652_session_duration_and_planning_rebase_v25.sql",
+  "20260902122425_schedule_commands_v25.sql",
+  "20260902122920_planning_dataset_canonical_collation_v25.sql",
+  "20260902123142_planning_source_manifest_v26.sql",
+  "20260902130713_rulebook_v3_post_review_confirmations.sql",
+  "20260902132207_constraint_model_versions_v27.sql",
+  "20260902133511_fluid_planning_inventory_v28.sql",
+  "20260902134756_planning_dataset_named_entities_v29.sql",
 ];
 
 const archivedProductionHotfix = "20260901041429_fix_list_studio_members_v21_return_types.sql";

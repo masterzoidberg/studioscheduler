@@ -140,8 +140,69 @@ export interface Room { id: string; name: string; capacity?: number; features?: 
 export interface Student { id: string; name: string; level: string; cohortIds?: string[]; }
 export interface Cohort { id: string; name: string; studentIds: string[]; }
 export interface ClassDefinition { id: string; name: string; subject: string; level: string; durationMinutes: number; weeklyFrequency: number; rosterStudentIds: string[]; eligibleTeacherIds: string[]; companyOnly?: boolean; }
-export interface ClassSession { id: string; classId: string; ordinal: number; locked?: boolean; }
+export interface ClassSession { id: string; classId: string; ordinal: number; durationMinutes?: number; locked?: boolean; }
 export interface Assignment { id: string; sessionId: string; day: Day; startTime: string; endTime: string; teacherId: string; roomId: string; locked?: boolean; status?: "NORMAL" | "WARNING" | "AI_PROPOSED"; }
+
+export interface PlanningSourceManifestSource {
+  sourceId: string;
+  kind: string;
+  label: string;
+  sha256?: string;
+}
+
+export interface PlanningSourceManifestClass {
+  id: string;
+  name: string;
+  weeklyFrequency: number;
+  sessionDurations: number[];
+  rosterStudentIds: string[];
+}
+
+export interface PlanningSourceManifestSnapshotV1 {
+  schemaVersion: "1.0";
+  sources: PlanningSourceManifestSource[];
+  classes: PlanningSourceManifestClass[];
+}
+
+export interface PlanningDatasetSourceManifestPin {
+  version: number;
+  snapshotHash: string;
+  complete: boolean;
+  snapshot: PlanningSourceManifestSnapshotV1;
+}
+
+export interface PlanningDatasetSnapshotV1 {
+  schemaVersion: "1.0" | "1.1" | "1.2" | "1.3";
+  studioId: string;
+  sourceManifest?: PlanningDatasetSourceManifestPin | null;
+  teacherIds: string[];
+  teachers?: Array<{ id: string; name: string }>;
+  rooms: Array<{ id: string; name?: string; capacity: number | null; features: string[] }>;
+  students: Array<{ id: string; name?: string; level: string; cohortIds: string[] }>;
+  cohorts: Array<{ id: string; name?: string; studentIds: string[] }>;
+  classes: Array<{
+    id: string;
+    name?: string;
+    subject: string;
+    level: string;
+    durationMinutes: number;
+    weeklyFrequency: number;
+    rosterStudentIds: string[];
+    companyOnly: boolean;
+  }>;
+  sessions: Array<{ id: string; classId: string; ordinal: number; locked: boolean; durationMinutes?: number | null }>;
+}
+
+export interface PlanningDatasetVersion {
+  id: string;
+  version: number;
+  createdAt: string;
+  actor: string;
+  reason: string;
+  snapshot: PlanningDatasetSnapshotV1;
+  snapshotHash: string;
+  status: "CURRENT" | "HISTORICAL";
+}
 
 export interface RulebookVersion {
   id: string; version: number; name: string; createdAt: string; actor: string; reason: string; changedRuleIds: string[];
@@ -153,7 +214,7 @@ export interface RuleHistoryEntry { id: string; ruleId: string; rulebookVersion:
 export interface ValidationViolation { constraintId: string; severity: RuleStrength; message: string; affectedEntityIds: string[]; assignmentIds: string[]; suggestedAction?: string; }
 export interface ValidatorCoverage { applicableHardRules: number; implementedHardRules: number; partialHardRules: number; notImplementedHardRules: number; notApplicableHardRules?: number; uncoveredHardRuleIds: string[]; }
 export interface ValidationResult { valid: boolean; fullyValidated: boolean; hardViolations: number; warnings: number; violations: ValidationViolation[]; coverage: ValidatorCoverage; enforcementVersion?: number; }
-export interface ScheduleVersion { id: string; version: number; rulebookVersion: number; enforcementVersion: number; createdAt: string; actor: string; reason: string; assignments: Assignment[]; isCurrent?: boolean; validationResult?: ValidationResult | null; }
+export interface ScheduleVersion { id: string; version: number; rulebookVersion: number; enforcementVersion: number; planningDatasetVersion?: number; createdAt: string; actor: string; reason: string; assignments: Assignment[]; isCurrent?: boolean; validationResult?: ValidationResult | null; }
 
 export interface RulePatch {
   id: string; ruleId?: string; operation: "CREATE" | "UPDATE" | "RETIRE" | "DISABLE" | "ENABLE"; changes: Partial<StudioRule>;
@@ -164,7 +225,7 @@ export interface SchedulePatch {
   reason: string; proposedBy: "USER" | "AI"; baseRulebookVersion?: number; baseScheduleVersion?: number; baseEnforcementVersion?: number;
 }
 
-export interface Scenario { id: string; name: string; baseRulebookVersion: number; baseScheduleVersion: number; baseEnforcementVersion?: number; rulePatches: RulePatch[]; schedulePatches: SchedulePatch[]; createdAt: string; }
+export interface Scenario { id: string; name: string; baseRulebookVersion: number; baseScheduleVersion: number; baseEnforcementVersion?: number; basePlanningDatasetVersion?: number; rulePatches: RulePatch[]; schedulePatches: SchedulePatch[]; createdAt: string; }
 export interface AuditEvent { id: string; at: string; actor: string; action: string; entityType: string; entityId?: string; detail: string; }
 export interface StudioMember { userId: string; role: StudioRole; displayName?: string; email?: string; createdAt?: string; }
 export interface StudioInvite { id: string; email: string; role: StudioRole; createdAt: string; acceptedAt?: string | null; }
@@ -180,6 +241,7 @@ export interface StudioState {
   rules: StudioRule[];
   rulebookVersions: RulebookVersion[];
   enforcementVersions: RuleEnforcementVersion[];
+  planningDatasetVersions?: PlanningDatasetVersion[];
   enforcementProposals: RuleEnforcementProposal[];
   ruleHistory: RuleHistoryEntry[];
   scheduleVersions: ScheduleVersion[];
