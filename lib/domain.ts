@@ -172,15 +172,17 @@ export interface PlanningDatasetSourceManifestPin {
 }
 
 export interface PlanningDatasetSnapshotV1 {
-  schemaVersion: "1.0" | "1.1" | "1.2";
+  schemaVersion: "1.0" | "1.1" | "1.2" | "1.3";
   studioId: string;
   sourceManifest?: PlanningDatasetSourceManifestPin | null;
   teacherIds: string[];
-  rooms: Array<{ id: string; capacity: number | null; features: string[] }>;
-  students: Array<{ id: string; level: string; cohortIds: string[] }>;
-  cohorts: Array<{ id: string; studentIds: string[] }>;
+  teachers?: Array<{ id: string; name: string }>;
+  rooms: Array<{ id: string; name?: string; capacity: number | null; features: string[] }>;
+  students: Array<{ id: string; name?: string; level: string; cohortIds: string[] }>;
+  cohorts: Array<{ id: string; name?: string; studentIds: string[] }>;
   classes: Array<{
     id: string;
+    name?: string;
     subject: string;
     level: string;
     durationMinutes: number;
