@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Assignment, ClassDefinition, StudioState } from "@/lib/domain";
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
-import { validateConstraintModelSchedule } from "@/lib/constraint-engine";
+import { validateConstraintModelSchedule } from "@/lib/constraint-engine-v2";
 
 const now = "2026-09-02T00:00:00Z";
 
@@ -110,7 +110,21 @@ describe("Constraint IR runtime engine", () => {
     expect(result.violations.filter((item) => item.constraintId === "level5-close")).toEqual([]);
   });
 
-  it("enforces teacher subject and level domains from the compiled model", () => {
+  it("enforces allowed teacher subjects even when no exception list exists", () => {
+    const s = state();
+    addClass(s, { id: "class-jazz", name: "Jazz 3", subject: "Jazz", level: "Level 3", durationMinutes: 45, weeklyFrequency: 1, rosterStudentIds: [], eligibleTeacherIds: [] });
+    const nodes = [node({
+      id: "aimee-domain",
+      kind: "TEACHER_SUBJECT_DOMAIN",
+      ruleIds: ["AIM-001"],
+      selector: { teacherNames: ["Aimee"] },
+      parameters: { allowedSubjects: ["Ballet", "Pre-Pointe", "Pointe"] },
+    })];
+    const result = validateConstraintModelSchedule(s, model(nodes), [assignment(s, "class-jazz", { teacherId: "teacher-aimee" })]);
+    expect(result.violations.some((item) => item.constraintId === "aimee-domain")).toBe(true);
+  });
+
+  it("enforces prohibited teacher subjects from the compiled model", () => {
     const s = state();
     addClass(s, { id: "class-hiphop", name: "Hip Hop 2", subject: "Hip Hop", level: "Level 2", durationMinutes: 60, weeklyFrequency: 1, rosterStudentIds: [], eligibleTeacherIds: [] });
     const nodes = [node({
@@ -143,7 +157,7 @@ describe("Constraint IR runtime engine", () => {
     expect(validateConstraintModelSchedule(s, model(nodes), bad).violations.some((item) => item.constraintId === "prepointe-after")).toBe(true);
   });
 
-  it("enforces room capacity and Karly/daughter first-start alignment", () => {
+  it("enforces room capacity with an empty exemption list and Karly/daughter first-start alignment", () => {
     const s = state();
     addClass(s, { id: "class-jazz2", name: "Jazz 2", subject: "Jazz", level: "Level 2", durationMinutes: 60, weeklyFrequency: 1, rosterStudentIds: ["student-1", "student-2"], eligibleTeacherIds: [] });
     addClass(s, { id: "class-other", name: "Jazz 3", subject: "Jazz", level: "Level 3", durationMinutes: 60, weeklyFrequency: 1, rosterStudentIds: [], eligibleTeacherIds: [] });
