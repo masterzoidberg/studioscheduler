@@ -99,6 +99,8 @@ const HARD_CONSTRAINT = [
   "SYD-001", "SYD-002",
 ] as const;
 
+const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
 function familyFor(ruleId: string): RuleExecutionFamily {
   if (ruleId.startsWith("ADV-")) return "ADVANCED_PROGRESSION";
   if (ruleId.startsWith("BAL-")) return "CLASS_STRUCTURE";
@@ -156,15 +158,15 @@ export const RULE_EXECUTION_REGISTRY: RuleExecutionEntry[] = [
   ...entries(EXCEPTION, "EXCEPTION"),
   ...entries(INFORMATIONAL, "INFORMATIONAL"),
   ...entries(NO_RUNTIME_EFFECT, "NO_RUNTIME_EFFECT"),
-].sort((a, b) => a.ruleId.localeCompare(b.ruleId));
+].sort((a, b) => compareCanonicalStrings(a.ruleId, b.ruleId));
 
 export const RULE_EXECUTION_BY_ID = new Map(RULE_EXECUTION_REGISTRY.map((entry) => [entry.ruleId, entry]));
 
 export function ruleExecutionCoverage(rules: StudioRule[]) {
   const activeIds = new Set(rules.filter((rule) => rule.status === "ACTIVE").map((rule) => rule.id));
   const registryIds = new Set(RULE_EXECUTION_REGISTRY.map((entry) => entry.ruleId));
-  const missingRuleIds = [...activeIds].filter((id) => !registryIds.has(id)).sort();
-  const unknownRuleIds = [...registryIds].filter((id) => !activeIds.has(id)).sort();
+  const missingRuleIds = [...activeIds].filter((id) => !registryIds.has(id)).sort(compareCanonicalStrings);
+  const unknownRuleIds = [...registryIds].filter((id) => !activeIds.has(id)).sort(compareCanonicalStrings);
   return {
     activeRules: activeIds.size,
     accountedRules: [...activeIds].filter((id) => registryIds.has(id)).length,
