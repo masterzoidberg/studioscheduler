@@ -2,11 +2,32 @@ import type { StudioRule, StudioState } from "@/lib/domain";
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 import { compileConstraintModel as compileV01 } from "@/lib/constraint-compiler";
 
-export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.2";
+export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 function explanationFor(ruleMap: Map<string, StudioRule>, ruleIds: string[]) {
   return ruleIds.map((id) => ruleMap.get(id)?.description).filter(Boolean).join(" ");
+}
+
+function withSequencingInterpretation(node: ConstraintIRNode, ruleMap: Map<string, StudioRule>): ConstraintIRNode {
+  const pointeAdjacencyIds = new Set([
+    "ballet-3-pre-pointe",
+    "ballet-4a-pointe-1",
+    "ballet-4b5-pointe-23",
+  ]);
+  if (!pointeAdjacencyIds.has(node.id) || !ruleMap.has("SEQ-004")) return node;
+
+  const ruleIds = [...new Set([...node.ruleIds, "SEQ-004"])].sort(compareCanonicalStrings);
+  return {
+    ...node,
+    ruleIds,
+    parameters: {
+      ...node.parameters,
+      designatedWeeklyMeeting: true,
+      appliesToEveryMatchingBalletMeeting: false,
+    },
+    explanation: explanationFor(ruleMap, ruleIds),
+  };
 }
 
 function v3Constraints(ruleMap: Map<string, StudioRule>): ConstraintIRNode[] {
@@ -27,6 +48,20 @@ function v3Constraints(ruleMap: Map<string, StudioRule>): ConstraintIRNode[] {
         displayOnlyEarlierTime: "16:15",
       },
       explanation: explanationFor(ruleMap, ["OPS-001", "OPS-002"]),
+    });
+  }
+
+  if (ruleMap.has("AIM-006")) {
+    specs.push({
+      id: "aimee-no-operating-hours-extension",
+      kind: "TEACHER_DAY_WINDOW",
+      ruleIds: ["AIM-006"],
+      selector: { teacherNames: ["Aimee"] },
+      parameters: {
+        inheritStudioOperatingWindows: true,
+        mayExtendOperatingHours: false,
+      },
+      explanation: explanationFor(ruleMap, ["AIM-006"]),
     });
   }
 
@@ -63,8 +98,9 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
   const base = compileV01(state);
   const activeRules = state.rules.filter((rule) => rule.status === "ACTIVE");
   const ruleMap = new Map(activeRules.map((rule) => [rule.id, rule]));
+  const baseHardConstraints = base.hardConstraints.map((node) => withSequencingInterpretation(node, ruleMap));
   const additions = v3Constraints(ruleMap);
-  const hardConstraints = [...base.hardConstraints, ...additions]
+  const hardConstraints = [...baseHardConstraints, ...additions]
     .sort((a, b) => compareCanonicalStrings(a.id, b.id));
   const representedRuleIds = new Set(hardConstraints.flatMap((node) => node.ruleIds));
   const uncompiledConstraintRuleIds = base.uncompiledConstraintRuleIds
