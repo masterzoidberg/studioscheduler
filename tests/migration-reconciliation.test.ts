@@ -32,6 +32,7 @@ const productionTrackedMigrations = [
   "20260902133511_fluid_planning_inventory_v28.sql",
   "20260902134756_planning_dataset_named_entities_v29.sql",
   "20260902163046_constraint_model_publication_v30.sql",
+  "20260902172328_class_session_duration_overrides_v31.sql",
 ];
 
 const archivedProductionHotfix = "20260901041429_fix_list_studio_members_v21_return_types.sql";

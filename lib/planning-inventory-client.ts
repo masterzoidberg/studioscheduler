@@ -21,6 +21,23 @@ export interface PlanningInventoryMutationResult {
   details?: Record<string, unknown>;
 }
 
+export interface ClassSessionDurationMutationInput {
+  classId: string;
+  /** Session ID -> override minutes. null means inherit the class-level duration. */
+  sessionDurations: Record<string, number | null>;
+  reason: string;
+  expectedPlanningDatasetVersion: number;
+}
+
+export interface ClassSessionDurationMutationResult {
+  ok: boolean;
+  error?: string;
+  planningDatasetVersion?: number;
+  scheduleRequiresRevalidation?: boolean;
+  changedSessions?: number;
+  details?: Record<string, unknown>;
+}
+
 function message(error: unknown) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object" && "message" in error) return String((error as { message?: unknown }).message ?? error);
@@ -44,6 +61,30 @@ export async function mutatePlanningEntity(input: PlanningInventoryMutationInput
       entityId: details.entityId ? String(details.entityId) : undefined,
       planningDatasetVersion: details.planningDatasetVersion == null ? undefined : Number(details.planningDatasetVersion),
       scheduleRequiresRevalidation: Boolean(details.scheduleRequiresRevalidation),
+      details,
+    };
+  } catch (error) {
+    return { ok: false, error: message(error).replace(/^.*?message[:=]\s*/i, "") };
+  }
+}
+
+export async function updateClassSessionDurations(
+  input: ClassSessionDurationMutationInput,
+): Promise<ClassSessionDurationMutationResult> {
+  try {
+    const { data, error } = await getBrowserSupabase().rpc("update_class_session_durations_v31", {
+      p_class_id: input.classId,
+      p_session_durations: input.sessionDurations,
+      p_reason: input.reason,
+      p_expected_planning_dataset_version: input.expectedPlanningDatasetVersion,
+    });
+    if (error) throw error;
+    const details = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+    return {
+      ok: true,
+      planningDatasetVersion: details.planningDatasetVersion == null ? undefined : Number(details.planningDatasetVersion),
+      scheduleRequiresRevalidation: Boolean(details.scheduleRequiresRevalidation),
+      changedSessions: details.changedSessions == null ? undefined : Number(details.changedSessions),
       details,
     };
   } catch (error) {
