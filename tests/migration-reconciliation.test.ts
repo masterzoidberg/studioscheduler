@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const migrationDir = join(process.cwd(), "supabase", "migrations");
+const archiveDir = join(process.cwd(), "supabase", "production-ledger");
 const files = readdirSync(migrationDir).filter((name) => name.endsWith(".sql")).sort();
+const archivedFiles = readdirSync(archiveDir).filter((name) => name.endsWith(".sql")).sort();
 
-const appliedV22 = [
+const productionTrackedMigrations = [
   "20260831160150_v2_2_enforcement_infrastructure.sql",
   "20260831160237_v2_2_enforcement_validator.sql",
   "20260831160457_v2_2_enforcement_governance.sql",
@@ -16,14 +18,24 @@ const appliedV22 = [
   "20260831164302_v2_2_v21_scenario_compat.sql",
   "20260831171138_v2_2_v21_rule_compat.sql",
   "20260831180357_v2_2_index_enforcement_foreign_keys.sql",
+  "20260901054230_milestone_1_teacher_display_colors.sql",
+  "20260901200406_add_schedule_builder_assign_unassign_v23.sql",
+  "20260901202548_add_schedule_undo_v23.sql",
 ];
 
-describe("V2.2 migration reconciliation", () => {
-  it("uses the versions recorded by the production Supabase ledger", () => {
-    for (const file of appliedV22) expect(files).toContain(file);
+const archivedProductionHotfix = "20260901041429_fix_list_studio_members_v21_return_types.sql";
+
+describe("production migration reconciliation", () => {
+  it("uses the production-ledger versions for repository-tracked migrations", () => {
+    for (const file of productionTrackedMigrations) expect(files).toContain(file);
   });
 
-  it("does not retain the pre-application draft version prefixes", () => {
+  it("archives the direct-production membership hotfix without replaying it", () => {
+    expect(files).not.toContain(archivedProductionHotfix);
+    expect(archivedFiles).toContain(archivedProductionHotfix);
+  });
+
+  it("does not retain the pre-application V2.2 draft version prefixes", () => {
     for (let index = 0; index <= 8; index += 1) {
       const draftPrefix = `2026083116000${index}_`;
       expect(files.some((file) => file.startsWith(draftPrefix))).toBe(false);
