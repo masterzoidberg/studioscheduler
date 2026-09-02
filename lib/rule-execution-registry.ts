@@ -45,8 +45,7 @@ const FIXED_ANCHOR = [
 ] as const;
 
 const EXCEPTION = [
-  "ADV-003", "ADV-004", "FRI-002", "KAR-002", "OPS-004", "ROOM-008", "SEQ-004",
-  "STU-020", "STU-021",
+  "ADV-003", "ADV-004", "KAR-002", "OPS-004", "ROOM-008", "SEQ-004",
 ] as const;
 
 const DATA_FACT = [
@@ -59,14 +58,14 @@ const INFORMATIONAL = ["REV-002"] as const;
 
 const NO_RUNTIME_EFFECT = [
   "CUR-007", "DATA-008", "FIX-003", "JAE-003", "KAR-010", "OPS-011", "OPS-012", "OPS-016",
-  "SEQ-009", "STU-001", "STU-004", "STU-022",
+  "SEQ-009", "STU-001", "STU-004", "STU-020", "STU-021", "STU-022",
 ] as const;
 
 const SOFT_OBJECTIVE = [
   "AIM-002", "AIM-004", "AIM-005", "AIM-007", "AIM-008", "AIM-009",
   "CAM-004", "CAM-005", "CAM-012", "CAM-013", "CAM-014", "CAM-015", "CAM-016",
   "CAM-017", "CAM-018", "CAM-019",
-  "FRI-001",
+  "FRI-001", "FRI-002",
   "KAR-005", "KAR-006", "KAR-007", "KAR-011", "KAR-012", "KAR-013", "KAR-014",
   "MEL-002", "MEL-003",
   "OPS-002", "OPS-015",
