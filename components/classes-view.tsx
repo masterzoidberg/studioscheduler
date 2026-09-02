@@ -73,7 +73,7 @@ export function ClassesView() {
   }
 
   function beginEdit(klass: ClassDefinition) {
-    const sessions = state.sessions.filter((session) => session.classId === klass.id).sort((a, b) => a.ordinal - b.ordinal);
+    const sessions = (state?.sessions ?? []).filter((session) => session.classId === klass.id).sort((a, b) => a.ordinal - b.ordinal);
     setCreating(false);
     setStudentSearch("");
     setSessionDrafts(durationDrafts(sessions));
