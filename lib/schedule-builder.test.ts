@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Assignment, ClassSession } from "@/lib/domain";
-import { assignmentIdForSession, defaultStartTime, placementEndTime, unscheduledSessions } from "@/lib/schedule-builder";
+import { assignmentIdForSession, defaultStartTime, placementEndTime, sessionDurationMinutes, unscheduledSessions } from "@/lib/schedule-builder";
 
 const sessions: ClassSession[] = [
   { id: "session-a", classId: "class-a", ordinal: 1 },
@@ -30,6 +30,12 @@ describe("schedule builder helpers", () => {
 
   it("preserves curriculum duration when computing the end time", () => {
     expect(placementEndTime("16:45", { durationMinutes: 90 })).toBe("18:15");
+  });
+
+  it("uses a session duration override when a repeated class has unequal meeting lengths", () => {
+    expect(sessionDurationMinutes({ durationMinutes: 90 }, { durationMinutes: 105 })).toBe(90);
+    expect(sessionDurationMinutes({}, { durationMinutes: 105 })).toBe(105);
+    expect(placementEndTime("16:45", sessionDurationMinutes({ durationMinutes: 90 }, { durationMinutes: 105 }))).toBe("18:15");
   });
 
   it("uses the reviewed normal weekday default and Saturday opening", () => {
