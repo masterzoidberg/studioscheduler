@@ -1,4 +1,6 @@
 import type { ClassDefinition, ClassSession, PlanningDatasetVersion, StudioState } from "@/lib/domain";
+import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
+import { validateConstraintModelBindings, type ConstraintDataBindingReport } from "@/lib/constraint-data-binding";
 import { ruleExecutionCoverage } from "@/lib/rule-execution-registry";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
@@ -17,6 +19,7 @@ export interface ScheduleReadinessReport {
   blockers: ScheduleReadinessIssue[];
   warnings: ScheduleReadinessIssue[];
   ruleCoverage: ReturnType<typeof ruleExecutionCoverage>;
+  constraintBinding: ConstraintDataBindingReport;
   currentPlanningDatasetVersion: number | null;
   schedulePlanningDatasetVersion: number | null;
   sourceManifestVersion: number | null;
@@ -46,6 +49,14 @@ export const BALLET_STRUCTURE_REQUIREMENTS: StructureRequirement[] = [
 ];
 
 const SOURCE_MANIFEST_RULE_IDS = ["CUR-001", "CUR-002", "CUR-003", "CUR-004", "CUR-005", "CUR-006", "STU-002"];
+const KARLY_DAUGHTER_CLASS_NAMES = [
+  "Ballet 2",
+  "Jazz 2",
+  "Lyrical 2",
+  "Tap 2",
+  "Hip Hop 2",
+  "Pre-Company Technique 1",
+] as const;
 const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 const sorted = (values: number[]) => [...values].sort((a, b) => a - b);
 const sortedStrings = (values: string[]) => [...values].sort();
@@ -71,6 +82,11 @@ function findClass(state: StudioState, className: string) {
   return state.classes.find((klass) => normalizeName(klass.name) === target) ?? null;
 }
 
+function findClasses(state: StudioState, className: string) {
+  const target = normalizeName(className);
+  return state.classes.filter((klass) => normalizeName(klass.name) === target);
+}
+
 function sessionsFor(state: StudioState, klass: ClassDefinition) {
   return state.sessions.filter((session) => session.classId === klass.id).sort((a, b) => a.ordinal - b.ordinal);
 }
@@ -79,19 +95,17 @@ function effectiveDurations(klass: ClassDefinition, sessions: ClassSession[]) {
   return sorted(sessions.map((session) => sessionDurationMinutes(session, klass)));
 }
 
-// External source manifests are comparison/provenance baselines. The current
-// PlanningDatasetVersion is the authoritative working inventory because DWDE's
-// students, rosters, classes, teachers and rooms intentionally change over time.
+// A source manifest is optional for ordinary editing, but automatic solving has a
+// stronger provenance burden. STU-002 says the uploaded rosters are authoritative,
+// so the solver must be able to prove the baseline enrollment set it started from.
 function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatasetVersion | null, issues: ScheduleReadinessIssue[]) {
   const pin = currentPlanning?.snapshot.sourceManifest ?? null;
   if (!pin) {
     add(
       issues,
       "SOURCE_MANIFEST_NOT_PINNED",
-      "No external source manifest is pinned. This is allowed for fluid inventory: the current Planning Dataset is the authoritative working set. Pin a manifest only when a frozen comparison baseline is useful.",
+      "No complete roster/source baseline is pinned. Manual planning can continue, but automatic solving is blocked because the authoritative 2026-27 enrollment baseline cannot be reproduced.",
       SOURCE_MANIFEST_RULE_IDS,
-      [],
-      "WARNING",
     );
     return;
   }
@@ -100,10 +114,8 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
     add(
       issues,
       "SOURCE_MANIFEST_INCOMPLETE",
-      `Planning Source Manifest v${pin.version} is an incomplete comparison baseline. The current Planning Dataset remains authoritative.`,
+      `Planning Source Manifest v${pin.version} is incomplete. Automatic solving requires a complete authoritative roster/source baseline before it may generate a schedule.`,
       SOURCE_MANIFEST_RULE_IDS,
-      [],
-      "WARNING",
     );
   }
 
@@ -111,10 +123,8 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
     add(
       issues,
       "SOURCE_MANIFEST_SCHEMA_UNSUPPORTED",
-      `Planning Source Manifest v${pin.version} uses unsupported schema ${pin.snapshot.schemaVersion}; it cannot be compared to current planning data.`,
+      `Planning Source Manifest v${pin.version} uses unsupported schema ${pin.snapshot.schemaVersion}; automatic solving cannot verify the baseline against current planning data.`,
       SOURCE_MANIFEST_RULE_IDS,
-      [],
-      "WARNING",
     );
     return;
   }
@@ -129,7 +139,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
     add(
       issues,
       "SOURCE_MANIFEST_CLASS_SET_MISMATCH",
-      `Current planning inventory differs from Source Manifest v${pin.version}: ${missing.length} former class${missing.length === 1 ? "" : "es"} absent and ${extra.length} newer class${extra.length === 1 ? "" : "es"} present. This is informational drift, not automatic illegality.`,
+      `Current planning inventory differs from Source Manifest v${pin.version}: ${missing.length} former class${missing.length === 1 ? "" : "es"} absent and ${extra.length} newer class${extra.length === 1 ? "" : "es"} present. This is recorded drift, not automatic illegality after the baseline has been established.`,
       ["CUR-001", "CUR-002", "CUR-003", "CUR-004"],
       [...missing, ...extra],
       "WARNING",
@@ -169,7 +179,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
       add(
         issues,
         "SOURCE_MANIFEST_ROSTER_MISMATCH",
-        `${klass.name}'s current roster differs from Source Manifest v${pin.version}. Current Planning Dataset enrollment is authoritative.`,
+        `${klass.name}'s current roster differs from Source Manifest v${pin.version}. Current Planning Dataset enrollment is authoritative after the baseline was established.`,
         ["STU-002"],
         [klass.id, ...new Set([...klass.rosterStudentIds, ...expected.rosterStudentIds])],
         "WARNING",
@@ -240,6 +250,57 @@ function checkAdvancedBalletParticipation(state: StudioState, issues: ScheduleRe
   }
 }
 
+function checkKarlyDaughterEnrollment(state: StudioState, issues: ScheduleReadinessIssue[]) {
+  const daughterMatches = state.students.filter((student) => normalizeName(student.name) === normalizeName("Karly's daughter"));
+  if (daughterMatches.length !== 1) {
+    add(
+      issues,
+      daughterMatches.length === 0 ? "KARLY_DAUGHTER_STUDENT_MISSING" : "KARLY_DAUGHTER_STUDENT_AMBIGUOUS",
+      daughterMatches.length === 0
+        ? "KAR-008 identifies Karly's daughter as a current scheduling fact, but that student cannot be resolved in planning data."
+        : `KAR-008 identifies one Karly's daughter relationship, but ${daughterMatches.length} matching student records exist.`,
+      ["KAR-008", "KAR-009"],
+      daughterMatches.map((student) => student.id),
+    );
+    return;
+  }
+
+  const daughter = daughterMatches[0];
+  for (const className of KARLY_DAUGHTER_CLASS_NAMES) {
+    const matches = findClasses(state, className);
+    if (matches.length === 0) {
+      add(
+        issues,
+        "KARLY_DAUGHTER_CLASS_MISSING",
+        `KAR-008 says Karly's daughter takes ${className}, but that class is absent from the current Planning Dataset.`,
+        ["KAR-008"],
+        [daughter.id],
+      );
+      continue;
+    }
+    if (matches.length > 1) {
+      add(
+        issues,
+        "KARLY_DAUGHTER_CLASS_AMBIGUOUS",
+        `KAR-008 says Karly's daughter takes ${className}, but ${matches.length} classes resolve to that canonical name.`,
+        ["KAR-008"],
+        [daughter.id, ...matches.map((klass) => klass.id)],
+      );
+      continue;
+    }
+    const klass = matches[0];
+    if (!klass.rosterStudentIds.includes(daughter.id)) {
+      add(
+        issues,
+        "KARLY_DAUGHTER_ROSTER_MISSING",
+        `KAR-008 says Karly's daughter takes ${className}, but she is not on that class's current roster.`,
+        ["KAR-008", "STU-002"],
+        [daughter.id, klass.id],
+      );
+    }
+  }
+}
+
 function checkGenericPlanningIntegrity(state: StudioState, issues: ScheduleReadinessIssue[]) {
   const classIds = new Set(state.classes.map((klass) => klass.id));
   const studentIds = new Set(state.students.map((student) => student.id));
@@ -291,6 +352,23 @@ function checkGenericPlanningIntegrity(state: StudioState, issues: ScheduleReadi
   }
 }
 
+function checkConstraintBindings(state: StudioState, issues: ScheduleReadinessIssue[]) {
+  const model = compileConstraintModel(state);
+  const binding = validateConstraintModelBindings(state, model);
+  for (const issue of binding.issues) {
+    add(
+      issues,
+      issue.status === "MISSING" ? "CONSTRAINT_ENTITY_MISSING" : "CONSTRAINT_ENTITY_AMBIGUOUS",
+      issue.status === "MISSING"
+        ? `${issue.constraintId} expects ${issue.entityType.toLowerCase()} “${issue.expectedName}”, but no current planning entity resolves to that name.`
+        : `${issue.constraintId} expects one ${issue.entityType.toLowerCase()} “${issue.expectedName}”, but ${issue.matchedEntityIds.length} current planning entities resolve to that name.`,
+      issue.ruleIds,
+      issue.matchedEntityIds,
+    );
+  }
+  return binding;
+}
+
 export function evaluateScheduleReadiness(state: StudioState): ScheduleReadinessReport {
   const issues: ScheduleReadinessIssue[] = [];
   const ruleCoverage = ruleExecutionCoverage(state.rules);
@@ -322,7 +400,9 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
   checkGenericPlanningIntegrity(state, issues);
   checkStructure(state, issues);
   checkAdvancedBalletParticipation(state, issues);
+  checkKarlyDaughterEnrollment(state, issues);
   checkSourceManifest(state, currentPlanning, issues);
+  const constraintBinding = checkConstraintBindings(state, issues);
 
   const blockers = issues.filter((issue) => issue.severity === "BLOCKER");
   const warnings = issues.filter((issue) => issue.severity === "WARNING");
@@ -332,6 +412,7 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
     blockers,
     warnings,
     ruleCoverage,
+    constraintBinding,
     currentPlanningDatasetVersion: currentPlanning?.version ?? null,
     schedulePlanningDatasetVersion: schedulePlanningVersion,
     sourceManifestVersion: sourceManifest?.version ?? null,
