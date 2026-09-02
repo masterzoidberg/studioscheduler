@@ -58,6 +58,20 @@ describe("planning dataset snapshot", () => {
     expect(snapshot.sessions[0].durationMinutes).toBeNull();
   });
 
+  it("uses locale-independent code-unit ordering for canonical values", () => {
+    const state = fixture();
+    state.teachers = [
+      { id: "teacher-é", name: "Accent", subjects: [] },
+      { id: "teacher-Z", name: "Upper", subjects: [] },
+      { id: "teacher-a", name: "Lower", subjects: [] },
+    ];
+    state.rooms[0].features = ["équipement", "Z-floor", "alpha"];
+
+    const snapshot = buildPlanningDatasetSnapshot(state);
+    expect(snapshot.teacherIds).toEqual(["teacher-Z", "teacher-a", "teacher-é"]);
+    expect(snapshot.rooms.find((room) => room.id === "room-b")?.features).toEqual(["Z-floor", "alpha", "équipement"]);
+  });
+
   it("ignores presentation-only and legacy teacher-eligibility changes", () => {
     const before = fixture();
     const after = fixture();
