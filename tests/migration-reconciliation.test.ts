@@ -27,7 +27,7 @@ const productionTrackedMigrations = [
   "20260902122425_schedule_commands_v25.sql",
   "20260902122920_planning_dataset_canonical_collation_v25.sql",
   "20260902123142_planning_source_manifest_v26.sql",
-  "20260902131000_rulebook_v3_post_review_confirmations.sql",
+  "20260902130713_rulebook_v3_post_review_confirmations.sql",
 ];
 
 const archivedProductionHotfix = "20260901041429_fix_list_studio_members_v21_return_types.sql";
