@@ -14,8 +14,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Pin npm
+        run: npm install --global npm@11.6.0 --no-audit --no-fund
       - name: Install dependencies
         run: |
+          npm --version
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -40,7 +43,7 @@ jobs:
             fi
             sleep 1
           done
-          for route in / /rulebook /schedule /people /classes /scenarios /versions /settings; do
+          for route in / /rulebook /schedule /readiness /people /classes /scenarios /versions /settings; do
             echo "Checking $route"
             curl --silent --show-error --fail "http://127.0.0.1:3000$route" > /dev/null
           done
