@@ -6,15 +6,15 @@ This package is the deterministic HARD-feasibility engine for the DWDE Studio Sc
 
 The solver consumes **versioned planning facts + compiled Constraint IR**. It does not read prose Rulebook text and it does not write canonical schedule data directly.
 
-The caller is responsible for supplying the exact Rulebook/ConstraintModel/PlanningDataset context that passed the application readiness gate.
+The application is responsible for supplying the exact Rulebook/ConstraintModel/PlanningDataset context that passed the readiness gate. `lib/solver-problem.ts` is the canonical application-side request builder. A solve request is not valid merely because it is syntactically correct.
 
 `solve_feasibility(problem)` returns one of:
 
-- `FEASIBLE` — a complete candidate assignment exists under every solver-enforced HARD node and every delegated data precondition supplied by the caller.
-- `INFEASIBLE` — no candidate exists under the supplied HARD model.
-- `PRECONDITION_REQUIRED` — a HARD requirement delegated to planning/readiness has not been explicitly proven by the caller.
-- `UNSUPPORTED` — the model contains a Constraint IR kind the solver does not understand. This is fail-closed.
-- `UNKNOWN` — CP-SAT did not prove feasibility or infeasibility within the configured limit.
+- `FEASIBLE`: a complete candidate assignment exists under every solver-enforced HARD node and every delegated data precondition supplied by the caller.
+- `INFEASIBLE`: no candidate exists under the supplied HARD model.
+- `PRECONDITION_REQUIRED`: a HARD requirement delegated to planning/readiness has not been explicitly proven by the caller.
+- `UNSUPPORTED`: the model contains a Constraint IR kind the solver does not understand. This is fail-closed.
+- `UNKNOWN`: CP-SAT did not prove feasibility or infeasibility within the configured limit.
 
 ## Current enforcement
 
@@ -36,14 +36,36 @@ The CP-SAT model directly enforces:
 - room capacity with reviewed exemptions
 - Karly/daughter start alignment
 
-`REQUIRED_LOWER_LEVEL` is currently delegated to the Ready-to-Schedule data-precondition layer because it is an enrollment/progression fact, not a time-placement relation. The solver will refuse to run unless the caller includes that node in `preflight.validatedDelegatedConstraintIds`.
+`REQUIRED_LOWER_LEVEL` is delegated to the Ready-to-Schedule data-precondition layer because it is an enrollment/progression fact rather than a time-placement relation. The application validates that requirement deterministically and supplies the exact validated node ID in `preflight.validatedDelegatedConstraintIds`. The solver refuses to run when that proof is absent.
+
+## HTTP service
+
+The production boundary is a small FastAPI service in `dwde_solver/service.py`.
+
+- `GET /healthz` reports service health and whether internal authentication is configured.
+- `POST /v1/feasibility` accepts `{ problem, maxSeconds }`.
+- `SOLVER_INTERNAL_TOKEN` is mandatory for solve requests and is supplied as `Authorization: Bearer <token>`.
+- the service validates the request contract and verifies that RulebookVersion, PlanningDatasetVersion, and compiler version agree with the embedded Constraint Model before CP-SAT is invoked.
+- solve time is capped server-side at 30 seconds.
+- the service never authenticates studio users directly and never reads Supabase. User authorization and canonical data construction belong to the application backend. This keeps the solver stateless and prevents a browser from submitting arbitrary scheduling truth.
+
+The included Dockerfile is suitable for a stateless container platform such as Cloud Run. It runs as a non-root user and uses one Uvicorn worker so CP-SAT resource use stays predictable.
+
+Local container example:
+
+```bash
+docker build -t dwde-solver ./solver
+docker run --rm -p 8080:8080 -e SOLVER_INTERNAL_TOKEN=local-dev-secret dwde-solver
+```
 
 ## Safety properties
 
 - one search worker and a fixed seed are used for same-runner reproducibility
 - unsupported semantics fail closed
-- teacher qualification can be default-deny when the Constraint Model carries the `CUR-007` governance assertion
+- delegated HARD data semantics require explicit proof
+- teacher qualification is default-deny when the Constraint Model carries the `CUR-007` governance assertion
 - fixed-anchor assumptions are used for the current infeasibility-core diagnostic pass
 - generated assignments are candidates only; adoption must pass the governed application mutation/revalidation boundary
+- the HTTP service requires an internal server-to-server credential and echoes the exact version context used for every result
 
-Soft optimization is intentionally out of scope for this package until HARD feasibility is proven on real DWDE planning data.
+Soft optimization remains intentionally out of scope until HARD feasibility is proven on a ready DWDE Planning Dataset.
