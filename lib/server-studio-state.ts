@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   PlanningDatasetVersion,
+  RuleEnforcementMapping,
+  RuleEnforcementVersion,
   RulebookVersion,
   ScheduleVersion,
   StudioRule,
@@ -59,6 +61,20 @@ function mapRulebook(row: Record<string, unknown>): RulebookVersion {
   };
 }
 
+function mapEnforcement(row: Record<string, unknown>): RuleEnforcementVersion {
+  return {
+    id: String(row.id),
+    version: Number(row.version),
+    rulebookVersion: Number(row.rulebook_version || 0),
+    createdAt: String(row.created_at || ""),
+    actor: String(row.actor_label || ""),
+    reason: String(row.reason || ""),
+    changedRuleIds: (row.changed_rule_ids as string[]) || [],
+    snapshot: (row.snapshot as RuleEnforcementMapping[]) || [],
+    status: row.status as RuleEnforcementVersion["status"],
+  };
+}
+
 function mapPlanningDataset(row: Record<string, unknown>): PlanningDatasetVersion {
   return {
     id: String(row.id),
@@ -95,7 +111,7 @@ export async function loadCanonicalSolverStudioState(
   supabase: SupabaseClient,
   studioId: string,
 ): Promise<StudioState> {
-  const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, planningQ, scheduleQ] = await Promise.all([
+  const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ] = await Promise.all([
     supabase.from("studios").select("id,name").eq("id", studioId).single(),
     supabase.from("teachers").select("*").eq("studio_id", studioId).order("id"),
     supabase.from("rooms").select("*").eq("studio_id", studioId).order("id"),
@@ -105,11 +121,12 @@ export async function loadCanonicalSolverStudioState(
     supabase.from("class_sessions").select("*").eq("studio_id", studioId).order("id"),
     supabase.from("rules").select("*").eq("studio_id", studioId).order("id"),
     supabase.from("rulebook_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
+    supabase.from("rule_enforcement_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
     supabase.from("planning_dataset_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
     supabase.from("schedule_versions").select("*").eq("studio_id", studioId).eq("is_current", true).order("version", { ascending: false }),
   ]);
 
-  const firstError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, planningQ, scheduleQ]
+  const firstError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ]
     .find((query) => query.error)?.error;
   if (firstError) throw firstError;
 
@@ -160,7 +177,7 @@ export async function loadCanonicalSolverStudioState(
     })),
     rules: (rulesQ.data || []).map((row) => mapRule(row as Record<string, unknown>)),
     rulebookVersions: (rulebookQ.data || []).map((row) => mapRulebook(row as Record<string, unknown>)),
-    enforcementVersions: [],
+    enforcementVersions: (enforcementQ.data || []).map((row) => mapEnforcement(row as Record<string, unknown>)),
     planningDatasetVersions: (planningQ.data || []).map((row) => mapPlanningDataset(row as Record<string, unknown>)),
     enforcementProposals: [],
     ruleHistory: [],
