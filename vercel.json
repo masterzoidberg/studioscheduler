@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/feasibility.py": {
+      "maxDuration": 30,
+      "excludeFiles": "{tests/**,solver/tests/**,docs/**,supabase/**,components/**,app/**,public/**}"
+    }
+  }
+}
