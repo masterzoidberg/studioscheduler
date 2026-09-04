@@ -90,6 +90,7 @@ export function ClassesView() {
   }
 
   function beginEdit(klass: ClassDefinition) {
+    if (!state) return;
     const sessions = state.sessions.filter((session) => session.classId === klass.id).sort((a, b) => a.ordinal - b.ordinal);
     setCreating(false);
     setActiveRepair(null);
@@ -99,6 +100,7 @@ export function ClassesView() {
   }
 
   function beginRulebookRepair(repair: RulebookClassStructureRepair) {
+    if (!state) return;
     if (repair.status === "AMBIGUOUS") {
       setNotice(`${repair.className} has duplicate class records (${repair.duplicateClassIds.join(", ")}). Resolve the duplicate inventory before applying Rulebook structure changes.`);
       return;
