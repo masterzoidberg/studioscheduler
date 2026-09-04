@@ -55,13 +55,13 @@ export function PlanningDatasetConfirmationCard() {
   const { state, canEdit, currentPlanningDatasetVersion } = useWorkspace();
   const [row, setRow] = useState<ConfirmationRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadedPlanningDatasetVersion, setLoadedPlanningDatasetVersion] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!state) return;
     let active = true;
-    setLoading(true);
     void getBrowserSupabase()
       .from("planning_dataset_versions")
       .select(CURRENT_DATASET_SELECT)
@@ -72,6 +72,7 @@ export function PlanningDatasetConfirmationCard() {
         if (!active) return;
         if (error) setNotice(error.message);
         else setRow(data as ConfirmationRow | null);
+        setLoadedPlanningDatasetVersion(currentPlanningDatasetVersion);
         setLoading(false);
       });
     return () => { active = false; };
@@ -87,10 +88,17 @@ export function PlanningDatasetConfirmationCard() {
       .maybeSingle();
     if (error) setNotice(error.message);
     else setRow(data as ConfirmationRow | null);
+    setLoadedPlanningDatasetVersion(currentPlanningDatasetVersion);
   }
 
+  const rowCurrent = Boolean(
+    row
+    && row.version === currentPlanningDatasetVersion
+    && loadedPlanningDatasetVersion === currentPlanningDatasetVersion,
+  );
+
   async function confirm() {
-    if (!canEdit || saving || !row?.snapshot) return;
+    if (!canEdit || saving || !rowCurrent || !row?.snapshot) return;
     setSaving(true);
     setNotice("");
     const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v32", {
@@ -106,7 +114,7 @@ export function PlanningDatasetConfirmationCard() {
     setSaving(false);
   }
 
-  const snapshot = row?.snapshot;
+  const snapshot = rowCurrent ? row?.snapshot : null;
   const teachers = safeArray(snapshot?.teachers);
   const students = safeArray(snapshot?.students);
   const rooms = safeArray(snapshot?.rooms);
@@ -127,8 +135,9 @@ export function PlanningDatasetConfirmationCard() {
   }, [sessions]);
 
   if (!state) return null;
-  const confirmed = Boolean(row?.confirmed_for_scheduling_at);
-  const snapshotLoaded = Boolean(snapshot);
+  const confirmed = Boolean(rowCurrent && row?.confirmed_for_scheduling_at);
+  const snapshotLoaded = Boolean(rowCurrent && snapshot);
+  const loadingCurrent = loading || loadedPlanningDatasetVersion !== currentPlanningDatasetVersion;
 
   return (
     <section className={`rounded-2xl border p-5 ${confirmed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
@@ -145,7 +154,7 @@ export function PlanningDatasetConfirmationCard() {
             Every meaningful planning edit creates a new immutable version. Review the exact snapshot below before confirming it for automatic scheduling; the next planning edit automatically creates a new, unconfirmed version.
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            Snapshot {row?.snapshot_hash ? row.snapshot_hash.slice(0, 12) : "not loaded"} · schema {snapshot?.schemaVersion || "unknown"}. External source manifests remain provenance baselines, not a freeze on current enrollment.
+            Snapshot {rowCurrent && row?.snapshot_hash ? row.snapshot_hash.slice(0, 12) : "not loaded"} · schema {snapshot?.schemaVersion || "unknown"}. External source manifests remain provenance baselines, not a freeze on current enrollment.
           </p>
           {confirmed ? (
             <p className="mt-3 text-xs font-medium text-emerald-800">
@@ -156,7 +165,7 @@ export function PlanningDatasetConfirmationCard() {
         </div>
         {canEdit ? (
           <button
-            disabled={loading || saving || confirmed || !snapshotLoaded}
+            disabled={loadingCurrent || saving || confirmed || !snapshotLoaded}
             onClick={() => void confirm()}
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -267,7 +276,7 @@ export function PlanningDatasetConfirmationCard() {
             </div>
           </details>
         </div>
-      ) : loading ? (
+      ) : loadingCurrent ? (
         <p className="mt-5 border-t border-slate-200/80 pt-4 text-sm text-slate-500">Loading immutable planning snapshot…</p>
       ) : (
         <p className="mt-5 border-t border-slate-200/80 pt-4 text-sm font-medium text-rose-700">
