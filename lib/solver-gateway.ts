@@ -49,6 +49,53 @@ export interface SolverServicePayload {
   };
 }
 
+export type ConstraintModelSyncDecision =
+  | { action: "CURRENT"; reason: string }
+  | { action: "PUBLISH"; reason: string }
+  | { action: "BLOCK"; reason: string };
+
+/**
+ * Decide whether an explicit editor solve may repair the published model boundary.
+ *
+ * Missing or plainly stale artifacts can be deterministically regenerated from
+ * the tested compiler. A same-Rulebook/same-compiler snapshot mismatch is more
+ * suspicious: silently replacing it would hide drift, so that case fails closed.
+ */
+export function constraintModelSyncDecision(
+  problem: FeasibilitySolverProblem,
+  published: PublishedConstraintModelRecord | null,
+): ConstraintModelSyncDecision {
+  const expected = constraintModelDefinition(problem.constraintModel);
+  if (!published) {
+    return { action: "PUBLISH", reason: "No current published Constraint Model exists." };
+  }
+
+  const staleIdentity = published.rulebookVersion !== problem.context.rulebookVersion
+    || published.compilerVersion !== problem.context.compilerVersion;
+  if (staleIdentity) {
+    return {
+      action: "PUBLISH",
+      reason: `Published Constraint Model v${published.version} is stale for the current Rulebook/compiler identity.`,
+    };
+  }
+
+  if (!published.complete) {
+    return {
+      action: "PUBLISH",
+      reason: `Published Constraint Model v${published.version} is not marked complete for HARD constraints.`,
+    };
+  }
+
+  if (!constraintModelDefinitionsMatch(expected, published.snapshot)) {
+    return {
+      action: "BLOCK",
+      reason: "Published Constraint Model has the current Rulebook/compiler identity but its snapshot differs from tested compiler output.",
+    };
+  }
+
+  return { action: "CURRENT", reason: `Published Constraint Model v${published.version} matches tested compiler output.` };
+}
+
 export function publishedConstraintModelBlockers(
   problem: FeasibilitySolverProblem,
   published: PublishedConstraintModelRecord | null,
