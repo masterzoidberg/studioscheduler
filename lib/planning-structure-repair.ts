@@ -30,14 +30,16 @@ export function rulebookClassStructureRepairs(input: {
   classes: ClassDefinition[];
   sessions: ClassSession[];
 }): RulebookClassStructureRepair[] {
-  return PLANNING_CLASS_STRUCTURE_REQUIREMENTS.flatMap((requirement) => {
+  const repairs: RulebookClassStructureRepair[] = [];
+
+  for (const requirement of PLANNING_CLASS_STRUCTURE_REQUIREMENTS) {
     const target = normalizeName(requirement.className);
     const matching = input.classes.filter((klass) => normalizeName(klass.name) === target);
     const expectedDurations = requirement.durations ? sorted(requirement.durations) : null;
 
     if (matching.length === 0) {
-      return [{
-        status: "MISSING" as const,
+      repairs.push({
+        status: "MISSING",
         className: requirement.className,
         classId: null,
         ruleIds: [...requirement.ruleIds],
@@ -48,12 +50,13 @@ export function rulebookClassStructureRepairs(input: {
         frequencyMismatch: true,
         durationMismatch: Boolean(expectedDurations),
         duplicateClassIds: [],
-      }];
+      });
+      continue;
     }
 
     if (matching.length > 1) {
-      return [{
-        status: "AMBIGUOUS" as const,
+      repairs.push({
+        status: "AMBIGUOUS",
         className: requirement.className,
         classId: null,
         ruleIds: [...requirement.ruleIds],
@@ -64,7 +67,8 @@ export function rulebookClassStructureRepairs(input: {
         frequencyMismatch: true,
         durationMismatch: Boolean(expectedDurations),
         duplicateClassIds: matching.map((klass) => klass.id),
-      }];
+      });
+      continue;
     }
 
     const klass = matching[0];
@@ -73,10 +77,10 @@ export function rulebookClassStructureRepairs(input: {
     const frequencyMismatch = klass.weeklyFrequency !== requirement.frequency || sessions.length !== requirement.frequency;
     const durationMismatch = expectedDurations ? !sameNumbers(currentDurations, expectedDurations) : false;
 
-    if (!frequencyMismatch && !durationMismatch) return [];
+    if (!frequencyMismatch && !durationMismatch) continue;
 
-    return [{
-      status: "MISMATCH" as const,
+    repairs.push({
+      status: "MISMATCH",
       className: requirement.className,
       classId: klass.id,
       ruleIds: [...requirement.ruleIds],
@@ -87,8 +91,10 @@ export function rulebookClassStructureRepairs(input: {
       frequencyMismatch,
       durationMismatch,
       duplicateClassIds: [],
-    }];
-  });
+    });
+  }
+
+  return repairs;
 }
 
 export function rulebookRepairDraft(
