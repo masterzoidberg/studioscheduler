@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Clock3, Pencil, Plus, Search, UsersRound, Wrench, X } from "lucide-react";
 import type { ClassDefinition, ClassSession } from "@/lib/domain";
 import { useWorkspace } from "@/components/workspace-provider";
-import { mutatePlanningEntity, updateClassSessionDurations } from "@/lib/planning-inventory-client";
+import { applyRulebookStructureRepair, mutatePlanningEntity, updateClassSessionDurations } from "@/lib/planning-inventory-client";
 import {
   rulebookClassStructureRepairs,
   rulebookRepairDraft,
@@ -139,6 +139,51 @@ export function ClassesView() {
 
   async function save() {
     if (!editing || !canEdit || saving) return;
+
+    if (activeRepair && !creating) {
+      if (!original || activeRepair.classId !== editing.id) {
+        setNotice("The Rulebook repair target changed while the editor was open. Refresh and review the repair again.");
+        return;
+      }
+      const firstExpectedDuration = activeRepair.expectedDurations?.[0] ?? null;
+      const uniformExpectedDuration = firstExpectedDuration != null
+        && activeRepair.expectedDurations?.every((value) => value === firstExpectedDuration)
+        ? firstExpectedDuration
+        : null;
+      const unrelatedFieldsChanged = original.name !== editing.name
+        || original.subject !== editing.subject
+        || original.level !== editing.level
+        || original.companyOnly !== editing.companyOnly
+        || original.rosterStudentIds.length !== editing.rosterStudentIds.length
+        || original.rosterStudentIds.some((id) => !editing.rosterStudentIds.includes(id))
+        || (uniformExpectedDuration == null && original.durationMinutes !== editing.durationMinutes);
+      if (unrelatedFieldsChanged) {
+        setNotice("A Rulebook structure repair cannot be mixed with curriculum, roster, scope, or unrelated duration edits. Cancel and make those changes separately.");
+        return;
+      }
+      if (editing.weeklyFrequency !== activeRepair.expectedFrequency
+        || (uniformExpectedDuration != null && editing.durationMinutes !== uniformExpectedDuration)) {
+        setNotice("The reviewed repair values were changed in the editor. Restore the Rulebook-established structure or cancel the repair.");
+        return;
+      }
+
+      setSaving(true);
+      setNotice("");
+      const result = await applyRulebookStructureRepair({
+        classId: editing.id,
+        reason: `Applied atomic reviewed Rulebook structure repair for ${editing.name} (${activeRepair.ruleIds.join(", ")})`,
+        expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
+      });
+      setSaving(false);
+      if (!result.ok) {
+        setNotice(result.error || "Rulebook structure repair failed.");
+        return;
+      }
+      await refresh();
+      closeEditor();
+      setNotice(`Applied the complete Rulebook structure repair atomically. Planning Dataset is now v${result.planningDatasetVersion ?? currentPlanningDatasetVersion}; the existing schedule needs revalidation.`);
+      return;
+    }
     if (!editing.name.trim() || !editing.subject.trim() || !editing.level.trim()) {
       setNotice("Name, subject, and level are required before class planning data can be saved.");
       return;
@@ -317,22 +362,22 @@ export function ClassesView() {
                 <p className="mt-1">Expected structure: {expectedStructure(activeRepair)}. Verify all visible planning fields before saving.</p>
                 {activeRepair.status === "MISSING" ? <p className="mt-1"><strong>Roster is intentionally blank.</strong> Enrollment is not derived from the Rulebook; add only students supported by current roster facts.</p> : null}
                 {!activeRepair.expectedDurations ? <p className="mt-1"><strong>Duration was not prefilled.</strong> Enter the verified class duration before saving; the repair workflow will not guess one.</p> : null}
-                {activeRepair.expectedDurations && new Set(activeRepair.expectedDurations).size > 1 ? <p className="mt-1">This class requires distinct weekly durations ({activeRepair.expectedDurations.join("/")} minutes). If session rows must first be created by a frequency change, save the class structure, reopen it, then set the per-session overrides.</p> : null}
+                {activeRepair.expectedDurations && new Set(activeRepair.expectedDurations).size > 1 ? <p className="mt-1">This class requires distinct weekly durations ({activeRepair.expectedDurations.join("/")} minutes). The reviewed repair will create/reconcile every required session and duration in one atomic transaction.</p> : null}
               </div>
             ) : null}
 
             <div className="mt-5 grid gap-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-xs font-semibold text-slate-600">Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
-                <label className="text-xs font-semibold text-slate-600">Subject<input value={editing.subject} onChange={(event) => setEditing({ ...editing, subject: event.target.value })} placeholder="Ballet, Jazz, Tap…" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Name<input readOnly={Boolean(activeRepair)} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Subject<input readOnly={Boolean(activeRepair)} value={editing.subject} onChange={(event) => setEditing({ ...editing, subject: event.target.value })} placeholder="Ballet, Jazz, Tap…" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <label className="text-xs font-semibold text-slate-600">Level<input value={editing.level} onChange={(event) => setEditing({ ...editing, level: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
-                <label className="text-xs font-semibold text-slate-600">Default minutes<input type="number" min={1} value={editing.durationMinutes || ""} onChange={(event) => setEditing({ ...editing, durationMinutes: Number(event.target.value) })} placeholder="Required" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
-                <label className="text-xs font-semibold text-slate-600">Per week<input type="number" min={1} value={editing.weeklyFrequency} onChange={(event) => setEditing({ ...editing, weeklyFrequency: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Level<input readOnly={Boolean(activeRepair)} value={editing.level} onChange={(event) => setEditing({ ...editing, level: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Default minutes<input type="number" min={1} readOnly={Boolean(activeRepair)} value={editing.durationMinutes || ""} onChange={(event) => setEditing({ ...editing, durationMinutes: Number(event.target.value) })} placeholder="Required" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Per week<input type="number" min={1} readOnly={Boolean(activeRepair)} value={editing.weeklyFrequency} onChange={(event) => setEditing({ ...editing, weeklyFrequency: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
               </div>
 
-              {!creating && editingSessions.length ? (
+              {!activeRepair && !creating && editingSessions.length ? (
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4">
                   <div>
                     <p className="text-sm font-semibold text-slate-950">Weekly session durations</p>
@@ -377,17 +422,17 @@ export function ClassesView() {
                 <div className="mt-3 grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
                   {students.map((item) => {
                     const selected = editing.rosterStudentIds.includes(item.id);
-                    return <label key={item.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${selected ? "border-slate-950 bg-slate-50" : "border-slate-200"}`}><input type="checkbox" checked={selected} onChange={() => toggleStudent(item.id)} /><span><strong className="block font-semibold">{item.name}</strong><span className="text-xs text-slate-500">{item.level}</span></span></label>;
+                    return <label key={item.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${selected ? "border-slate-950 bg-slate-50" : "border-slate-200"}`}><input type="checkbox" disabled={Boolean(activeRepair)} checked={selected} onChange={() => toggleStudent(item.id)} /><span><strong className="block font-semibold">{item.name}</strong><span className="text-xs text-slate-500">{item.level}</span></span></label>;
                   })}
                   {!students.length ? <p className="text-sm text-slate-500">No students match that search.</p> : null}
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(editing.companyOnly)} onChange={(event) => setEditing({ ...editing, companyOnly: event.target.checked })} />Company-only curriculum flag</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={Boolean(activeRepair)} checked={Boolean(editing.companyOnly)} onChange={(event) => setEditing({ ...editing, companyOnly: event.target.checked })} />Company-only curriculum flag</label>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><strong>Teacher eligibility is not editable here.</strong> Required, allowed, preferred and prohibited teachers belong to versioned Rulebook policy. New classes begin with no invented eligibility.</div>
               <div className={`rounded-xl border p-3 text-sm ${durationImpact.length ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700"}`}><strong>Schedule impact:</strong> {durationImpact.length ? `${durationImpact.length} current assignment(s) retain their old scheduled duration until the schedule is repaired/revalidated.` : "Saving scheduling-significant changes advances the Planning Dataset and marks the existing schedule stale for revalidation."}</div>
               {!creating && original && editing.weeklyFrequency < original.weeklyFrequency ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">Reducing weekly frequency is protected. If a session being removed appears anywhere in schedule history, the save will be blocked rather than deleting historical identity.</div> : null}
-              <div className="flex gap-2"><button onClick={closeEditor} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !editing.name.trim() || !editing.subject.trim() || !editing.level.trim() || editing.durationMinutes <= 0 || editing.weeklyFrequency <= 0} onClick={() => void save()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : creating ? "Add class" : "Save class"}</button></div>
+              <div className="flex gap-2"><button onClick={closeEditor} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !editing.name.trim() || !editing.subject.trim() || !editing.level.trim() || editing.durationMinutes <= 0 || editing.weeklyFrequency <= 0} onClick={() => void save()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : activeRepair ? "Apply reviewed repair" : creating ? "Add class" : "Save class"}</button></div>
             </div>
           </div>
         </div>
