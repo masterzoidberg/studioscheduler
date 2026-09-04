@@ -29,7 +29,14 @@ def problem() -> dict:
             "rosterStudentIds": [],
             "companyOnly": False,
         }],
-        "sessions": [{"id": "session", "classId": "class", "ordinal": 1, "durationMinutes": None, "locked": False}],
+        "sessions": [{
+            "id": "session",
+            "classId": "class",
+            "ordinal": 1,
+            "durationMinutes": None,
+            "locked": False,
+            "lockedPlacement": None,
+        }],
         "constraintModel": {
             "schemaVersion": "1.0",
             "compilerVersion": "dwde-ir-test",
@@ -86,6 +93,71 @@ def test_solve_echoes_version_context_and_returns_candidate(monkeypatch):
     assert body["serviceVersion"] == "1.0"
     assert body["result"]["status"] == "FEASIBLE"
     assert body["result"]["assignments"][0]["sessionId"] == "session"
+
+
+def test_solve_preserves_single_session_locked_placement(monkeypatch):
+    monkeypatch.setenv("SOLVER_INTERNAL_TOKEN", "internal-secret")
+    payload = problem()
+    payload["sessions"][0]["locked"] = True
+    payload["sessions"][0]["lockedPlacement"] = {
+        "day": "Monday",
+        "startTime": "18:30",
+        "teacherId": "teacher",
+        "roomId": "room",
+    }
+
+    response = client.post(
+        "/v1/feasibility",
+        headers={"Authorization": "Bearer internal-secret"},
+        json={"problem": payload, "maxSeconds": 1.0},
+    )
+    assert response.status_code == 200
+    assignment = response.json()["result"]["assignments"][0]
+    assert assignment == {
+        "sessionId": "session",
+        "day": "Monday",
+        "startTime": "18:30",
+        "endTime": "19:30",
+        "teacherId": "teacher",
+        "roomId": "room",
+    }
+
+
+def test_service_rejects_ambiguous_multi_session_lock(monkeypatch):
+    monkeypatch.setenv("SOLVER_INTERNAL_TOKEN", "internal-secret")
+    payload = problem()
+    payload["classes"][0]["weeklyFrequency"] = 2
+    payload["sessions"] = [
+        {
+            "id": "session-1",
+            "classId": "class",
+            "ordinal": 1,
+            "durationMinutes": None,
+            "locked": True,
+            "lockedPlacement": {
+                "day": "Monday",
+                "startTime": "18:30",
+                "teacherId": "teacher",
+                "roomId": "room",
+            },
+        },
+        {
+            "id": "session-2",
+            "classId": "class",
+            "ordinal": 2,
+            "durationMinutes": None,
+            "locked": False,
+            "lockedPlacement": None,
+        },
+    ]
+
+    response = client.post(
+        "/v1/feasibility",
+        headers={"Authorization": "Bearer internal-secret"},
+        json={"problem": payload},
+    )
+    assert response.status_code == 422
+    assert "multi-session class" in response.json()["detail"]
 
 
 def test_service_rejects_context_model_version_drift(monkeypatch):
