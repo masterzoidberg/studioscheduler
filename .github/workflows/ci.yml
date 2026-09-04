@@ -43,7 +43,7 @@ jobs:
             fi
             sleep 1
           done
-          for route in / /rulebook /schedule /readiness /people /classes /scenarios /versions /settings; do
+          for route in / /rulebook /schedule /readiness /planning-repairs /people /classes /scenarios /versions /settings; do
             echo "Checking $route"
             curl --silent --show-error --fail "http://127.0.0.1:3000$route" > /dev/null
           done
