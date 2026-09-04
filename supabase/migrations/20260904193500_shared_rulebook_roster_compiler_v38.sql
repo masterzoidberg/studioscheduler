@@ -119,13 +119,14 @@ declare
   v_required_ids text[]:='{}'::text[];
 begin
   if private.required_class_name_v34(new.name) then
-    v_requirements:=private.rulebook_required_roster_v38(new.studio_id,new.name);
-    select coalesce(array_agg(value order by value),'{}'::text[]) into v_required_ids
-    from jsonb_array_elements_text(coalesce(v_requirements->'requiredStudentIds','[]'::jsonb)) value;
-
+    perform private.assert_reviewed_rulebook_v3_v36(new.studio_id);
     if coalesce(current_setting('dwde.reviewed_required_class_intake',true),'') <> 'on' then
       raise exception 'REVIEWED_REQUIRED_CLASS_INTAKE_REQUIRED: % must be created through the reviewed required-class intake',new.name;
     end if;
+
+    v_requirements:=private.rulebook_required_roster_v38(new.studio_id,new.name);
+    select coalesce(array_agg(r.value order by r.value),'{}'::text[]) into v_required_ids
+    from jsonb_array_elements_text(coalesce(v_requirements->'requiredStudentIds','[]'::jsonb)) as r(value);
 
     if not coalesce(new.roster_student_ids,'{}'::text[]) @> v_required_ids then
       raise exception 'REVIEWED_REQUIRED_CLASS_REQUIRED_ROSTER_MISSING: % must include every Rulebook-required roster member (%)',
@@ -203,12 +204,12 @@ begin
     raise exception 'RULEBOOK_ROSTER_REPAIR_UNSUPPORTED: % is not a reviewed Rulebook roster-repair target',v_name;
   end if;
 
-  select coalesce(array_agg(value order by value),'{}'::text[]) into v_required_ids
-  from jsonb_array_elements_text(coalesce(v_requirements->'requiredStudentIds','[]'::jsonb)) value;
-  select coalesce(array_agg(value order by value),'{}'::text[]) into v_rule_ids
-  from jsonb_array_elements_text(coalesce(v_requirements->'ruleIds','[]'::jsonb)) value;
-  select coalesce(array_agg(value order by value),'{}'::text[]) into v_relationships
-  from jsonb_array_elements_text(coalesce(v_requirements->'relationshipLabels','[]'::jsonb)) value;
+  select coalesce(array_agg(r.value order by r.value),'{}'::text[]) into v_required_ids
+  from jsonb_array_elements_text(coalesce(v_requirements->'requiredStudentIds','[]'::jsonb)) as r(value);
+  select coalesce(array_agg(r.value order by r.value),'{}'::text[]) into v_rule_ids
+  from jsonb_array_elements_text(coalesce(v_requirements->'ruleIds','[]'::jsonb)) as r(value);
+  select coalesce(array_agg(r.value order by r.value),'{}'::text[]) into v_relationships
+  from jsonb_array_elements_text(coalesce(v_requirements->'relationshipLabels','[]'::jsonb)) as r(value);
 
   select coalesce(array_agg(x order by x),'{}'::text[]) into v_missing_ids
   from unnest(v_required_ids) x
