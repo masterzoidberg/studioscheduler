@@ -25,24 +25,14 @@ jobs:
           path = Path("components/classes-view.tsx")
           text = path.read_text()
 
-          old = '''  function beginRulebookRepair(repair: RulebookClassStructureRepair) {
-            if (!state) return;
-            if (repair.status === "AMBIGUOUS") {
-          '''
-          new = '''  function beginRulebookRepair(repair: RulebookClassStructureRepair) {
-            if (!state) return;
-            if (repair.status === "MISSING") {
-              window.location.assign("/planning-repairs");
-              return;
-            }
-            if (repair.status === "AMBIGUOUS") {
-          '''
+          old = "  function beginRulebookRepair(repair: RulebookClassStructureRepair) {\n    if (!state) return;\n    if (repair.status === \"AMBIGUOUS\") {\n"
+          new = "  function beginRulebookRepair(repair: RulebookClassStructureRepair) {\n    if (!state) return;\n    if (repair.status === \"MISSING\") {\n      window.location.assign(\"/planning-repairs\");\n      return;\n    }\n    if (repair.status === \"AMBIGUOUS\") {\n"
           if text.count(old) != 1:
               raise SystemExit(f"expected one beginRulebookRepair target, found {text.count(old)}")
           text = text.replace(old, new, 1)
 
-          old_button = '''<button type="button" onClick={() => beginRulebookRepair(repair)} className="min-h-10 shrink-0 rounded-xl border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-950">Review repair</button>'''
-          new_button = '''<button type="button" onClick={() => beginRulebookRepair(repair)} className="min-h-10 shrink-0 rounded-xl border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-950">{repair.status === "MISSING" ? "Use reviewed intake" : "Review repair"}</button>'''
+          old_button = '<button type="button" onClick={() => beginRulebookRepair(repair)} className="min-h-10 shrink-0 rounded-xl border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-950">Review repair</button>'
+          new_button = '<button type="button" onClick={() => beginRulebookRepair(repair)} className="min-h-10 shrink-0 rounded-xl border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-950">{repair.status === "MISSING" ? "Use reviewed intake" : "Review repair"}</button>'
           if text.count(old_button) != 1:
               raise SystemExit(f"expected one repair button target, found {text.count(old_button)}")
           text = text.replace(old_button, new_button, 1)
