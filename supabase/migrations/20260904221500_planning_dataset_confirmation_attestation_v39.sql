@@ -30,16 +30,16 @@ begin
     raise exception 'PLANNING_CONFIRMATION_EVIDENCE_REQUIRED: evidence must be a JSON object';
   end if;
 
-  if coalesce((v_evidence->>'peopleInventoryReviewed')::boolean,false) is not true then
+  if v_evidence->'peopleInventoryReviewed' is distinct from 'true'::jsonb then
     raise exception 'PLANNING_CONFIRMATION_PEOPLE_REVIEW_REQUIRED: review and attest the current teacher and student inventory';
   end if;
-  if coalesce((v_evidence->>'classSessionCatalogReviewed')::boolean,false) is not true then
+  if v_evidence->'classSessionCatalogReviewed' is distinct from 'true'::jsonb then
     raise exception 'PLANNING_CONFIRMATION_CLASS_SESSION_REVIEW_REQUIRED: review and attest the current class and weekly session catalog';
   end if;
-  if coalesce((v_evidence->>'classRostersReviewed')::boolean,false) is not true then
+  if v_evidence->'classRostersReviewed' is distinct from 'true'::jsonb then
     raise exception 'PLANNING_CONFIRMATION_ROSTER_REVIEW_REQUIRED: review and attest the current class rosters';
   end if;
-  if coalesce((v_evidence->>'sourceAndCompletenessReviewed')::boolean,false) is not true then
+  if v_evidence->'sourceAndCompletenessReviewed' is distinct from 'true'::jsonb then
     raise exception 'PLANNING_CONFIRMATION_COMPLETENESS_REVIEW_REQUIRED: verify the snapshot against the best available current studio source or manager knowledge and attest that no known planning records are omitted';
   end if;
 
