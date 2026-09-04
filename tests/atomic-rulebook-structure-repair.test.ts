@@ -39,6 +39,13 @@ describe("atomic Rulebook structure repair V3.5", () => {
     expect(migration).toContain("insert into public.entity_versions");
   });
 
+  it("is idempotent when the canonical structure is already present", () => {
+    expect(migration).toContain("weekly_frequency is distinct from v_frequency");
+    expect(migration).toContain("if v_before = v_after then");
+    expect(migration).toContain("'changed',false");
+    expect(migration).toContain("'scheduleRequiresRevalidation',false");
+  });
+
   it("fails closed for unsupported or ambiguous canonical class names", () => {
     expect(migration).toContain("RULEBOOK_STRUCTURE_REPAIR_UNSUPPORTED");
     expect(migration).toContain("RULEBOOK_STRUCTURE_REPAIR_AMBIGUOUS");
