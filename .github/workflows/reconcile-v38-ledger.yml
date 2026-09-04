@@ -1,0 +1,41 @@
+name: Reconcile v38 migration ledger
+
+on:
+  push:
+    branches:
+      - chore/reconcile-v38-migration-ledger
+    paths:
+      - .github/workflows/reconcile-v38-ledger.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Align v38 filename with Supabase ledger
+        run: |
+          git mv supabase/migrations/20260904193500_shared_rulebook_roster_compiler_v38.sql supabase/migrations/20260904215241_shared_rulebook_roster_compiler_v38.sql
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/shared-rulebook-roster-compiler.test.ts')
+          text = path.read_text()
+          old = '20260904193500_shared_rulebook_roster_compiler_v38.sql'
+          new = '20260904215241_shared_rulebook_roster_compiler_v38.sql'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one test path, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff --stat
+      - name: Commit reconciliation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/migrations tests/shared-rulebook-roster-compiler.test.ts
+          git commit -m "Align v38 migration filename with Supabase ledger"
+          git push origin HEAD:${GITHUB_REF_NAME}
