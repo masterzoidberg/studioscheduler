@@ -1,0 +1,30 @@
+name: Generate npm lockfile
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - .github/workflows/generate-lockfile.yml
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pin npm
+        run: npm install --global npm@11.6.0 --no-audit --no-fund
+      - name: Generate lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Verify lockfile
+        run: |
+          npm --version
+          test -s package-lock.json
+          node -e "const p=require('./package-lock.json'); if(p.lockfileVersion !== 3) process.exit(1); console.log('lockfileVersion', p.lockfileVersion)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-lockfile
+          path: package-lock.json
+          if-no-files-found: error
