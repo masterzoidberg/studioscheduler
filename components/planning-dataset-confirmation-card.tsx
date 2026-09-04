@@ -53,6 +53,32 @@ function safeArray<T>(value: T[] | undefined): T[] {
   return Array.isArray(value) ? value : [];
 }
 
+type ConfirmationEvidence = {
+  peopleInventoryReviewed: boolean;
+  classSessionCatalogReviewed: boolean;
+  classRostersReviewed: boolean;
+  sourceAndCompletenessReviewed: boolean;
+};
+
+type SnapshotAttestationState = {
+  snapshotKey: string;
+  evidence: ConfirmationEvidence;
+};
+
+const EMPTY_CONFIRMATION_EVIDENCE: ConfirmationEvidence = {
+  peopleInventoryReviewed: false,
+  classSessionCatalogReviewed: false,
+  classRostersReviewed: false,
+  sourceAndCompletenessReviewed: false,
+};
+
+const CONFIRMATION_ATTESTATIONS: Array<{ key: keyof ConfirmationEvidence; label: string }> = [
+  { key: "peopleInventoryReviewed", label: "I reviewed the current teacher and student inventory and confirm all known people needed for this planning cycle are represented." },
+  { key: "classSessionCatalogReviewed", label: "I reviewed the class catalog and weekly session structure and confirm all current offerings and required weekly sessions are represented." },
+  { key: "classRostersReviewed", label: "I reviewed each class roster and confirm the current enrollments needed for scheduling are represented." },
+  { key: "sourceAndCompletenessReviewed", label: "I verified this snapshot against the best available current studio source or manager knowledge and confirm no known planning records are omitted." },
+];
+
 export function PlanningDatasetConfirmationCard() {
   const { state, canEdit, currentPlanningDatasetVersion } = useWorkspace();
   const [row, setRow] = useState<ConfirmationRow | null>(null);
@@ -60,6 +86,10 @@ export function PlanningDatasetConfirmationCard() {
   const [loadedPlanningDatasetVersion, setLoadedPlanningDatasetVersion] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [attestationState, setAttestationState] = useState<SnapshotAttestationState>({
+    snapshotKey: "",
+    evidence: { ...EMPTY_CONFIRMATION_EVIDENCE },
+  });
 
   const readiness = useMemo(() => state ? evaluateScheduleReadiness(state) : null, [state]);
   const confirmationBlockers = useMemo(
@@ -104,14 +134,32 @@ export function PlanningDatasetConfirmationCard() {
     && row.version === currentPlanningDatasetVersion
     && loadedPlanningDatasetVersion === currentPlanningDatasetVersion,
   );
+  const snapshotKey = rowCurrent && row?.snapshot_hash ? `${row.version}:${row.snapshot_hash}` : "";
+  const confirmationEvidence = attestationState.snapshotKey === snapshotKey
+    ? attestationState.evidence
+    : EMPTY_CONFIRMATION_EVIDENCE;
+  const allAttestationsChecked = Object.values(confirmationEvidence).every(Boolean);
+
+  function toggleAttestation(key: keyof ConfirmationEvidence) {
+    if (!snapshotKey) return;
+    const current = attestationState.snapshotKey === snapshotKey
+      ? attestationState.evidence
+      : EMPTY_CONFIRMATION_EVIDENCE;
+    setAttestationState({
+      snapshotKey,
+      evidence: { ...current, [key]: !current[key] },
+    });
+  }
 
   async function confirm() {
-    if (!canEdit || saving || !rowCurrent || !row?.snapshot || confirmationBlockers.length > 0) return;
+    if (!canEdit || saving || !rowCurrent || !row?.snapshot || !row.snapshot_hash || confirmationBlockers.length > 0 || !allAttestationsChecked) return;
     setSaving(true);
     setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v32", {
+    const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v39", {
       p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-      p_note: "Reviewed the displayed immutable teacher, student, room, class, session, and roster snapshot for automatic scheduling after deterministic planning checks passed.",
+      p_expected_snapshot_hash: row.snapshot_hash,
+      p_note: "Manager reviewed the displayed immutable planning snapshot, attested its known completeness, and confirmed it as scheduling authority after deterministic planning checks passed.",
+      p_evidence: confirmationEvidence,
     });
     if (error) setNotice(`Confirmation failed: ${error.message}`);
     else {
@@ -147,6 +195,7 @@ export function PlanningDatasetConfirmationCard() {
   const snapshotLoaded = Boolean(rowCurrent && snapshot);
   const loadingCurrent = loading || loadedPlanningDatasetVersion !== currentPlanningDatasetVersion;
   const confirmationReady = confirmationBlockers.length === 0;
+  const confirmationActionReady = confirmationReady && allAttestationsChecked;
 
   return (
     <section className={`rounded-2xl border p-5 ${confirmed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
@@ -174,7 +223,7 @@ export function PlanningDatasetConfirmationCard() {
         </div>
         {canEdit ? (
           <button
-            disabled={loadingCurrent || saving || confirmed || !snapshotLoaded || !confirmationReady}
+            disabled={loadingCurrent || saving || confirmed || !snapshotLoaded || !confirmationActionReady}
             onClick={() => void confirm()}
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -184,7 +233,7 @@ export function PlanningDatasetConfirmationCard() {
               : confirmed
                 ? "Confirmed"
                 : confirmationReady
-                  ? "Confirm reviewed snapshot"
+                  ? allAttestationsChecked ? "Confirm attested snapshot" : "Complete attestations"
                   : "Resolve blockers first"}
           </button>
         ) : null}
@@ -221,6 +270,33 @@ export function PlanningDatasetConfirmationCard() {
       ) : rowCurrent && !confirmed ? (
         <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-900">
           Deterministic planning checks pass. Review the immutable snapshot below before confirming it as scheduling authority.
+        </div>
+      ) : null}
+
+      {snapshotLoaded && !confirmed ? (
+        <div className="mt-5 rounded-2xl border border-slate-300 bg-white/90 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Manager completeness attestation required</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">Deterministic checks can detect known contradictions and missing Rulebook-required structure, but they cannot prove that the studio inventory itself is complete. These attestations are your confirmation of the exact snapshot shown below. They are never pre-checked and automatically become invalid when the Planning Dataset version or snapshot hash changes.</p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3">
+            {CONFIRMATION_ATTESTATIONS.map((item) => (
+              <label key={item.key} className={`flex items-start gap-3 rounded-xl border p-3 text-sm leading-5 ${confirmationEvidence[item.key] ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>
+                <input
+                  type="checkbox"
+                  checked={confirmationEvidence[item.key]}
+                  disabled={!confirmationReady}
+                  onChange={() => toggleAttestation(item.key)}
+                  className="mt-0.5 size-4 shrink-0"
+                />
+                <span className="text-slate-700">{item.label}</span>
+              </label>
+            ))}
+          </div>
+          {!confirmationReady ? <p className="mt-3 text-xs font-medium text-amber-800">Resolve the deterministic blockers above before completing the human completeness review.</p> : null}
         </div>
       ) : null}
 
