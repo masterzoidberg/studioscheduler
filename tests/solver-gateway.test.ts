@@ -4,6 +4,7 @@ import type { StudioState } from "@/lib/domain";
 import { constraintModelDefinition } from "@/lib/constraint-model-version";
 import type { FeasibilitySolverProblem } from "@/lib/solver-problem";
 import {
+  constraintModelSyncDecision,
   publishedConstraintModelBlockers,
   validateFeasibleSolverCandidate,
   type PublishedConstraintModelRecord,
@@ -141,6 +142,33 @@ describe("published Constraint Model gateway", () => {
 
   it("fails closed when no published model exists", () => {
     expect(publishedConstraintModelBlockers(problem(), null)[0].code).toBe("PUBLISHED_CONSTRAINT_MODEL_MISSING");
+  });
+
+  it("allows explicit solve preflight to publish a missing deterministic model", () => {
+    expect(constraintModelSyncDecision(problem(), null).action).toBe("PUBLISH");
+  });
+
+  it("allows deterministic replacement of a plainly stale model identity", () => {
+    const stale = published();
+    stale.rulebookVersion = 2;
+    stale.compilerVersion = "dwde-ir-old";
+    expect(constraintModelSyncDecision(problem(), stale).action).toBe("PUBLISH");
+  });
+
+  it("allows deterministic replacement of an incomplete current model", () => {
+    const incomplete = published();
+    incomplete.complete = false;
+    expect(constraintModelSyncDecision(problem(), incomplete).action).toBe("PUBLISH");
+  });
+
+  it("fails closed on same-identity snapshot drift instead of silently overwriting it", () => {
+    const drifted = published();
+    drifted.snapshot = { ...drifted.snapshot, activeRuleCount: 177 };
+    expect(constraintModelSyncDecision(problem(), drifted).action).toBe("BLOCK");
+  });
+
+  it("does nothing when the published artifact exactly matches tested output", () => {
+    expect(constraintModelSyncDecision(problem(), published()).action).toBe("CURRENT");
   });
 });
 
