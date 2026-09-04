@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PLANNING_CLASS_STRUCTURE_REQUIREMENTS } from "@/lib/planning-class-structure";
 
 const sql = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20260904055500_reviewed_required_class_intake_v34.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260904185218_reviewed_required_class_intake_v34.sql"),
   "utf8",
 );
 const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");

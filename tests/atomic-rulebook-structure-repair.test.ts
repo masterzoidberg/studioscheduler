@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PLANNING_CLASS_STRUCTURE_REQUIREMENTS } from "@/lib/planning-class-structure";
 
 const migration = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20260904064000_atomic_rulebook_structure_repair_v35.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260904185246_atomic_rulebook_structure_repair_v35.sql"),
   "utf8",
 );
 const classesView = readFileSync(resolve(process.cwd(), "components/classes-view.tsx"), "utf8");
