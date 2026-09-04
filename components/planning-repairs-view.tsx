@@ -35,6 +35,9 @@ export function PlanningRepairsView() {
     () => state ? rulebookRosterRepairs({ classes: state.classes, students: state.students }) : [],
     [state],
   );
+  const existingStructureRepairs = structureRepairs.filter((repair) => repair.status === "MISMATCH");
+  const missingStructureRepairs = structureRepairs.filter((repair) => repair.status === "MISSING");
+  const ambiguousStructureRepairs = structureRepairs.filter((repair) => repair.status === "AMBIGUOUS");
 
   if (!state) return null;
   const workspaceState = state;
@@ -117,12 +120,21 @@ export function PlanningRepairsView() {
           <div className="flex items-center justify-between gap-3"><Wrench className="size-5 text-slate-500" />{!structureRepairs.length ? <CheckCircle2 className="size-5 text-emerald-600" /> : null}</div>
           <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Stage 1</p>
           <h2 className="mt-1 font-semibold">Class structure</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            {structureRepairs.length
-              ? `${structureRepairs.length} verified Ballet/Pointe structure repair${structureRepairs.length === 1 ? "" : "s"} still need review.`
-              : "All verified Ballet/Pointe structure requirements are represented."}
-          </p>
-          <Link href="/classes" className="mt-4 inline-flex min-h-10 items-center rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900">Open class repairs</Link>
+          {structureRepairs.length ? (
+            <>
+              <div className="mt-3 space-y-2 text-xs leading-5 text-slate-700">
+                {existingStructureRepairs.length ? <p><strong>{existingStructureRepairs.length} existing class{existingStructureRepairs.length === 1 ? "" : "es"}</strong> can be brought to the reviewed Rulebook structure without inventing curriculum facts.</p> : null}
+                {missingStructureRepairs.length ? <p><strong>{missingStructureRepairs.length} required class{missingStructureRepairs.length === 1 ? " is" : "es are"} missing</strong> and need manager-reviewed intake for the planning facts the Rulebook does not establish.</p> : null}
+                {ambiguousStructureRepairs.length ? <p><strong>{ambiguousStructureRepairs.length} class name{ambiguousStructureRepairs.length === 1 ? " is" : "s are"} ambiguous</strong> and must be resolved before a safe repair can be selected.</p> : null}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {existingStructureRepairs.length || ambiguousStructureRepairs.length ? <Link href="/classes" className="inline-flex min-h-10 items-center rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900">Review existing classes</Link> : null}
+                {missingStructureRepairs.length ? <a href="#required-class-intake" className="inline-flex min-h-10 items-center rounded-xl border border-sky-300 bg-white px-3 text-xs font-semibold text-sky-950">Review missing-class intake</a> : null}
+              </div>
+            </>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-slate-600">All verified Ballet/Pointe structure requirements are represented.</p>
+          )}
         </article>
 
         <article className={`rounded-2xl border p-5 ${rosterRepairs.length ? "border-violet-200 bg-violet-50" : "border-emerald-200 bg-emerald-50"}`}>
