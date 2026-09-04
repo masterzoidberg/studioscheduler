@@ -22,6 +22,13 @@ jobs:
         run: |
           npm --version
           npm ci
+      - name: Restore Next.js build cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: .next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-${{ hashFiles('app/**', 'components/**', 'lib/**', 'next.config.ts', 'tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-
       - name: Lint
         run: npm run lint
       - name: Typecheck
