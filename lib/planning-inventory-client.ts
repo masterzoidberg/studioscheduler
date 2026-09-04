@@ -38,6 +38,12 @@ export interface RulebookStructureRepairMutationInput {
   expectedPlanningDatasetVersion: number;
 }
 
+export interface RulebookRosterRepairMutationInput {
+  classId: string;
+  reason: string;
+  expectedPlanningDatasetVersion: number;
+}
+
 export interface ClassSessionDurationMutationInput {
   classId: string;
   /** Session ID -> override minutes. null means inherit the class-level duration. */
@@ -110,7 +116,23 @@ export async function applyRulebookStructureRepair(
   input: RulebookStructureRepairMutationInput,
 ): Promise<PlanningInventoryMutationResult> {
   try {
-    const { data, error } = await getBrowserSupabase().rpc("apply_rulebook_structure_repair_v35", {
+    const { data, error } = await getBrowserSupabase().rpc("apply_rulebook_structure_repair_v36", {
+      p_class_id: input.classId,
+      p_reason: input.reason,
+      p_expected_planning_dataset_version: input.expectedPlanningDatasetVersion,
+    });
+    if (error) throw error;
+    return planningMutationResult(data);
+  } catch (error) {
+    return { ok: false, error: message(error).replace(/^.*?message[:=]\s*/i, "") };
+  }
+}
+
+export async function applyRulebookRosterRepair(
+  input: RulebookRosterRepairMutationInput,
+): Promise<PlanningInventoryMutationResult> {
+  try {
+    const { data, error } = await getBrowserSupabase().rpc("apply_rulebook_roster_repair_v36", {
       p_class_id: input.classId,
       p_reason: input.reason,
       p_expected_planning_dataset_version: input.expectedPlanningDatasetVersion,

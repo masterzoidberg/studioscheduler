@@ -4,10 +4,9 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, GraduationCap, ListChecks, UsersRound, Wrench, X } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
-import { mutatePlanningEntity } from "@/lib/planning-inventory-client";
+import { applyRulebookRosterRepair } from "@/lib/planning-inventory-client";
 import { rulebookClassStructureRepairs } from "@/lib/planning-structure-repair";
 import {
-  rulebookRosterRepairDraft,
   rulebookRosterRepairs,
   type RulebookRosterRepair,
 } from "@/lib/planning-roster-repair";
@@ -76,22 +75,10 @@ export function PlanningRepairsView() {
       return;
     }
 
-    const draft = rulebookRosterRepairDraft(activeRepair, klass);
     setSaving(true);
     setNotice("");
-    const result = await mutatePlanningEntity({
-      operation: "UPDATE",
-      entityType: "CLASS",
-      entityId: klass.id,
-      changes: {
-        name: draft.name,
-        subject: draft.subject,
-        level: draft.level,
-        durationMinutes: draft.durationMinutes,
-        weeklyFrequency: draft.weeklyFrequency,
-        rosterStudentIds: draft.rosterStudentIds,
-        companyOnly: Boolean(draft.companyOnly),
-      },
+    const result = await applyRulebookRosterRepair({
+      classId: klass.id,
       reason: `Applied reviewed Rulebook roster additions for ${klass.name} (${activeRepair.ruleIds.join(", ")})`,
       expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
     });
