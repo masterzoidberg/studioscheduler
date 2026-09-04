@@ -1,0 +1,46 @@
+name: Patch v36 roster UI
+
+on:
+  push:
+    branches:
+      - feat/rulebook-v36-roster-boundary
+    paths:
+      - .github/workflows/patch-v36-roster-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Route roster repair through server-derived RPC
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('components/planning-repairs-view.tsx')
+          text = path.read_text()
+          replacements = [
+              ('import { mutatePlanningEntity } from "@/lib/planning-inventory-client";', 'import { applyRulebookRosterRepair } from "@/lib/planning-inventory-client";'),
+              ('  rulebookRosterRepairDraft,\n  rulebookRosterRepairs,', '  rulebookRosterRepairs,'),
+              ('''    const draft = rulebookRosterRepairDraft(activeRepair, klass);\n    setSaving(true);\n    setNotice("");\n    const result = await mutatePlanningEntity({\n      operation: "UPDATE",\n      entityType: "CLASS",\n      entityId: klass.id,\n      changes: {\n        name: draft.name,\n        subject: draft.subject,\n        level: draft.level,\n        durationMinutes: draft.durationMinutes,\n        weeklyFrequency: draft.weeklyFrequency,\n        rosterStudentIds: draft.rosterStudentIds,\n        companyOnly: Boolean(draft.companyOnly),\n      },\n      reason: `Applied reviewed Rulebook roster additions for ${klass.name} (${activeRepair.ruleIds.join(", ")})`,\n      expectedPlanningDatasetVersion: currentPlanningDatasetVersion,\n    });''', '''    setSaving(true);\n    setNotice("");\n    const result = await applyRulebookRosterRepair({\n      classId: klass.id,\n      reason: `Applied reviewed Rulebook roster additions for ${klass.name} (${activeRepair.ruleIds.join(", ")})`,\n      expectedPlanningDatasetVersion: currentPlanningDatasetVersion,\n    });''')
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one target, found {count}: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          git diff --check
+          git diff -- components/planning-repairs-view.tsx
+      - name: Commit UI patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/planning-repairs-view.tsx
+          git commit -m "Route Rulebook roster repairs through v36"
+          git push origin HEAD:${GITHUB_REF_NAME}
