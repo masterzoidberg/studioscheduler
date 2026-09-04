@@ -23,6 +23,25 @@ export function getServerSupabase(authHeader?: string | null) {
   });
 }
 
+/**
+ * Privileged database access for server-only governance boundaries.
+ * Never import this into client components and never expose the key through a
+ * NEXT_PUBLIC_ variable. The caller must authorize the human user separately
+ * before using this client for a mutation.
+ */
+export function getServerAdminSupabase() {
+  if (typeof window !== "undefined") {
+    throw new Error("Supabase admin access is server-only.");
+  }
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured on the application backend.");
+  }
+  return createClient(SUPABASE_URL, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 export async function beginGoogleSignIn() {
   if (typeof window === "undefined") return { ok: false, message: "Google sign-in is available in the browser." };
   const supabase = getBrowserSupabase();
