@@ -199,6 +199,29 @@ export function validateFeasibleSolverCandidate(
     });
   }
 
+  const rawBySession = new Map(rawAssignments.map((assignment) => [assignment.sessionId, assignment]));
+  const movedLockedSessionIds = problem.sessions
+    .filter((session) => session.locked && session.lockedPlacement)
+    .filter((session) => {
+      const candidate = rawBySession.get(session.id);
+      const placement = session.lockedPlacement!;
+      return !candidate
+        || candidate.day !== placement.day
+        || candidate.startTime.slice(0, 5) !== placement.startTime.slice(0, 5)
+        || candidate.teacherId !== placement.teacherId
+        || candidate.roomId !== placement.roomId;
+    })
+    .map((session) => session.id)
+    .sort();
+  if (movedLockedSessionIds.length) {
+    blockers.push({
+      code: "SOLVER_CANDIDATE_LOCKED_PLACEMENT_CHANGED",
+      message: `Solver candidate changed ${movedLockedSessionIds.length} locked session placement(s).`,
+      entityIds: movedLockedSessionIds,
+    });
+  }
+
+  const lockedSessionIds = new Set(problem.sessions.filter((session) => session.locked).map((session) => session.id));
   const assignments: Assignment[] = rawAssignments.map((assignment) => ({
     id: `solver:${assignment.sessionId}`,
     sessionId: assignment.sessionId,
@@ -207,7 +230,7 @@ export function validateFeasibleSolverCandidate(
     endTime: assignment.endTime.slice(0, 5),
     teacherId: assignment.teacherId,
     roomId: assignment.roomId,
-    locked: false,
+    locked: lockedSessionIds.has(assignment.sessionId),
     status: "AI_PROPOSED",
   }));
 

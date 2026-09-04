@@ -90,7 +90,7 @@ function problem(): FeasibilitySolverProblem {
     rooms: [{ id: "room", name: "Studio A", capacity: 20, features: [] }],
     students: [],
     classes: [{ id: "class", name: "Ballet 1", subject: "Ballet", level: "Level 1", durationMinutes: 60, weeklyFrequency: 1, rosterStudentIds: [], companyOnly: false }],
-    sessions: [{ id: "session", classId: "class", ordinal: 1, durationMinutes: null, locked: false }],
+    sessions: [{ id: "session", classId: "class", ordinal: 1, durationMinutes: null, locked: false, lockedPlacement: null }],
     constraintModel: m,
     preflight: { validatedDelegatedConstraintIds: [] },
   };
@@ -204,5 +204,39 @@ describe("returned solver candidate boundary", () => {
     const result = validateFeasibleSolverCandidate(state(), problem(), response);
     expect(result.ok).toBe(false);
     expect(result.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_HARD_VALIDATION_FAILED");
+  });
+
+  it("independently rejects a candidate that moves a locked placement", () => {
+    const lockedProblem = problem();
+    lockedProblem.sessions[0] = {
+      ...lockedProblem.sessions[0],
+      locked: true,
+      lockedPlacement: {
+        day: "Monday",
+        startTime: "18:30",
+        teacherId: "teacher",
+        roomId: "room",
+      },
+    };
+    const result = validateFeasibleSolverCandidate(state(), lockedProblem, payload());
+    expect(result.ok).toBe(false);
+    expect(result.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_LOCKED_PLACEMENT_CHANGED");
+  });
+
+  it("preserves the locked marker when the returned placement matches", () => {
+    const lockedProblem = problem();
+    lockedProblem.sessions[0] = {
+      ...lockedProblem.sessions[0],
+      locked: true,
+      lockedPlacement: {
+        day: "Monday",
+        startTime: "17:00",
+        teacherId: "teacher",
+        roomId: "room",
+      },
+    };
+    const result = validateFeasibleSolverCandidate(state(), lockedProblem, payload());
+    expect(result.ok).toBe(true);
+    expect(result.assignments[0].locked).toBe(true);
   });
 });

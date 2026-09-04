@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  Assignment,
   PlanningDatasetVersion,
   RuleEnforcementMapping,
   RuleEnforcementVersion,
@@ -91,7 +92,21 @@ function mapPlanningDataset(row: Record<string, unknown>): PlanningDatasetVersio
   };
 }
 
-function mapSchedule(row: Record<string, unknown>): ScheduleVersion {
+function mapAssignment(row: Record<string, unknown>): Assignment {
+  return {
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    day: row.day as Assignment["day"],
+    startTime: String(row.start_time || "").slice(0, 5),
+    endTime: String(row.end_time || "").slice(0, 5),
+    teacherId: String(row.teacher_id),
+    roomId: String(row.room_id),
+    locked: Boolean(row.locked),
+    status: row.status as Assignment["status"],
+  };
+}
+
+function mapSchedule(row: Record<string, unknown>, assignments: Assignment[]): ScheduleVersion {
   return {
     id: String(row.id),
     version: Number(row.version),
@@ -101,7 +116,7 @@ function mapSchedule(row: Record<string, unknown>): ScheduleVersion {
     createdAt: String(row.created_at || ""),
     actor: String(row.actor_label || ""),
     reason: String(row.reason || ""),
-    assignments: [],
+    assignments,
     isCurrent: Boolean(row.is_current),
     validationResult: (row.validation_result || null) as ScheduleVersion["validationResult"],
   };
@@ -111,7 +126,7 @@ export async function loadCanonicalSolverStudioState(
   supabase: SupabaseClient,
   studioId: string,
 ): Promise<StudioState> {
-  const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ] = await Promise.all([
+  const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ, assignmentsQ] = await Promise.all([
     supabase.from("studios").select("id,name").eq("id", studioId).single(),
     supabase.from("teachers").select("*").eq("studio_id", studioId).order("id"),
     supabase.from("rooms").select("*").eq("studio_id", studioId).order("id"),
@@ -124,11 +139,20 @@ export async function loadCanonicalSolverStudioState(
     supabase.from("rule_enforcement_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
     supabase.from("planning_dataset_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
     supabase.from("schedule_versions").select("*").eq("studio_id", studioId).eq("is_current", true).order("version", { ascending: false }),
+    supabase.from("assignments").select("*").eq("studio_id", studioId).order("id"),
   ]);
 
-  const firstError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ]
+  const firstError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ, assignmentsQ]
     .find((query) => query.error)?.error;
   if (firstError) throw firstError;
+
+  const assignmentsBySchedule = new Map<string, Assignment[]>();
+  for (const row of assignmentsQ.data || []) {
+    const scheduleId = String(row.schedule_version_id);
+    const items = assignmentsBySchedule.get(scheduleId) || [];
+    items.push(mapAssignment(row as Record<string, unknown>));
+    assignmentsBySchedule.set(scheduleId, items);
+  }
 
   return {
     studioId,
@@ -181,7 +205,10 @@ export async function loadCanonicalSolverStudioState(
     planningDatasetVersions: (planningQ.data || []).map((row) => mapPlanningDataset(row as Record<string, unknown>)),
     enforcementProposals: [],
     ruleHistory: [],
-    scheduleVersions: (scheduleQ.data || []).map((row) => mapSchedule(row as Record<string, unknown>)),
+    scheduleVersions: (scheduleQ.data || []).map((row) => {
+      const scheduleId = String(row.id);
+      return mapSchedule(row as Record<string, unknown>, assignmentsBySchedule.get(scheduleId) || []);
+    }),
     scenarios: [],
     auditEvents: [],
   };

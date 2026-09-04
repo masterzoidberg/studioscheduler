@@ -31,6 +31,12 @@ export interface FeasibilitySolverProblem {
     ordinal: number;
     durationMinutes: number | null;
     locked: boolean;
+    lockedPlacement: {
+      day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+      startTime: string;
+      teacherId: string;
+      roomId: string;
+    } | null;
   }>;
   constraintModel: ConstraintModelSnapshotV1;
   preflight: {
@@ -61,10 +67,10 @@ const SOLVE_REMEDIABLE_READINESS_CODES = new Set(["SCHEDULE_PLANNING_DATASET_STA
 /**
  * A stale current schedule is evidence that the displayed schedule no longer
  * represents current planning truth, but it is not a safe reason to prohibit a
- * fresh feasibility solve. The solver is built entirely from the current
- * confirmed Planning Dataset and canonical Constraint Model, not from prior
- * schedule assignments. Keep the finding visible as a warning while allowing
- * the solve that can replace the stale schedule.
+ * fresh feasibility solve. The solver is built from current planning facts and
+ * the canonical Constraint Model. Existing schedule assignments are consulted
+ * only when a current session is explicitly locked, so its pinned placement can
+ * be preserved in the replacement solve.
  */
 export function feasibilityReadiness(report: ScheduleReadinessReport): ScheduleReadinessReport {
   const remediable = report.blockers.filter((issue) => SOLVE_REMEDIABLE_READINESS_CODES.has(issue.code));
@@ -85,6 +91,8 @@ export function buildFeasibilityProblemPayload(
 ): FeasibilitySolverProblem {
   const rulebookVersion = state.rulebookVersions.find((version) => version.status === "CURRENT")?.version ?? model.rulebookVersion;
   const planningDatasetVersion = state.planningDatasetVersions?.find((version) => version.status === "CURRENT")?.version ?? model.planningDatasetVersion ?? 0;
+  const currentSchedule = state.scheduleVersions.find((version) => version.isCurrent);
+  const currentAssignmentBySession = new Map((currentSchedule?.assignments || []).map((assignment) => [assignment.sessionId, assignment]));
 
   return {
     contractVersion: "1.0",
@@ -116,13 +124,22 @@ export function buildFeasibilityProblemPayload(
       }))
       .sort((a, b) => compareCanonicalStrings(a.id, b.id)),
     sessions: state.sessions
-      .map((session) => ({
-        id: session.id,
-        classId: session.classId,
-        ordinal: session.ordinal,
-        durationMinutes: session.durationMinutes ?? null,
-        locked: Boolean(session.locked),
-      }))
+      .map((session) => {
+        const assignment = currentAssignmentBySession.get(session.id);
+        return {
+          id: session.id,
+          classId: session.classId,
+          ordinal: session.ordinal,
+          durationMinutes: session.durationMinutes ?? null,
+          locked: Boolean(session.locked),
+          lockedPlacement: session.locked && assignment ? {
+            day: assignment.day,
+            startTime: assignment.startTime,
+            teacherId: assignment.teacherId,
+            roomId: assignment.roomId,
+          } : null,
+        };
+      })
       .sort((a, b) => compareCanonicalStrings(a.id, b.id)),
     constraintModel: model,
     preflight: {
@@ -167,6 +184,41 @@ export function prepareFeasibilitySolve(state: StudioState): FeasibilityPreparat
       message: `Compiled solver input targets Planning Dataset v${model.planningDatasetVersion ?? "unversioned"}, while Planning Dataset v${currentPlanning} is current.`,
       ruleIds: [],
       entityIds: [],
+    });
+  }
+
+  const currentSchedule = state.scheduleVersions.find((version) => version.isCurrent);
+  const assignmentCountBySession = new Map<string, number>();
+  for (const assignment of currentSchedule?.assignments || []) {
+    assignmentCountBySession.set(assignment.sessionId, (assignmentCountBySession.get(assignment.sessionId) || 0) + 1);
+  }
+  const unresolvedLockedSessionIds = state.sessions
+    .filter((session) => session.locked && assignmentCountBySession.get(session.id) !== 1)
+    .map((session) => session.id)
+    .sort(compareCanonicalStrings);
+  if (unresolvedLockedSessionIds.length) {
+    blockers.push({
+      code: "LOCKED_SESSION_PLACEMENT_UNRESOLVED",
+      message: `${unresolvedLockedSessionIds.length} locked session(s) do not have exactly one current assignment to preserve in a replacement solve.`,
+      ruleIds: [],
+      entityIds: unresolvedLockedSessionIds,
+    });
+  }
+
+  const sessionCountByClass = new Map<string, number>();
+  for (const session of state.sessions) {
+    sessionCountByClass.set(session.classId, (sessionCountByClass.get(session.classId) || 0) + 1);
+  }
+  const ambiguousLockedSessionIds = state.sessions
+    .filter((session) => session.locked && (sessionCountByClass.get(session.classId) || 0) !== 1)
+    .map((session) => session.id)
+    .sort(compareCanonicalStrings);
+  if (ambiguousLockedSessionIds.length) {
+    blockers.push({
+      code: "LOCKED_MULTI_SESSION_CLASS_UNSUPPORTED",
+      message: `${ambiguousLockedSessionIds.length} locked session(s) belong to multi-session classes. Ordinal-specific runtime locks must be implemented before those sessions can be solved safely.`,
+      ruleIds: [],
+      entityIds: ambiguousLockedSessionIds,
     });
   }
 
