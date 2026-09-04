@@ -205,6 +205,23 @@ export function prepareFeasibilitySolve(state: StudioState): FeasibilityPreparat
     });
   }
 
+  const sessionCountByClass = new Map<string, number>();
+  for (const session of state.sessions) {
+    sessionCountByClass.set(session.classId, (sessionCountByClass.get(session.classId) || 0) + 1);
+  }
+  const ambiguousLockedSessionIds = state.sessions
+    .filter((session) => session.locked && (sessionCountByClass.get(session.classId) || 0) !== 1)
+    .map((session) => session.id)
+    .sort(compareCanonicalStrings);
+  if (ambiguousLockedSessionIds.length) {
+    blockers.push({
+      code: "LOCKED_MULTI_SESSION_CLASS_UNSUPPORTED",
+      message: `${ambiguousLockedSessionIds.length} locked session(s) belong to multi-session classes. Ordinal-specific runtime locks must be implemented before those sessions can be solved safely.`,
+      ruleIds: [],
+      entityIds: ambiguousLockedSessionIds,
+    });
+  }
+
   for (const issue of delegatedPreflight.issues) {
     blockers.push({ code: issue.code, message: issue.message, ruleIds: issue.ruleIds, entityIds: issue.entityIds });
   }
