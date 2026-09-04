@@ -1,5 +1,5 @@
 import type { ClassDefinition, ClassSession } from "@/lib/domain";
-import { BALLET_STRUCTURE_REQUIREMENTS } from "@/lib/schedule-readiness";
+import { PLANNING_CLASS_STRUCTURE_REQUIREMENTS } from "@/lib/planning-class-structure";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
 export type RulebookClassStructureRepairStatus = "MISSING" | "MISMATCH" | "AMBIGUOUS";
@@ -30,7 +30,7 @@ export function rulebookClassStructureRepairs(input: {
   classes: ClassDefinition[];
   sessions: ClassSession[];
 }): RulebookClassStructureRepair[] {
-  return BALLET_STRUCTURE_REQUIREMENTS.flatMap((requirement) => {
+  return PLANNING_CLASS_STRUCTURE_REQUIREMENTS.flatMap((requirement) => {
     const target = normalizeName(requirement.className);
     const matching = input.classes.filter((klass) => normalizeName(klass.name) === target);
     const expectedDurations = requirement.durations ? sorted(requirement.durations) : null;
@@ -95,10 +95,10 @@ export function rulebookRepairDraft(
   repair: RulebookClassStructureRepair,
   existing?: ClassDefinition | null,
 ): ClassDefinition {
-  const uniformDuration = repair.expectedDurations
-    && repair.expectedDurations.length > 0
-    && repair.expectedDurations.every((value) => value === repair.expectedDurations?.[0])
-    ? repair.expectedDurations[0]
+  const firstExpectedDuration = repair.expectedDurations?.[0] ?? null;
+  const uniformDuration = firstExpectedDuration != null
+    && repair.expectedDurations?.every((value) => value === firstExpectedDuration)
+    ? firstExpectedDuration
     : null;
 
   if (existing) {
@@ -113,7 +113,13 @@ export function rulebookRepairDraft(
 
   const balletMatch = repair.className.match(/^Ballet (.+)$/);
   const elementaryMatch = repair.className.match(/^Elementary Ballet (.+)$/);
-  const subject = elementaryMatch || balletMatch ? "Ballet" : repair.className === "Pre-Pointe" ? "Pre-Pointe" : repair.className.startsWith("Pointe ") ? "Pointe" : "";
+  const subject = elementaryMatch || balletMatch
+    ? "Ballet"
+    : repair.className === "Pre-Pointe"
+      ? "Pre-Pointe"
+      : repair.className.startsWith("Pointe ")
+        ? "Pointe"
+        : "";
   const level = elementaryMatch
     ? `Elementary ${elementaryMatch[1]}`
     : balletMatch
