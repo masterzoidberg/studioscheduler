@@ -23,12 +23,7 @@ function statusLabel(status: RulebookRosterRepair["status"]) {
 }
 
 export function PlanningRepairsView() {
-  const {
-    state,
-    canEdit,
-    currentPlanningDatasetVersion,
-    refresh,
-  } = useWorkspace();
+  const { state, canEdit, currentPlanningDatasetVersion, refresh } = useWorkspace();
   const [activeRepair, setActiveRepair] = useState<RulebookRosterRepair | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -43,36 +38,38 @@ export function PlanningRepairsView() {
   );
 
   if (!state) return null;
+  const workspaceState = state;
 
-  const studentNames = new Map(state.students.map((student) => [student.id, student.name]));
-  const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
+  const studentNames = new Map(workspaceState.students.map((student) => [student.id, student.name]));
+  const currentPlanning = workspaceState.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
   const planningConfirmed = Boolean(currentPlanning?.confirmedForSchedulingAt);
   const actionableRosterRepairs = rosterRepairs.filter((repair) => repair.status === "ROSTER_MISSING");
   const blockedRosterRepairs = rosterRepairs.filter((repair) => repair.status !== "ROSTER_MISSING");
   const activeClass = activeRepair?.classId
-    ? state.classes.find((klass) => klass.id === activeRepair.classId) ?? null
+    ? workspaceState.classes.find((klass) => klass.id === activeRepair.classId) ?? null
     : null;
   const activeCurrentNames = activeClass
     ? activeClass.rosterStudentIds.map((id) => studentNames.get(id) ?? id).sort((a, b) => a.localeCompare(b))
     : [];
   const activeAdditionNames = activeRepair?.requiredStudentNames ?? [];
   const activeAfterNames = activeClass && activeRepair
-    ? [...new Set([
-      ...activeClass.rosterStudentIds,
-      ...activeRepair.requiredStudentIds,
-    ])].map((id) => studentNames.get(id) ?? id).sort((a, b) => a.localeCompare(b))
+    ? [...new Set([...activeClass.rosterStudentIds, ...activeRepair.requiredStudentIds])]
+      .map((id) => studentNames.get(id) ?? id)
+      .sort((a, b) => a.localeCompare(b))
     : [];
 
   async function applyRosterRepair() {
     if (!activeRepair || activeRepair.status !== "ROSTER_MISSING" || !activeRepair.classId || !canEdit || saving) return;
-    const klass = state.classes.find((item) => item.id === activeRepair.classId);
+    const klass = workspaceState.classes.find((item) => item.id === activeRepair.classId);
     if (!klass) {
       setNotice("The target class changed while this repair was open. Refresh and review the repair again.");
       setActiveRepair(null);
       return;
     }
 
-    const missingRequired = activeRepair.requiredStudentIds.filter((id) => !state.students.some((student) => student.id === id));
+    const missingRequired = activeRepair.requiredStudentIds.filter(
+      (id) => !workspaceState.students.some((student) => student.id === id),
+    );
     if (missingRequired.length) {
       setNotice("A Rulebook-required student record is no longer present. Resolve People data before applying this repair.");
       setActiveRepair(null);
