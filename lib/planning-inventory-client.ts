@@ -21,6 +21,17 @@ export interface PlanningInventoryMutationResult {
   details?: Record<string, unknown>;
 }
 
+export interface ReviewedRequiredClassMutationInput {
+  changes: Record<string, unknown>;
+  reason: string;
+  expectedPlanningDatasetVersion: number;
+  evidence: {
+    rosterReviewed: boolean;
+    companyScopeReviewed: boolean;
+    curriculumFieldsReviewed: boolean;
+  };
+}
+
 export interface ClassSessionDurationMutationInput {
   classId: string;
   /** Session ID -> override minutes. null means inherit the class-level duration. */
@@ -44,6 +55,17 @@ function message(error: unknown) {
   return String(error);
 }
 
+function planningMutationResult(data: unknown): PlanningInventoryMutationResult {
+  const details = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+  return {
+    ok: true,
+    entityId: details.entityId ? String(details.entityId) : undefined,
+    planningDatasetVersion: details.planningDatasetVersion == null ? undefined : Number(details.planningDatasetVersion),
+    scheduleRequiresRevalidation: Boolean(details.scheduleRequiresRevalidation),
+    details,
+  };
+}
+
 export async function mutatePlanningEntity(input: PlanningInventoryMutationInput): Promise<PlanningInventoryMutationResult> {
   try {
     const { data, error } = await getBrowserSupabase().rpc("mutate_planning_entity_v28", {
@@ -55,14 +77,24 @@ export async function mutatePlanningEntity(input: PlanningInventoryMutationInput
       p_expected_planning_dataset_version: input.expectedPlanningDatasetVersion,
     });
     if (error) throw error;
-    const details = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-    return {
-      ok: true,
-      entityId: details.entityId ? String(details.entityId) : undefined,
-      planningDatasetVersion: details.planningDatasetVersion == null ? undefined : Number(details.planningDatasetVersion),
-      scheduleRequiresRevalidation: Boolean(details.scheduleRequiresRevalidation),
-      details,
-    };
+    return planningMutationResult(data);
+  } catch (error) {
+    return { ok: false, error: message(error).replace(/^.*?message[:=]\s*/i, "") };
+  }
+}
+
+export async function createReviewedRequiredClass(
+  input: ReviewedRequiredClassMutationInput,
+): Promise<PlanningInventoryMutationResult> {
+  try {
+    const { data, error } = await getBrowserSupabase().rpc("create_reviewed_required_class_v34", {
+      p_changes: input.changes,
+      p_reason: input.reason,
+      p_expected_planning_dataset_version: input.expectedPlanningDatasetVersion,
+      p_evidence: input.evidence,
+    });
+    if (error) throw error;
+    return planningMutationResult(data);
   } catch (error) {
     return { ok: false, error: message(error).replace(/^.*?message[:=]\s*/i, "") };
   }
