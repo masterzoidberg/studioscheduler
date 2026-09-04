@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { BookOpenText, CalendarDays, Clock3, GraduationCap, History, LayoutDashboard, Settings, ShieldCheck, UsersRound } from "lucide-react";
+import { BookOpenText, CalendarDays, Clock3, GraduationCap, History, LayoutDashboard, Settings, ShieldCheck, UsersRound, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const navItems: Array<{ label: string; href: string; icon: LucideIcon }> = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Rulebook", href: "/rulebook", icon: BookOpenText },
   { label: "Readiness", href: "/readiness", icon: ShieldCheck },
+  { label: "Planning repairs", href: "/planning-repairs", icon: Wrench },
   { label: "Schedule", href: "/schedule", icon: CalendarDays },
   { label: "People", href: "/people", icon: UsersRound },
   { label: "Classes", href: "/classes", icon: GraduationCap },
