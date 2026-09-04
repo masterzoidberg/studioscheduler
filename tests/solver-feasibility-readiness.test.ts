@@ -20,13 +20,19 @@ function report(blockerCodes: string[]): ScheduleReadinessReport {
       unknownRuleIds: [],
       complete: true,
     },
-    constraintBinding: { valid: true, issues: [] },
+    constraintBinding: {
+      valid: true,
+      checkedReferences: 0,
+      boundReferences: 0,
+      issues: [],
+      references: [],
+    },
     currentPlanningDatasetVersion: 4,
     schedulePlanningDatasetVersion: 1,
     sourceManifestVersion: null,
     sourceManifestComplete: false,
     planningDatasetConfirmed: true,
-  } as ScheduleReadinessReport;
+  };
 }
 
 describe("feasibility-specific readiness", () => {
