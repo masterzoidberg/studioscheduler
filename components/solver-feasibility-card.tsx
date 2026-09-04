@@ -33,7 +33,7 @@ export function SolverFeasibilityCard() {
     currentScheduleVersion,
   } = useWorkspace();
   const [status, setStatus] = useState<GatewayStatus | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState("");
   const [result, setResult] = useState<SolveResult | null>(null);
@@ -42,10 +42,7 @@ export function SolverFeasibilityCard() {
 
   const refreshStatus = useCallback(async () => {
     const headers = authHeaders();
-    if (!headers) {
-      setStatus(null);
-      return;
-    }
+    if (!headers) return;
     setLoading(true);
     try {
       const response = await fetch("/api/solver/feasibility", { headers, cache: "no-store" });
@@ -62,8 +59,29 @@ export function SolverFeasibilityCard() {
   }, [authHeaders]);
 
   useEffect(() => {
-    void refreshStatus();
-  }, [refreshStatus, currentRulebookVersion, currentPlanningDatasetVersion, currentScheduleVersion]);
+    const headers = authHeaders();
+    if (!headers) return;
+    let active = true;
+
+    void fetch("/api/solver/feasibility", { headers, cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as GatewayStatus & { error?: string };
+        if (!response.ok) throw new Error(payload.error || "Could not read solver gateway status.");
+        if (!active) return;
+        setStatus(payload);
+        setNotice("");
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setNotice(error instanceof Error ? error.message : String(error));
+        setStatus(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [authHeaders, currentRulebookVersion, currentPlanningDatasetVersion, currentScheduleVersion]);
 
   async function runSolver() {
     const headers = authHeaders();
