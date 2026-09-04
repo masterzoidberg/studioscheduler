@@ -196,7 +196,7 @@ begin
   insert into public.entity_versions(
     studio_id,entity_type,entity_id,version,actor_user_id,actor_label,reason,before_entity,after_entity
   ) values(
-    v_studio,'CLASS',p_class_id,v_entity_version,v_uid,v_actor,p_reason,v_before,v_after
+    v_studio,'CLASS',p_class_id,v_entity_version,v_uid,v_actor,p_reason,v_before->'class',v_after->'class'
   );
 
   v_planning_version:=private.ensure_planning_dataset_version_v25(v_studio,v_uid,v_actor,p_reason);
