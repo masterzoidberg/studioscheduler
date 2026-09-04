@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServerSupabase } from "@/lib/supabase";
 import { loadCanonicalSolverStudioState } from "@/lib/server-studio-state";
-import { prepareFeasibilitySolve } from "@/lib/solver-problem";
+import { prepareFeasibilitySolve, type FeasibilitySolverProblem } from "@/lib/solver-problem";
+import { constraintModelDefinition } from "@/lib/constraint-model-version";
 import { legacySafetyBridgeReport } from "@/lib/legacy-safety-bridge";
 import {
+  constraintModelSyncDecision,
   publishedConstraintModelBlockers,
   validateFeasibleSolverCandidate,
   type PublishedConstraintModelRecord,
@@ -62,6 +64,24 @@ async function loadPublishedConstraintModel(supabase: SupabaseClient): Promise<P
   };
 }
 
+async function syncPublishedConstraintModelForSolve(
+  supabase: SupabaseClient,
+  problem: FeasibilitySolverProblem,
+  published: PublishedConstraintModelRecord | null,
+): Promise<PublishedConstraintModelRecord | null> {
+  const decision = constraintModelSyncDecision(problem, published);
+  if (decision.action !== "PUBLISH") return published;
+
+  const definition = constraintModelDefinition(problem.constraintModel);
+  const result = await supabase.rpc("publish_constraint_model_v30", {
+    p_snapshot: definition,
+    p_reason: `Solver preflight sync of ${definition.compilerVersion} for Rulebook v${definition.rulebookVersion}: ${decision.reason}`,
+    p_expected_rulebook_version: problem.context.rulebookVersion,
+  });
+  if (result.error) throw result.error;
+  return loadPublishedConstraintModel(supabase);
+}
+
 function serviceConfiguration() {
   const url = process.env.SOLVER_SERVICE_URL?.trim().replace(/\/+$/, "") || "";
   const token = process.env.SOLVER_INTERNAL_TOKEN?.trim() || "";
@@ -72,7 +92,10 @@ function serviceConfiguration() {
   return { url, token, maxSeconds, configured: Boolean(url && token) };
 }
 
-async function buildGatewayPreflight(supabase: SupabaseClient) {
+async function buildGatewayPreflight(
+  supabase: SupabaseClient,
+  options: { syncPublishedModel?: boolean } = {},
+) {
   const state = await loadCanonicalSolverStudioState(supabase, STUDIO_ID);
   const preparation = prepareFeasibilitySolve(state);
   if (!preparation.ok) {
@@ -86,7 +109,10 @@ async function buildGatewayPreflight(supabase: SupabaseClient) {
     };
   }
 
-  const [published] = await Promise.all([loadPublishedConstraintModel(supabase)]);
+  let published = await loadPublishedConstraintModel(supabase);
+  if (options.syncPublishedModel) {
+    published = await syncPublishedConstraintModelForSolve(supabase, preparation.problem, published);
+  }
   const publishedBlockers = publishedConstraintModelBlockers(preparation.problem, published);
   const legacyBridge = legacySafetyBridgeReport(state, preparation.problem.constraintModel);
   const legacyBlockers = legacyBridge.complete ? [] : [{
@@ -152,7 +178,10 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    const gateway = await buildGatewayPreflight(authorized.supabase);
+    // An explicit OWNER/EDITOR solve may repair a missing or plainly stale
+    // deterministic ConstraintModelVersion. GET remains read-only, and a
+    // same-identity snapshot mismatch still fails closed through the gateway.
+    const gateway = await buildGatewayPreflight(authorized.supabase, { syncPublishedModel: true });
     if (!gateway.preparation.ok) {
       return NextResponse.json({
         status: "BLOCKED",
