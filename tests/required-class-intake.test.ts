@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ClassDefinition, ClassSession, Student } from "@/lib/domain";
+import type { ClassDefinition, Student } from "@/lib/domain";
 import { requiredClassIntakeCandidates } from "@/lib/required-class-intake";
 
 function student(id: string, name: string, level: string): Student {
