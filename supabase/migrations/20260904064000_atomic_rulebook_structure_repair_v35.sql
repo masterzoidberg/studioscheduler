@@ -119,7 +119,11 @@ begin
   set weekly_frequency=v_frequency,
       duration_minutes=coalesce(v_uniform_duration,duration_minutes),
       updated_at=now()
-  where studio_id=v_studio and id=p_class_id;
+  where studio_id=v_studio and id=p_class_id
+    and (
+      weekly_frequency is distinct from v_frequency
+      or (v_uniform_duration is not null and duration_minutes is distinct from v_uniform_duration)
+    );
 
   if v_frequency < v_old_frequency then
     delete from public.class_sessions
