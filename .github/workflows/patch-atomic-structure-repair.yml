@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.ref_name }}
-      - name: Apply exact atomic repair patch
+      - name: Make reviewed repair fields read-only
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -27,24 +27,32 @@ jobs:
 
           replacements = [
             (
-              'import { mutatePlanningEntity, updateClassSessionDurations } from "@/lib/planning-inventory-client";',
-              'import { applyRulebookStructureRepair, mutatePlanningEntity, updateClassSessionDurations } from "@/lib/planning-inventory-client";'
+              '<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className=',
+              '<input readOnly={Boolean(activeRepair)} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className='
             ),
             (
-              '  async function save() {\n    if (!editing || !canEdit || saving) return;\n',
-              '''  async function save() {\n    if (!editing || !canEdit || saving) return;\n\n    if (activeRepair && !creating) {\n      if (!original || activeRepair.classId !== editing.id) {\n        setNotice("The Rulebook repair target changed while the editor was open. Refresh and review the repair again.");\n        return;\n      }\n      const firstExpectedDuration = activeRepair.expectedDurations?.[0] ?? null;\n      const uniformExpectedDuration = firstExpectedDuration != null\n        && activeRepair.expectedDurations?.every((value) => value === firstExpectedDuration)\n        ? firstExpectedDuration\n        : null;\n      const unrelatedFieldsChanged = original.name !== editing.name\n        || original.subject !== editing.subject\n        || original.level !== editing.level\n        || original.companyOnly !== editing.companyOnly\n        || original.rosterStudentIds.length !== editing.rosterStudentIds.length\n        || original.rosterStudentIds.some((id) => !editing.rosterStudentIds.includes(id))\n        || (uniformExpectedDuration == null && original.durationMinutes !== editing.durationMinutes);\n      if (unrelatedFieldsChanged) {\n        setNotice("A Rulebook structure repair cannot be mixed with curriculum, roster, scope, or unrelated duration edits. Cancel and make those changes separately.");\n        return;\n      }\n      if (editing.weeklyFrequency !== activeRepair.expectedFrequency\n        || (uniformExpectedDuration != null && editing.durationMinutes !== uniformExpectedDuration)) {\n        setNotice("The reviewed repair values were changed in the editor. Restore the Rulebook-established structure or cancel the repair.");\n        return;\n      }\n\n      setSaving(true);\n      setNotice("");\n      const result = await applyRulebookStructureRepair({\n        classId: editing.id,\n        reason: `Applied atomic reviewed Rulebook structure repair for ${editing.name} (${activeRepair.ruleIds.join(", ")})`,\n        expectedPlanningDatasetVersion: currentPlanningDatasetVersion,\n      });\n      setSaving(false);\n      if (!result.ok) {\n        setNotice(result.error || "Rulebook structure repair failed.");\n        return;\n      }\n      await refresh();\n      closeEditor();\n      setNotice(`Applied the complete Rulebook structure repair atomically. Planning Dataset is now v${result.planningDatasetVersion ?? currentPlanningDatasetVersion}; the existing schedule needs revalidation.`);\n      return;\n    }\n'''
+              '<input value={editing.subject} onChange={(event) => setEditing({ ...editing, subject: event.target.value })} placeholder=',
+              '<input readOnly={Boolean(activeRepair)} value={editing.subject} onChange={(event) => setEditing({ ...editing, subject: event.target.value })} placeholder='
             ),
             (
-              'This class requires distinct weekly durations ({activeRepair.expectedDurations.join("/")} minutes). If session rows must first be created by a frequency change, save the class structure, reopen it, then set the per-session overrides.',
-              'This class requires distinct weekly durations ({activeRepair.expectedDurations.join("/")} minutes). The reviewed repair will create/reconcile every required session and duration in one atomic transaction.'
+              '<input value={editing.level} onChange={(event) => setEditing({ ...editing, level: event.target.value })} className=',
+              '<input readOnly={Boolean(activeRepair)} value={editing.level} onChange={(event) => setEditing({ ...editing, level: event.target.value })} className='
             ),
             (
-              '{!creating && editingSessions.length ? (',
-              '{!activeRepair && !creating && editingSessions.length ? ('
+              '<input type="number" min={1} value={editing.durationMinutes || ""} onChange=',
+              '<input type="number" min={1} readOnly={Boolean(activeRepair)} value={editing.durationMinutes || ""} onChange='
             ),
             (
-              '{saving ? "Saving…" : creating ? "Add class" : "Save class"}',
-              '{saving ? "Saving…" : activeRepair ? "Apply reviewed repair" : creating ? "Add class" : "Save class"}'
+              '<input type="number" min={1} value={editing.weeklyFrequency} onChange=',
+              '<input type="number" min={1} readOnly={Boolean(activeRepair)} value={editing.weeklyFrequency} onChange='
+            ),
+            (
+              '<input type="checkbox" checked={selected} onChange={() => toggleStudent(item.id)} />',
+              '<input type="checkbox" disabled={Boolean(activeRepair)} checked={selected} onChange={() => toggleStudent(item.id)} />'
+            ),
+            (
+              '<input type="checkbox" checked={Boolean(editing.companyOnly)} onChange=',
+              '<input type="checkbox" disabled={Boolean(activeRepair)} checked={Boolean(editing.companyOnly)} onChange='
             ),
           ]
 
@@ -58,10 +66,10 @@ jobs:
           PY
           git diff --check
           git diff -- components/classes-view.tsx
-      - name: Commit surgical UI patch
+      - name: Commit read-only repair UI
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add components/classes-view.tsx
-          git commit -m "Use atomic Rulebook structure repair from classes UI"
+          git commit -m "Make Rulebook repair review-only"
           git push origin HEAD:${GITHUB_REF_NAME}
