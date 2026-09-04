@@ -368,13 +368,13 @@ export function ClassesView() {
 
             <div className="mt-5 grid gap-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-xs font-semibold text-slate-600">Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
-                <label className="text-xs font-semibold text-slate-600">Subject<input value={editing.subject} onChange={(event) => setEditing({ ...editing, subject: event.target.value })} placeholder="Ballet, Jazz, Tap…" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Name<input readOnly={Boolean(activeRepair)} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Subject<input readOnly={Boolean(activeRepair)} value={editing.subject} onChange={(event) => setEditing({ ...editing, subject: event.target.value })} placeholder="Ballet, Jazz, Tap…" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <label className="text-xs font-semibold text-slate-600">Level<input value={editing.level} onChange={(event) => setEditing({ ...editing, level: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
-                <label className="text-xs font-semibold text-slate-600">Default minutes<input type="number" min={1} value={editing.durationMinutes || ""} onChange={(event) => setEditing({ ...editing, durationMinutes: Number(event.target.value) })} placeholder="Required" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
-                <label className="text-xs font-semibold text-slate-600">Per week<input type="number" min={1} value={editing.weeklyFrequency} onChange={(event) => setEditing({ ...editing, weeklyFrequency: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Level<input readOnly={Boolean(activeRepair)} value={editing.level} onChange={(event) => setEditing({ ...editing, level: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Default minutes<input type="number" min={1} readOnly={Boolean(activeRepair)} value={editing.durationMinutes || ""} onChange={(event) => setEditing({ ...editing, durationMinutes: Number(event.target.value) })} placeholder="Required" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Per week<input type="number" min={1} readOnly={Boolean(activeRepair)} value={editing.weeklyFrequency} onChange={(event) => setEditing({ ...editing, weeklyFrequency: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
               </div>
 
               {!activeRepair && !creating && editingSessions.length ? (
@@ -422,13 +422,13 @@ export function ClassesView() {
                 <div className="mt-3 grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
                   {students.map((item) => {
                     const selected = editing.rosterStudentIds.includes(item.id);
-                    return <label key={item.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${selected ? "border-slate-950 bg-slate-50" : "border-slate-200"}`}><input type="checkbox" checked={selected} onChange={() => toggleStudent(item.id)} /><span><strong className="block font-semibold">{item.name}</strong><span className="text-xs text-slate-500">{item.level}</span></span></label>;
+                    return <label key={item.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${selected ? "border-slate-950 bg-slate-50" : "border-slate-200"}`}><input type="checkbox" disabled={Boolean(activeRepair)} checked={selected} onChange={() => toggleStudent(item.id)} /><span><strong className="block font-semibold">{item.name}</strong><span className="text-xs text-slate-500">{item.level}</span></span></label>;
                   })}
                   {!students.length ? <p className="text-sm text-slate-500">No students match that search.</p> : null}
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(editing.companyOnly)} onChange={(event) => setEditing({ ...editing, companyOnly: event.target.checked })} />Company-only curriculum flag</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={Boolean(activeRepair)} checked={Boolean(editing.companyOnly)} onChange={(event) => setEditing({ ...editing, companyOnly: event.target.checked })} />Company-only curriculum flag</label>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><strong>Teacher eligibility is not editable here.</strong> Required, allowed, preferred and prohibited teachers belong to versioned Rulebook policy. New classes begin with no invented eligibility.</div>
               <div className={`rounded-xl border p-3 text-sm ${durationImpact.length ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700"}`}><strong>Schedule impact:</strong> {durationImpact.length ? `${durationImpact.length} current assignment(s) retain their old scheduled duration until the schedule is repaired/revalidated.` : "Saving scheduling-significant changes advances the Planning Dataset and marks the existing schedule stale for revalidation."}</div>
               {!creating && original && editing.weeklyFrequency < original.weeklyFrequency ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">Reducing weekly frequency is protected. If a session being removed appears anywhere in schedule history, the save will be blocked rather than deleting historical identity.</div> : null}
