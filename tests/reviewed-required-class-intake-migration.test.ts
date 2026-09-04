@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { PLANNING_CLASS_STRUCTURE_REQUIREMENTS } from "@/lib/planning-class-structure";
 
 const sql = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260904055500_reviewed_required_class_intake_v34.sql"),
   "utf8",
 );
+const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 describe("reviewed required-class intake V3.4", () => {
   it("blocks generic inserts for known Rulebook-required classes", () => {
@@ -13,6 +15,12 @@ describe("reviewed required-class intake V3.4", () => {
     expect(sql).toContain("REVIEWED_REQUIRED_CLASS_INTAKE_REQUIRED");
     expect(sql).toContain("current_setting('dwde.reviewed_required_class_intake',true)");
     expect(sql).toContain("before insert on public.class_definitions");
+  });
+
+  it("keeps every current structural requirement inside the database guard whitelist", () => {
+    for (const requirement of PLANNING_CLASS_STRUCTURE_REQUIREMENTS) {
+      expect(sql).toContain(`'${normalized(requirement.className)}'`);
+    }
   });
 
   it("requires explicit manager evidence before enabling the guarded insert", () => {
