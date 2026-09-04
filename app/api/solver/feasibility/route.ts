@@ -92,6 +92,10 @@ function serviceConfiguration() {
   return { url, token, maxSeconds, configured: Boolean(url && token) };
 }
 
+function adoptionConfiguration() {
+  return { configured: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) };
+}
+
 async function buildGatewayPreflight(
   supabase: SupabaseClient,
   options: { syncPublishedModel?: boolean } = {},
@@ -139,9 +143,11 @@ export async function GET(request: NextRequest) {
 
     const gateway = await buildGatewayPreflight(authorized.supabase);
     const service = serviceConfiguration();
+    const adoption = adoptionConfiguration();
     const preparation = gateway.preparation;
     return NextResponse.json({
       serviceConfigured: service.configured,
+      adoptionConfigured: adoption.configured,
       readyToRun: preparation.ok && gateway.blockers.length === 0 && service.configured,
       canRun: authorized.role === "OWNER" || authorized.role === "EDITOR",
       context: preparation.ok ? preparation.problem.context : null,
