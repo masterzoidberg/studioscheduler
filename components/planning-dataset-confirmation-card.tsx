@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Database, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, RefreshCw } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
+import { planningConfirmationBlockers } from "@/lib/planning-confirmation-readiness";
+import { evaluateScheduleReadiness } from "@/lib/schedule-readiness";
 import { getBrowserSupabase } from "@/lib/supabase";
 
 type TeacherSnapshot = { id: string; name: string };
@@ -59,6 +61,12 @@ export function PlanningDatasetConfirmationCard() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
 
+  const readiness = useMemo(() => state ? evaluateScheduleReadiness(state) : null, [state]);
+  const confirmationBlockers = useMemo(
+    () => readiness ? planningConfirmationBlockers(readiness) : [],
+    [readiness],
+  );
+
   useEffect(() => {
     if (!state) return;
     let active = true;
@@ -98,12 +106,12 @@ export function PlanningDatasetConfirmationCard() {
   );
 
   async function confirm() {
-    if (!canEdit || saving || !rowCurrent || !row?.snapshot) return;
+    if (!canEdit || saving || !rowCurrent || !row?.snapshot || confirmationBlockers.length > 0) return;
     setSaving(true);
     setNotice("");
     const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v32", {
       p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-      p_note: "Reviewed the displayed immutable teacher, student, room, class, session, and roster snapshot for automatic scheduling.",
+      p_note: "Reviewed the displayed immutable teacher, student, room, class, session, and roster snapshot for automatic scheduling after deterministic planning checks passed.",
     });
     if (error) setNotice(`Confirmation failed: ${error.message}`);
     else {
@@ -138,6 +146,7 @@ export function PlanningDatasetConfirmationCard() {
   const confirmed = Boolean(rowCurrent && row?.confirmed_for_scheduling_at);
   const snapshotLoaded = Boolean(rowCurrent && snapshot);
   const loadingCurrent = loading || loadedPlanningDatasetVersion !== currentPlanningDatasetVersion;
+  const confirmationReady = confirmationBlockers.length === 0;
 
   return (
     <section className={`rounded-2xl border p-5 ${confirmed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
@@ -165,15 +174,55 @@ export function PlanningDatasetConfirmationCard() {
         </div>
         {canEdit ? (
           <button
-            disabled={loadingCurrent || saving || confirmed || !snapshotLoaded}
+            disabled={loadingCurrent || saving || confirmed || !snapshotLoaded || !confirmationReady}
             onClick={() => void confirm()}
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50"
           >
             <RefreshCw className={`size-4 ${saving ? "animate-spin" : ""}`} />
-            {saving ? "Confirming…" : confirmed ? "Confirmed" : "Confirm reviewed snapshot"}
+            {saving
+              ? "Confirming…"
+              : confirmed
+                ? "Confirmed"
+                : confirmationReady
+                  ? "Confirm reviewed snapshot"
+                  : "Resolve blockers first"}
           </button>
         ) : null}
       </div>
+
+      {rowCurrent && confirmationBlockers.length > 0 ? (
+        <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-rose-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-rose-950">This Planning Dataset is not ready to certify</p>
+              <p className="mt-1 text-xs leading-5 text-rose-800">
+                {confirmationBlockers.length} deterministic planning-data blocker{confirmationBlockers.length === 1 ? " remains" : "s remain"}. Confirmation is disabled until these facts are repaired. The unconfirmed status itself and the stale prior schedule are intentionally not counted here.
+              </p>
+              <div className="mt-3 space-y-2">
+                {confirmationBlockers.slice(0, 8).map((issue, index) => (
+                  <div key={`${issue.code}-${index}`} className="rounded-xl border border-rose-100 bg-white/80 px-3 py-2">
+                    <p className="text-xs font-semibold text-rose-950">{issue.message}</p>
+                    <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-rose-600">{issue.code}</p>
+                  </div>
+                ))}
+                {confirmationBlockers.length > 8 ? (
+                  <p className="text-xs font-medium text-rose-800">+ {confirmationBlockers.length - 8} additional blocker{confirmationBlockers.length - 8 === 1 ? "" : "s"} on the Readiness page.</p>
+                ) : null}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a href="/readiness" className="rounded-lg bg-rose-950 px-3 py-2 text-xs font-semibold text-white">Open readiness details</a>
+                <a href="/classes" className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-900">Edit classes & rosters</a>
+                <a href="/people" className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-900">Edit people</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : rowCurrent && !confirmed ? (
+        <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-900">
+          Deterministic planning checks pass. Review the immutable snapshot below before confirming it as scheduling authority.
+        </div>
+      ) : null}
 
       {snapshotLoaded ? (
         <div className="mt-5 space-y-3 border-t border-slate-200/80 pt-5">
