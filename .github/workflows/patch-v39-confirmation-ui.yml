@@ -1,0 +1,84 @@
+name: Patch v39 confirmation UI
+
+on:
+  push:
+    branches:
+      - feat/planning-confirmation-attestation-v39
+    paths:
+      - .github/workflows/patch-v39-confirmation-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Add snapshot-bound manager attestations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('components/planning-dataset-confirmation-card.tsx')
+          text = path.read_text()
+
+          old = '''function safeArray<T>(value: T[] | undefined): T[] {\n  return Array.isArray(value) ? value : [];\n}\n'''
+          new = '''function safeArray<T>(value: T[] | undefined): T[] {\n  return Array.isArray(value) ? value : [];\n}\n\ntype ConfirmationEvidence = {\n  peopleInventoryReviewed: boolean;\n  classSessionCatalogReviewed: boolean;\n  classRostersReviewed: boolean;\n  sourceAndCompletenessReviewed: boolean;\n};\n\ntype SnapshotAttestationState = {\n  snapshotKey: string;\n  evidence: ConfirmationEvidence;\n};\n\nconst EMPTY_CONFIRMATION_EVIDENCE: ConfirmationEvidence = {\n  peopleInventoryReviewed: false,\n  classSessionCatalogReviewed: false,\n  classRostersReviewed: false,\n  sourceAndCompletenessReviewed: false,\n};\n\nconst CONFIRMATION_ATTESTATIONS: Array<{ key: keyof ConfirmationEvidence; label: string }> = [\n  { key: "peopleInventoryReviewed", label: "I reviewed the current teacher and student inventory and confirm all known people needed for this planning cycle are represented." },\n  { key: "classSessionCatalogReviewed", label: "I reviewed the class catalog and weekly session structure and confirm all current offerings and required weekly sessions are represented." },\n  { key: "classRostersReviewed", label: "I reviewed each class roster and confirm the current enrollments needed for scheduling are represented." },\n  { key: "sourceAndCompletenessReviewed", label: "I verified this snapshot against the best available current studio source or manager knowledge and confirm no known planning records are omitted." },\n];\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'safeArray target count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''  const [saving, setSaving] = useState(false);\n  const [notice, setNotice] = useState("");\n'''
+          new = '''  const [saving, setSaving] = useState(false);\n  const [notice, setNotice] = useState("");\n  const [attestationState, setAttestationState] = useState<SnapshotAttestationState>({\n    snapshotKey: "",\n    evidence: { ...EMPTY_CONFIRMATION_EVIDENCE },\n  });\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'state target count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''  const rowCurrent = Boolean(\n    row\n    && row.version === currentPlanningDatasetVersion\n    && loadedPlanningDatasetVersion === currentPlanningDatasetVersion,\n  );\n\n  async function confirm() {\n    if (!canEdit || saving || !rowCurrent || !row?.snapshot || confirmationBlockers.length > 0) return;\n'''
+          new = '''  const rowCurrent = Boolean(\n    row\n    && row.version === currentPlanningDatasetVersion\n    && loadedPlanningDatasetVersion === currentPlanningDatasetVersion,\n  );\n  const snapshotKey = rowCurrent && row?.snapshot_hash ? `${row.version}:${row.snapshot_hash}` : "";\n  const confirmationEvidence = attestationState.snapshotKey === snapshotKey\n    ? attestationState.evidence\n    : EMPTY_CONFIRMATION_EVIDENCE;\n  const allAttestationsChecked = Object.values(confirmationEvidence).every(Boolean);\n\n  function toggleAttestation(key: keyof ConfirmationEvidence) {\n    if (!snapshotKey) return;\n    const current = attestationState.snapshotKey === snapshotKey\n      ? attestationState.evidence\n      : EMPTY_CONFIRMATION_EVIDENCE;\n    setAttestationState({\n      snapshotKey,\n      evidence: { ...current, [key]: !current[key] },\n    });\n  }\n\n  async function confirm() {\n    if (!canEdit || saving || !rowCurrent || !row?.snapshot || !row.snapshot_hash || confirmationBlockers.length > 0 || !allAttestationsChecked) return;\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'rowCurrent target count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''    const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v32", {\n      p_expected_planning_dataset_version: currentPlanningDatasetVersion,\n      p_note: "Reviewed the displayed immutable teacher, student, room, class, session, and roster snapshot for automatic scheduling after deterministic planning checks passed.",\n    });\n'''
+          new = '''    const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v39", {\n      p_expected_planning_dataset_version: currentPlanningDatasetVersion,\n      p_expected_snapshot_hash: row.snapshot_hash,\n      p_note: "Manager reviewed the displayed immutable planning snapshot, attested its known completeness, and confirmed it as scheduling authority after deterministic planning checks passed.",\n      p_evidence: confirmationEvidence,\n    });\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'RPC target count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''  const confirmationReady = confirmationBlockers.length === 0;\n'''
+          new = '''  const confirmationReady = confirmationBlockers.length === 0;\n  const confirmationActionReady = confirmationReady && allAttestationsChecked;\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'confirmationReady target count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          text = text.replace(
+              'disabled={loadingCurrent || saving || confirmed || !snapshotLoaded || !confirmationReady}',
+              'disabled={loadingCurrent || saving || confirmed || !snapshotLoaded || !confirmationActionReady}',
+              1,
+          )
+          text = text.replace(
+              '? "Confirm reviewed snapshot"\n                  : "Resolve blockers first"',
+              '? allAttestationsChecked ? "Confirm attested snapshot" : "Complete attestations"\n                  : "Resolve blockers first"',
+              1,
+          )
+
+          marker = '''      {snapshotLoaded ? (\n        <div className="mt-5 space-y-3 border-t border-slate-200/80 pt-5">\n'''
+          insertion = '''      {snapshotLoaded && !confirmed ? (\n        <div className="mt-5 rounded-2xl border border-slate-300 bg-white/90 p-4">\n          <div className="flex items-start gap-3">\n            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />\n            <div>\n              <p className="text-sm font-semibold text-slate-950">Manager completeness attestation required</p>\n              <p className="mt-1 text-xs leading-5 text-slate-600">Deterministic checks can detect known contradictions and missing Rulebook-required structure, but they cannot prove that the studio inventory itself is complete. These attestations are your confirmation of the exact snapshot shown below. They are never pre-checked and automatically become invalid when the Planning Dataset version or snapshot hash changes.</p>\n            </div>\n          </div>\n          <div className="mt-4 space-y-3">\n            {CONFIRMATION_ATTESTATIONS.map((item) => (\n              <label key={item.key} className={`flex items-start gap-3 rounded-xl border p-3 text-sm leading-5 ${confirmationEvidence[item.key] ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>\n                <input\n                  type="checkbox"\n                  checked={confirmationEvidence[item.key]}\n                  disabled={!confirmationReady}\n                  onChange={() => toggleAttestation(item.key)}\n                  className="mt-0.5 size-4 shrink-0"\n                />\n                <span className="text-slate-700">{item.label}</span>\n              </label>\n            ))}\n          </div>\n          {!confirmationReady ? <p className="mt-3 text-xs font-medium text-amber-800">Resolve the deterministic blockers above before completing the human completeness review.</p> : null}\n        </div>\n      ) : null}\n\n''' + marker
+          if text.count(marker) != 1:
+              raise SystemExit(f'snapshot marker count={text.count(marker)}')
+          text = text.replace(marker, insertion, 1)
+
+          path.write_text(text)
+          PY
+          git diff --check
+          git diff -- components/planning-dataset-confirmation-card.tsx
+      - name: Commit UI patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/planning-dataset-confirmation-card.tsx
+          git commit -m "Require snapshot-bound planning attestations"
+          git push origin HEAD:${GITHUB_REF_NAME}
