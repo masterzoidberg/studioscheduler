@@ -101,6 +101,10 @@ export function ClassesView() {
 
   function beginRulebookRepair(repair: RulebookClassStructureRepair) {
     if (!state) return;
+    if (repair.status === "MISSING") {
+      window.location.assign("/planning-repairs");
+      return;
+    }
     if (repair.status === "AMBIGUOUS") {
       setNotice(`${repair.className} has duplicate class records (${repair.duplicateClassIds.join(", ")}). Resolve the duplicate inventory before applying Rulebook structure changes.`);
       return;
@@ -264,7 +268,7 @@ export function ClassesView() {
                     <p className="mt-1 font-mono text-[10px] text-slate-400">{repair.ruleIds.join(" · ")}</p>
                   </div>
                   {canEdit && repair.status !== "AMBIGUOUS" ? (
-                    <button type="button" onClick={() => beginRulebookRepair(repair)} className="min-h-10 shrink-0 rounded-xl border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-950">Review repair</button>
+                    <button type="button" onClick={() => beginRulebookRepair(repair)} className="min-h-10 shrink-0 rounded-xl border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-950">{repair.status === "MISSING" ? "Use reviewed intake" : "Review repair"}</button>
                   ) : null}
                 </div>
               );
