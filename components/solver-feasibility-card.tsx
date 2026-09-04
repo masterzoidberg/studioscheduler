@@ -13,6 +13,7 @@ type SolveContext = {
 };
 type GatewayStatus = {
   serviceConfigured: boolean;
+  adoptionConfigured: boolean;
   readyToRun: boolean;
   canRun: boolean;
   preparationReady: boolean;
@@ -86,7 +87,7 @@ export function SolverFeasibilityCard() {
 
   const authHeaders = useCallback(() => session ? { Authorization: `Bearer ${session.access_token}` } : null, [session]);
 
-  const refreshStatus = useCallback(async () => {
+  const refreshStatus = useCallback(async (options: { preserveNotice?: boolean } = {}) => {
     const headers = authHeaders();
     if (!headers) return;
     setLoading(true);
@@ -95,7 +96,7 @@ export function SolverFeasibilityCard() {
       const payload = await response.json() as GatewayStatus & { error?: string };
       if (!response.ok) throw new Error(payload.error || "Could not read solver gateway status.");
       setStatus(payload);
-      setNotice("");
+      if (!options.preserveNotice) setNotice("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
       setStatus(null);
@@ -178,7 +179,7 @@ export function SolverFeasibilityCard() {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setRunning(false);
-      await refreshStatus();
+      await refreshStatus({ preserveNotice: true });
     }
   }
 
@@ -186,7 +187,7 @@ export function SolverFeasibilityCard() {
     const headers = authHeaders();
     const assignments = result?.candidate?.assignments;
     const context = result?.context;
-    if (!headers || !assignments?.length || !context || !canEdit || !reviewAcknowledged || adopting) return;
+    if (!headers || !assignments?.length || !context || !canEdit || !status?.adoptionConfigured || !reviewAcknowledged || adopting) return;
 
     const confirmed = window.confirm(
       `Adopt this reviewed ${assignments.length}-assignment candidate as a new immutable schedule version? The server will reload canonical data and independently validate it again before replacing the current schedule.`,
@@ -261,12 +262,19 @@ export function SolverFeasibilityCard() {
         </button>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Private service</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Private solver</div>
           <div className="mt-1 flex items-center gap-2 font-semibold">
             {status?.serviceConfigured ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-amber-600" />}
             {loading ? "Checking…" : status?.serviceConfigured ? "Configured" : "Not configured"}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Governed adoption</div>
+          <div className="mt-1 flex items-center gap-2 font-semibold">
+            {status?.adoptionConfigured ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-amber-600" />}
+            {loading ? "Checking…" : status?.adoptionConfigured ? "Configured" : "Not configured"}
           </div>
         </div>
         <div className="rounded-2xl border border-slate-200 p-4">
@@ -338,10 +346,17 @@ export function SolverFeasibilityCard() {
             </table>
           </div>
 
-          <label className="mt-4 flex items-start gap-3 rounded-xl border border-emerald-200 bg-white p-3 text-sm leading-5 text-slate-800">
+          {!status?.adoptionConfigured ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+              This candidate can be reviewed, but governed adoption is disabled until the server-only Supabase service-role credential is configured on the application backend.
+            </div>
+          ) : null}
+
+          <label className={`mt-4 flex items-start gap-3 rounded-xl border p-3 text-sm leading-5 ${status?.adoptionConfigured ? "border-emerald-200 bg-white text-slate-800" : "border-slate-200 bg-slate-50 text-slate-400"}`}>
             <input
               type="checkbox"
               checked={reviewAcknowledged}
+              disabled={!status?.adoptionConfigured}
               onChange={(event) => setReviewAcknowledged(event.target.checked)}
               className="mt-0.5 size-4"
             />
@@ -354,7 +369,7 @@ export function SolverFeasibilityCard() {
             </p>
             <button
               type="button"
-              disabled={!reviewAcknowledged || adopting || !canEdit}
+              disabled={!status?.adoptionConfigured || !reviewAcknowledged || adopting || !canEdit}
               onClick={() => void adoptCandidate()}
               className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
