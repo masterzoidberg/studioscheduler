@@ -1,0 +1,50 @@
+name: Reconcile Supabase migration ledger
+
+on:
+  push:
+    branches:
+      - chore/reconcile-supabase-migration-ledger
+    paths:
+      - .github/workflows/reconcile-supabase-ledger.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Align migration filenames to remote ledger
+        run: |
+          git mv supabase/migrations/20260904055500_reviewed_required_class_intake_v34.sql supabase/migrations/20260904185218_reviewed_required_class_intake_v34.sql
+          git mv supabase/migrations/20260904064000_atomic_rulebook_structure_repair_v35.sql supabase/migrations/20260904185246_atomic_rulebook_structure_repair_v35.sql
+          git mv supabase/migrations/20260904190000_rulebook_v36_governed_repairs.sql supabase/migrations/20260904190328_rulebook_v36_governed_repairs.sql
+          git mv supabase/migrations/20260904190500_retire_direct_v35_structure_rpc.sql supabase/migrations/20260904190357_retire_direct_v35_structure_rpc.sql
+          python - <<'PY'
+          from pathlib import Path
+          replacements = {
+              '20260904055500_reviewed_required_class_intake_v34.sql': '20260904185218_reviewed_required_class_intake_v34.sql',
+              '20260904064000_atomic_rulebook_structure_repair_v35.sql': '20260904185246_atomic_rulebook_structure_repair_v35.sql',
+              '20260904190000_rulebook_v36_governed_repairs.sql': '20260904190328_rulebook_v36_governed_repairs.sql',
+              '20260904190500_retire_direct_v35_structure_rpc.sql': '20260904190357_retire_direct_v35_structure_rpc.sql',
+          }
+          for path in Path('tests').glob('*.ts'):
+              text = path.read_text()
+              updated = text
+              for old, new in replacements.items():
+                  updated = updated.replace(old, new)
+              if updated != text:
+                  path.write_text(updated)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Commit reconciliation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/migrations tests
+          git commit -m "Align migration filenames with Supabase ledger"
+          git push origin HEAD:${GITHUB_REF_NAME}
