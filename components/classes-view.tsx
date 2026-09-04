@@ -1,10 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Clock3, Pencil, Plus, Search, UsersRound, X } from "lucide-react";
+import { Clock3, Pencil, Plus, Search, UsersRound, Wrench, X } from "lucide-react";
 import type { ClassDefinition, ClassSession } from "@/lib/domain";
 import { useWorkspace } from "@/components/workspace-provider";
 import { mutatePlanningEntity, updateClassSessionDurations } from "@/lib/planning-inventory-client";
+import {
+  rulebookClassStructureRepairs,
+  rulebookRepairDraft,
+  type RulebookClassStructureRepair,
+} from "@/lib/planning-structure-repair";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
 function newClass(): ClassDefinition {
@@ -27,10 +32,16 @@ function durationDrafts(sessions: ClassSession[]) {
   );
 }
 
+function expectedStructure(repair: RulebookClassStructureRepair) {
+  const durations = repair.expectedDurations?.length ? ` · ${repair.expectedDurations.join("/")} min` : " · duration requires verified planning input";
+  return `${repair.expectedFrequency}/week${durations}`;
+}
+
 export function ClassesView() {
   const { state, currentAssignments, canEdit, currentPlanningDatasetVersion, refresh } = useWorkspace();
   const [editing, setEditing] = useState<ClassDefinition | null>(null);
   const [creating, setCreating] = useState(false);
+  const [activeRepair, setActiveRepair] = useState<RulebookClassStructureRepair | null>(null);
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingSessions, setSavingSessions] = useState(false);
@@ -44,6 +55,11 @@ export function ClassesView() {
       .filter((student) => !q || `${student.name} ${student.level}`.toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [state, studentSearch]);
+
+  const structureRepairs = useMemo(
+    () => state ? rulebookClassStructureRepairs({ classes: state.classes, sessions: state.sessions }) : [],
+    [state],
+  );
 
   if (!state) return null;
 
@@ -67,22 +83,42 @@ export function ClassesView() {
 
   function beginAdd() {
     setCreating(true);
+    setActiveRepair(null);
     setStudentSearch("");
     setSessionDrafts({});
     setEditing(newClass());
   }
 
   function beginEdit(klass: ClassDefinition) {
-    const sessions = (state?.sessions ?? []).filter((session) => session.classId === klass.id).sort((a, b) => a.ordinal - b.ordinal);
+    const sessions = state.sessions.filter((session) => session.classId === klass.id).sort((a, b) => a.ordinal - b.ordinal);
     setCreating(false);
+    setActiveRepair(null);
     setStudentSearch("");
     setSessionDrafts(durationDrafts(sessions));
     setEditing({ ...klass, rosterStudentIds: [...klass.rosterStudentIds], eligibleTeacherIds: [...klass.eligibleTeacherIds] });
   }
 
+  function beginRulebookRepair(repair: RulebookClassStructureRepair) {
+    if (repair.status === "AMBIGUOUS") {
+      setNotice(`${repair.className} has duplicate class records (${repair.duplicateClassIds.join(", ")}). Resolve the duplicate inventory before applying Rulebook structure changes.`);
+      return;
+    }
+
+    const existing = repair.classId ? state.classes.find((klass) => klass.id === repair.classId) ?? null : null;
+    const sessions = existing
+      ? state.sessions.filter((session) => session.classId === existing.id).sort((a, b) => a.ordinal - b.ordinal)
+      : [];
+    setCreating(!existing);
+    setActiveRepair(repair);
+    setStudentSearch("");
+    setSessionDrafts(durationDrafts(sessions));
+    setEditing(rulebookRepairDraft(repair, existing));
+  }
+
   function closeEditor() {
     setEditing(null);
     setCreating(false);
+    setActiveRepair(null);
     setSessionDrafts({});
   }
 
@@ -97,6 +133,19 @@ export function ClassesView() {
 
   async function save() {
     if (!editing || !canEdit || saving) return;
+    if (!editing.name.trim() || !editing.subject.trim() || !editing.level.trim()) {
+      setNotice("Name, subject, and level are required before class planning data can be saved.");
+      return;
+    }
+    if (!Number.isInteger(editing.durationMinutes) || editing.durationMinutes <= 0 || editing.durationMinutes > 1440) {
+      setNotice("Default class duration must be a positive whole number of minutes. Rulebook repair drafts never guess a duration that has not been established.");
+      return;
+    }
+    if (!Number.isInteger(editing.weeklyFrequency) || editing.weeklyFrequency <= 0 || editing.weeklyFrequency > 14) {
+      setNotice("Weekly frequency must be a positive whole number no greater than 14.");
+      return;
+    }
+
     setSaving(true);
     setNotice("");
     const result = await mutatePlanningEntity({
@@ -112,7 +161,9 @@ export function ClassesView() {
         rosterStudentIds: editing.rosterStudentIds,
         companyOnly: Boolean(editing.companyOnly),
       },
-      reason: `${creating ? "Added" : "Updated"} class ${editing.name}`,
+      reason: activeRepair
+        ? `Reviewed Rulebook structure repair for ${editing.name} (${activeRepair.ruleIds.join(", ")})`
+        : `${creating ? "Added" : "Updated"} class ${editing.name}`,
       expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
     });
 
@@ -180,6 +231,48 @@ export function ClassesView() {
 
       {notice ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{notice}</div> : null}
 
+      <section className={`rounded-2xl border p-4 ${structureRepairs.length ? "border-amber-200 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/60"}`}>
+        <div className="flex items-start gap-3">
+          <div className={`grid size-9 shrink-0 place-items-center rounded-xl ${structureRepairs.length ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}><Wrench className="size-4" /></div>
+          <div>
+            <h2 className="font-semibold text-slate-950">Rulebook structure repair</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              These actions come only from verified Ballet/Pointe structure rules. They can prefill class frequency and established durations, but they never invent roster enrollment or teacher eligibility. Every change still opens the normal editor and requires review before a new Planning Dataset version is written.
+            </p>
+          </div>
+        </div>
+
+        {structureRepairs.length ? (
+          <div className="mt-4 grid gap-2">
+            {structureRepairs.map((repair) => {
+              const current = repair.status === "MISMATCH"
+                ? `${repair.currentFrequency ?? "?"}/week${repair.currentDurations ? ` · ${repair.currentDurations.join("/")} min` : ""}`
+                : repair.status === "MISSING"
+                  ? "Not in current inventory"
+                  : `${repair.duplicateClassIds.length} matching class records`;
+              return (
+                <div key={`${repair.status}-${repair.className}`} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-slate-950">{repair.className}</span>
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">{repair.status}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">Current: {current}</p>
+                    <p className="text-xs text-slate-600">Rulebook: {expectedStructure(repair)}</p>
+                    <p className="mt-1 font-mono text-[10px] text-slate-400">{repair.ruleIds.join(" · ")}</p>
+                  </div>
+                  {canEdit && repair.status !== "AMBIGUOUS" ? (
+                    <button type="button" onClick={() => beginRulebookRepair(repair)} className="min-h-10 shrink-0 rounded-xl border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-950">Review repair</button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm font-medium text-emerald-900">All verified Ballet/Pointe class structure requirements are represented in the working inventory.</p>
+        )}
+      </section>
+
       <div className="flex items-center justify-between gap-3">
         <div><h2 className="font-semibold">Class catalog</h2><p className="text-xs text-slate-500">{state.classes.length} currently in the working inventory</p></div>
         {canEdit ? <button onClick={beginAdd} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white"><Plus className="size-4" />Add class</button> : null}
@@ -211,6 +304,17 @@ export function ClassesView() {
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/40 sm:items-center sm:p-6">
           <div className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-t-[28px] bg-white p-5 sm:rounded-[28px] sm:p-6">
             <div className="flex justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[.14em] text-slate-500">Class inventory</p><h2 className="mt-1 text-xl font-semibold">{creating ? "Add class" : `Edit ${editing.name}`}</h2></div><button onClick={closeEditor}><X className="size-5" /></button></div>
+
+            {activeRepair ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950">
+                <p className="font-semibold">Reviewing Rulebook structure repair · {activeRepair.ruleIds.join(", ")}</p>
+                <p className="mt-1">Expected structure: {expectedStructure(activeRepair)}. Verify all visible planning fields before saving.</p>
+                {activeRepair.status === "MISSING" ? <p className="mt-1"><strong>Roster is intentionally blank.</strong> Enrollment is not derived from the Rulebook; add only students supported by current roster facts.</p> : null}
+                {!activeRepair.expectedDurations ? <p className="mt-1"><strong>Duration was not prefilled.</strong> Enter the verified class duration before saving; the repair workflow will not guess one.</p> : null}
+                {activeRepair.expectedDurations && new Set(activeRepair.expectedDurations).size > 1 ? <p className="mt-1">This class requires distinct weekly durations ({activeRepair.expectedDurations.join("/")} minutes). If session rows must first be created by a frequency change, save the class structure, reopen it, then set the per-session overrides.</p> : null}
+              </div>
+            ) : null}
+
             <div className="mt-5 grid gap-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-xs font-semibold text-slate-600">Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
@@ -218,7 +322,7 @@ export function ClassesView() {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <label className="text-xs font-semibold text-slate-600">Level<input value={editing.level} onChange={(event) => setEditing({ ...editing, level: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
-                <label className="text-xs font-semibold text-slate-600">Default minutes<input type="number" min={1} value={editing.durationMinutes} onChange={(event) => setEditing({ ...editing, durationMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
+                <label className="text-xs font-semibold text-slate-600">Default minutes<input type="number" min={1} value={editing.durationMinutes || ""} onChange={(event) => setEditing({ ...editing, durationMinutes: Number(event.target.value) })} placeholder="Required" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
                 <label className="text-xs font-semibold text-slate-600">Per week<input type="number" min={1} value={editing.weeklyFrequency} onChange={(event) => setEditing({ ...editing, weeklyFrequency: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
               </div>
 
