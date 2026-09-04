@@ -56,6 +56,27 @@ export type FeasibilityPreparation = FeasibilityPreparationFailure | Feasibility
 
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const sortStrings = (values: string[] | undefined) => [...(values || [])].sort(compareCanonicalStrings);
+const SOLVE_REMEDIABLE_READINESS_CODES = new Set(["SCHEDULE_PLANNING_DATASET_STALE"]);
+
+/**
+ * A stale current schedule is evidence that the displayed schedule no longer
+ * represents current planning truth, but it is not a safe reason to prohibit a
+ * fresh feasibility solve. The solver is built entirely from the current
+ * confirmed Planning Dataset and canonical Constraint Model, not from prior
+ * schedule assignments. Keep the finding visible as a warning while allowing
+ * the solve that can replace the stale schedule.
+ */
+export function feasibilityReadiness(report: ScheduleReadinessReport): ScheduleReadinessReport {
+  const remediable = report.blockers.filter((issue) => SOLVE_REMEDIABLE_READINESS_CODES.has(issue.code));
+  const blockers = report.blockers.filter((issue) => !SOLVE_REMEDIABLE_READINESS_CODES.has(issue.code));
+  const remediableWarnings = remediable.map((issue) => ({ ...issue, severity: "WARNING" as const }));
+  return {
+    ...report,
+    ready: blockers.length === 0,
+    blockers,
+    warnings: [...report.warnings, ...remediableWarnings],
+  };
+}
 
 export function buildFeasibilityProblemPayload(
   state: StudioState,
@@ -112,7 +133,7 @@ export function buildFeasibilityProblemPayload(
 
 export function prepareFeasibilitySolve(state: StudioState): FeasibilityPreparation {
   const model = compileConstraintModel(state);
-  const readiness = evaluateScheduleReadiness(state);
+  const readiness = feasibilityReadiness(evaluateScheduleReadiness(state));
   const delegatedPreflight = validateDelegatedSolverPreconditions(state, model);
   const blockers: FeasibilityPreparationFailure["blockers"] = readiness.blockers.map((issue) => ({
     code: issue.code,
