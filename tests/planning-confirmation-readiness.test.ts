@@ -8,13 +8,19 @@ function report(codes: string[]): ScheduleReadinessReport {
     blockers: codes.map((code) => ({ code, severity: "BLOCKER" as const, message: code, ruleIds: [], entityIds: [] })),
     warnings: [],
     ruleCoverage: { activeRules: 178, accountedRules: 178, missingRuleIds: [], unknownRuleIds: [], complete: true },
-    constraintBinding: { valid: true, issues: [] },
+    constraintBinding: {
+      valid: true,
+      checkedReferences: 0,
+      boundReferences: 0,
+      issues: [],
+      references: [],
+    },
     currentPlanningDatasetVersion: 4,
     schedulePlanningDatasetVersion: 1,
     sourceManifestVersion: null,
     sourceManifestComplete: false,
     planningDatasetConfirmed: false,
-  } as ScheduleReadinessReport;
+  };
 }
 
 describe("planning dataset confirmation policy", () => {
