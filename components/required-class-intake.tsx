@@ -173,7 +173,7 @@ export function RequiredClassIntake() {
   }
 
   return (
-    <section className={`rounded-2xl border p-5 ${candidates.length ? "border-sky-200 bg-sky-50/40" : "border-emerald-200 bg-emerald-50/50"}`}>
+    <section id="required-class-intake" className={`scroll-mt-6 rounded-2xl border p-5 ${candidates.length ? "border-sky-200 bg-sky-50/40" : "border-emerald-200 bg-emerald-50/50"}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <div className={`grid size-10 shrink-0 place-items-center rounded-xl ${candidates.length ? "bg-sky-100 text-sky-800" : "bg-emerald-100 text-emerald-800"}`}><ClipboardPenLine className="size-5" /></div>
