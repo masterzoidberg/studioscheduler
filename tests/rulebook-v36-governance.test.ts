@@ -3,11 +3,11 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const governedRepairs = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20260904190000_rulebook_v36_governed_repairs.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260904190328_rulebook_v36_governed_repairs.sql"),
   "utf8",
 );
 const retireV35 = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20260904190500_retire_direct_v35_structure_rpc.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260904190357_retire_direct_v35_structure_rpc.sql"),
   "utf8",
 );
 const client = readFileSync(resolve(process.cwd(), "lib/planning-inventory-client.ts"), "utf8");
