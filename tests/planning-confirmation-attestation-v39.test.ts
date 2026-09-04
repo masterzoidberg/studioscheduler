@@ -3,11 +3,11 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const migration = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20260904221500_planning_dataset_confirmation_attestation_v39.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260904220608_planning_dataset_confirmation_attestation_v39.sql"),
   "utf8",
 );
 const retirement = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20260904222000_retire_direct_v32_planning_confirmation.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260904220715_retire_direct_v32_planning_confirmation.sql"),
   "utf8",
 );
 const confirmationUi = readFileSync(
