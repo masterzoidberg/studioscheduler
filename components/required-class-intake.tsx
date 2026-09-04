@@ -28,6 +28,8 @@ function draftFor(candidate: RequiredClassIntakeCandidate): Draft {
   };
 }
 
+const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
 export function RequiredClassIntake() {
   const { state, canEdit, currentPlanningDatasetVersion, refresh } = useWorkspace();
   const [active, setActive] = useState<RequiredClassIntakeCandidate | null>(null);
@@ -103,7 +105,7 @@ export function RequiredClassIntake() {
       setNotice("Student data changed while this intake was open. Close it, refresh planning data, and review the roster again.");
       return;
     }
-    if (workspaceState.classes.some((klass) => klass.name.toLowerCase().replace(/[^a-z0-9]+/g, "") === active.className.toLowerCase().replace(/[^a-z0-9]+/g, ""))) {
+    if (workspaceState.classes.some((klass) => normalizeName(klass.name) === normalizeName(active.className))) {
       setNotice("That class now exists in planning data. Refresh and use the roster repair queue instead of creating a duplicate.");
       return;
     }
@@ -144,15 +146,11 @@ export function RequiredClassIntake() {
     <section className={`rounded-2xl border p-5 ${candidates.length ? "border-sky-200 bg-sky-50/40" : "border-emerald-200 bg-emerald-50/50"}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
-          <div className={`grid size-10 shrink-0 place-items-center rounded-xl ${candidates.length ? "bg-sky-100 text-sky-800" : "bg-emerald-100 text-emerald-800"}`}>
-            <ClipboardPenLine className="size-5" />
-          </div>
+          <div className={`grid size-10 shrink-0 place-items-center rounded-xl ${candidates.length ? "bg-sky-100 text-sky-800" : "bg-emerald-100 text-emerald-800"}`}><ClipboardPenLine className="size-5" /></div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Missing class facts</p>
             <h2 className="mt-1 text-lg font-semibold">Required-class intake</h2>
-            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-600">
-              These classes are required by explicit Rulebook relationships but their established structure is not recoverable from the Rulebook. A manager must enter the real curriculum facts and review the complete current roster before the class can be created.
-            </p>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-600">These classes are required by explicit Rulebook relationships but their established structure is not recoverable from the Rulebook. A manager must enter the real curriculum facts and review the complete current roster before the class can be created.</p>
           </div>
         </div>
         {candidates.length ? <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900">{candidates.length} intake{candidates.length === 1 ? "" : "s"}</span> : null}
@@ -184,9 +182,7 @@ export function RequiredClassIntake() {
               <button type="button" onClick={close} aria-label="Close required class intake"><X className="size-5" /></button>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-              <AlertTriangle className="mr-2 inline size-4" /><strong>No scheduling defaults are being inferred.</strong> Subject/level placeholders are naming hints only. Duration, frequency, curriculum scope, and the roster all require explicit review.
-            </div>
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><AlertTriangle className="mr-2 inline size-4" /><strong>No scheduling defaults are being inferred.</strong> Subject/level placeholders are naming hints only. Duration, frequency, curriculum scope, and the roster all require explicit review.</div>
 
             <div className="mt-5 grid gap-4">
               <label className="text-xs font-semibold text-slate-600">Class name<input readOnly value={active.className} className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-normal text-slate-700" /></label>
@@ -201,10 +197,8 @@ export function RequiredClassIntake() {
               <label className="text-xs font-semibold text-slate-600">Curriculum scope<select value={draft.companyScope} onChange={(event) => setDraft({ ...draft, companyScope: event.target.value as Draft["companyScope"] })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">Choose explicitly</option><option value="STANDARD">Standard curriculum</option><option value="COMPANY_ONLY">Company-only curriculum</option></select></label>
 
               <div className="rounded-2xl border border-slate-200 p-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-950">Complete current class roster</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">Rulebook-required students are locked on. Select every additional dancer currently enrolled in this class before confirming the roster.</p>
-                </div>
+                <p className="text-sm font-semibold text-slate-950">Complete current class roster</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Rulebook-required students are locked on. Select every additional dancer currently enrolled in this class before confirming the roster.</p>
                 <div className="mt-3 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">
                   {workspaceState.students.slice().sort((a, b) => a.name.localeCompare(b.name)).map((student) => {
                     const required = requiredSet.has(student.id);
@@ -221,7 +215,7 @@ export function RequiredClassIntake() {
                 <p className="mt-3 text-xs text-slate-500">Selected roster: <strong>{draft.rosterStudentIds.length}</strong> student{draft.rosterStudentIds.length === 1 ? "" : "s"}.</p>
               </div>
 
-              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm leading-6 text-slate-700"><input type="checkbox" className="mt-1" checked={draft.rosterReviewed} onChange={(event) => setDraft({ ...draft, rosterReviewed: event.target.checked })} /><span>I have reviewed the full current enrollment for {active.className}, and the selected roster above is complete to the best of the studio's current knowledge.</span></label>
+              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 p-4 text-sm leading-6 text-slate-700"><input type="checkbox" className="mt-1" checked={draft.rosterReviewed} onChange={(event) => setDraft({ ...draft, rosterReviewed: event.target.checked })} /><span>I have reviewed the full current enrollment for {active.className}, and the selected roster above is complete to the best of current studio knowledge.</span></label>
 
               <div className="rounded-xl border border-slate-200 p-3 text-xs leading-5 text-slate-500"><strong>Rulebook basis:</strong> {active.ruleIds.join(", ")}<br /><strong>Relationship:</strong> {active.relationshipLabels.join(" · ")}</div>
 
