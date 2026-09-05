@@ -7,6 +7,8 @@ import { getBrowserSupabase } from "@/lib/supabase";
 import type { PlanningEntityType } from "@/lib/planning-inventory-client";
 import { setPlanningEntityArchived } from "@/lib/planning-archive-client";
 
+const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
+
 type ArchivedItem = {
   entityType: PlanningEntityType;
   id: string;
@@ -34,19 +36,19 @@ async function loadArchivedItems(entityTypes: PlanningEntityType[]): Promise<Arc
   const types: PlanningEntityType[] = [];
 
   if (wanted.has("TEACHER")) {
-    queries.push(supabase.from("teachers").select("id,name,archived_at").not("archived_at", "is", null).order("name"));
+    queries.push(supabase.from("teachers").select("id,name,archived_at").eq("studio_id", STUDIO_ID).not("archived_at", "is", null).order("name"));
     types.push("TEACHER");
   }
   if (wanted.has("STUDENT")) {
-    queries.push(supabase.from("students").select("id,name,level,archived_at").not("archived_at", "is", null).order("name"));
+    queries.push(supabase.from("students").select("id,name,level,archived_at").eq("studio_id", STUDIO_ID).not("archived_at", "is", null).order("name"));
     types.push("STUDENT");
   }
   if (wanted.has("ROOM")) {
-    queries.push(supabase.from("rooms").select("id,name,capacity,archived_at").not("archived_at", "is", null).order("name"));
+    queries.push(supabase.from("rooms").select("id,name,capacity,archived_at").eq("studio_id", STUDIO_ID).not("archived_at", "is", null).order("name"));
     types.push("ROOM");
   }
   if (wanted.has("CLASS")) {
-    queries.push(supabase.from("class_definitions").select("id,name,subject,level,archived_at").not("archived_at", "is", null).order("name"));
+    queries.push(supabase.from("class_definitions").select("id,name,subject,level,archived_at").eq("studio_id", STUDIO_ID).not("archived_at", "is", null).order("name"));
     types.push("CLASS");
   }
 
@@ -69,7 +71,7 @@ async function loadArchivedItems(entityTypes: PlanningEntityType[]): Promise<Arc
             : "";
       items.push({
         entityType,
-        id: String(row.id),
+ id: String(row.id),
         name: String(row.name),
         detail,
         archivedAt: String(row.archived_at || ""),
