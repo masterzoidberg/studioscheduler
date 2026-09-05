@@ -128,12 +128,12 @@ export async function loadCanonicalSolverStudioState(
 ): Promise<StudioState> {
   const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ, assignmentsQ] = await Promise.all([
     supabase.from("studios").select("id,name").eq("id", studioId).single(),
-    supabase.from("teachers").select("*").eq("studio_id", studioId).order("id"),
-    supabase.from("rooms").select("*").eq("studio_id", studioId).order("id"),
-    supabase.from("students").select("*").eq("studio_id", studioId).order("id"),
+    supabase.from("teachers").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
+    supabase.from("rooms").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
+    supabase.from("students").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
     supabase.from("cohorts").select("*").eq("studio_id", studioId).order("id"),
-    supabase.from("class_definitions").select("*").eq("studio_id", studioId).order("id"),
-    supabase.from("class_sessions").select("*").eq("studio_id", studioId).order("id"),
+    supabase.from("class_definitions").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
+    supabase.from("class_sessions").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
     supabase.from("rules").select("*").eq("studio_id", studioId).order("id"),
     supabase.from("rulebook_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
     supabase.from("rule_enforcement_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
