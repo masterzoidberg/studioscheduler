@@ -177,12 +177,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ] = await Promise.all([
         supabase.from("studios").select("*").eq("id", STUDIO_ID).single(),
-        supabase.from("teachers").select("*").eq("studio_id", STUDIO_ID).order("name"),
-        supabase.from("rooms").select("*").eq("studio_id", STUDIO_ID).order("name"),
-        supabase.from("students").select("*").eq("studio_id", STUDIO_ID).order("name"),
+        supabase.from("teachers").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
+        supabase.from("rooms").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
+        supabase.from("students").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
         supabase.from("cohorts").select("*").eq("studio_id", STUDIO_ID).order("name"),
-        supabase.from("class_definitions").select("*").eq("studio_id", STUDIO_ID).order("name"),
-        supabase.from("class_sessions").select("*").eq("studio_id", STUDIO_ID).order("id"),
+        supabase.from("class_definitions").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
+        supabase.from("class_sessions").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("id"),
         supabase.from("rules").select("*").eq("studio_id", STUDIO_ID).order("id"),
         supabase.from("rulebook_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
         supabase.from("rule_enforcement_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),

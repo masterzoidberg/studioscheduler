@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, GraduationCap, Palette, Pencil, Plus, UserRound, UsersRound, X } from "lucide-react";
+import { Archive, Building2, GraduationCap, Palette, Pencil, Plus, UserRound, UsersRound, X } from "lucide-react";
+import { PlanningArchivePanel } from "@/components/planning-archive-panel";
+import { setPlanningEntityArchived } from "@/lib/planning-archive-client";
 import type { Room, Student, Teacher } from "@/lib/domain";
 import { useWorkspace } from "@/components/workspace-provider";
 import { mutatePlanningEntity } from "@/lib/planning-inventory-client";
@@ -135,6 +137,24 @@ export function PeopleView() {
     setSaving(false);
   }
 
+  async function archiveEntity(entityType: "TEACHER" | "STUDENT" | "ROOM", entityId: string, name: string) {
+    if (!canEdit || saving) return;
+    if (!window.confirm(`Archive ${name} from the active planning inventory? The record will remain in history and can be restored later.`)) return;
+    setSaving(true);
+    setNotice("");
+    const result = await setPlanningEntityArchived({
+      entityType, entityId, archive: true,
+      reason: `Archived ${entityType.toLowerCase()} ${name} from active planning inventory`,
+      expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
+    });
+    setSaving(false);
+    if (!result.ok) { setNotice(result.error || `Could not archive ${name}.`); return; }
+    setTeacher(null); setStudent(null); setRoom(null);
+    setCreatingTeacher(false); setCreatingStudent(false); setCreatingRoom(false);
+    await refresh();
+    setNotice(`${name} archived. It remains available in historical inventory and Planning Dataset advanced to v${result.planningDatasetVersion ?? "?"}.`);
+  }
+
   async function saveRoom() {
     if (!room || !canEdit || saving) return;
     setSaving(true);
@@ -252,6 +272,8 @@ export function PeopleView() {
         </div>
       ) : null}
 
+      <PlanningArchivePanel entityTypes={["TEACHER", "STUDENT", "ROOM"]} />
+
       {teacher ? (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/40 sm:items-center sm:p-6">
           <div className="w-full max-w-lg rounded-t-[28px] bg-white p-5 sm:rounded-[28px] sm:p-6">
@@ -261,7 +283,7 @@ export function PeopleView() {
               <div><p className="text-xs font-semibold text-slate-600">Schedule color</p><div className="mt-2 flex flex-wrap items-center gap-2">{colorChoices.map((color) => <button key={color} type="button" onClick={() => setTeacher({ ...teacher, displayColor: color })} className={`size-10 rounded-xl border-2 ${teacher.displayColor === color ? "border-slate-950" : "border-white ring-1 ring-slate-200"}`} style={{ backgroundColor: color }} aria-label={`Use ${color}`} />)}<label className="ml-1 inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600">Custom<input type="color" value={safeTeacherColor(teacher.displayColor, teacher.id || "new-teacher")} onChange={(event) => setTeacher({ ...teacher, displayColor: event.target.value.toUpperCase() })} className="size-7 cursor-pointer border-0 bg-transparent p-0" /></label></div></div>
               <label className="block text-xs font-semibold text-slate-600">Notes<textarea value={teacher.notes || ""} onChange={(event) => setTeacher({ ...teacher, notes: event.target.value })} rows={4} className="mt-1 w-full rounded-xl border border-slate-300 p-3 text-sm font-normal" /></label>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><strong>Adding a teacher does not invent qualifications.</strong> Availability, allowed subjects/levels, and required or prohibited classes remain Rulebook truth. A newly added teacher will not become automatically eligible merely because they exist in inventory.</div>
-              <div className="flex gap-2"><button onClick={() => { setTeacher(null); setCreatingTeacher(false); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !teacher.name.trim()} onClick={() => void saveTeacher()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : creatingTeacher ? "Add teacher" : "Save teacher"}</button></div>
+              <div className="flex flex-wrap gap-2">{!creatingTeacher ? <button disabled={saving} onClick={() => void archiveEntity("TEACHER", teacher.id, teacher.name)} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 px-3 font-semibold text-amber-900 disabled:opacity-50"><Archive className="size-4" />Archive</button> : null}<button onClick={() => { setTeacher(null); setCreatingTeacher(false); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !teacher.name.trim()} onClick={() => void saveTeacher()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : creatingTeacher ? "Add teacher" : "Save teacher"}</button></div>
             </div>
           </div>
         </div>
@@ -275,7 +297,7 @@ export function PeopleView() {
               <label className="block text-xs font-semibold text-slate-600">Name<input value={student.name} onChange={(event) => setStudent({ ...student, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
               <label className="block text-xs font-semibold text-slate-600">Level<input value={student.level} onChange={(event) => setStudent({ ...student, level: event.target.value })} placeholder="Example: Level 3" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
               <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Add the student here first. Then use the Classes screen to place them on one or more class rosters.</p>
-              <div className="flex gap-2"><button onClick={() => { setStudent(null); setCreatingStudent(false); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !student.name.trim() || !student.level.trim()} onClick={() => void saveStudent()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : creatingStudent ? "Add student" : "Save student"}</button></div>
+              <div className="flex flex-wrap gap-2">{!creatingStudent ? <button disabled={saving} onClick={() => void archiveEntity("STUDENT", student.id, student.name)} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 px-3 font-semibold text-amber-900 disabled:opacity-50"><Archive className="size-4" />Archive</button> : null}<button onClick={() => { setStudent(null); setCreatingStudent(false); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !student.name.trim() || !student.level.trim()} onClick={() => void saveStudent()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : creatingStudent ? "Add student" : "Save student"}</button></div>
             </div>
           </div>
         </div>
@@ -290,7 +312,7 @@ export function PeopleView() {
               <label className="block text-xs font-semibold text-slate-600">Capacity<input type="number" min={1} value={room.capacity ?? ""} onChange={(event) => setRoom({ ...room, capacity: event.target.value ? Number(event.target.value) : undefined })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
               <label className="block text-xs font-semibold text-slate-600">Features<input value={(room.features || []).join(", ")} onChange={(event) => setRoom({ ...room, features: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
               <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Room-use rules remain separate Rulebook truth. Adding a room creates inventory capacity, not permission to ignore required-room policies.</p>
-              <div className="flex gap-2"><button onClick={() => { setRoom(null); setCreatingRoom(false); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !room.name.trim()} onClick={() => void saveRoom()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : creatingRoom ? "Add room" : "Save room"}</button></div>
+              <div className="flex flex-wrap gap-2">{!creatingRoom ? <button disabled={saving} onClick={() => void archiveEntity("ROOM", room.id, room.name)} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 px-3 font-semibold text-amber-900 disabled:opacity-50"><Archive className="size-4" />Archive</button> : null}<button onClick={() => { setRoom(null); setCreatingRoom(false); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !room.name.trim()} onClick={() => void saveRoom()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : creatingRoom ? "Add room" : "Save room"}</button></div>
             </div>
           </div>
         </div>

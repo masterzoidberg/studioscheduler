@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Clock3, Pencil, Plus, Search, UsersRound, Wrench, X } from "lucide-react";
+import { Archive, Clock3, Pencil, Plus, Search, UsersRound, Wrench, X } from "lucide-react";
+import { PlanningArchivePanel } from "@/components/planning-archive-panel";
+import { setPlanningEntityArchived } from "@/lib/planning-archive-client";
 import type { ClassDefinition, ClassSession } from "@/lib/domain";
 import { useWorkspace } from "@/components/workspace-provider";
 import { applyRulebookStructureRepair, mutatePlanningEntity, updateClassSessionDurations } from "@/lib/planning-inventory-client";
@@ -228,6 +230,24 @@ export function ClassesView() {
     setSaving(false);
   }
 
+  async function archiveClass() {
+    if (!editing || creating || activeRepair || !canEdit || saving) return;
+    if (!window.confirm(`Archive ${editing.name} and its weekly sessions from active planning? Historical schedule records will be preserved and the class can be restored later.`)) return;
+    setSaving(true);
+    setNotice("");
+    const result = await setPlanningEntityArchived({
+      entityType: "CLASS", entityId: editing.id, archive: true,
+      reason: `Archived class ${editing.name} from active planning inventory`,
+      expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
+    });
+    setSaving(false);
+    if (!result.ok) { setNotice(result.error || `Could not archive ${editing.name}.`); return; }
+    const name = editing.name;
+    await refresh();
+    closeEditor();
+    setNotice(`${name} archived with its weekly sessions. Historical schedules retain their original identities; Planning Dataset advanced to v${result.planningDatasetVersion ?? "?"}.`);
+  }
+
   async function saveSessionDurations() {
     if (!editing || creating || !canEdit || savingSessions || !editingSessions.length) return;
     if (classFieldsDirty) {
@@ -351,6 +371,8 @@ export function ClassesView() {
         })}
       </div>
 
+      <PlanningArchivePanel entityTypes={["CLASS"]} />
+
       {editing ? (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/40 sm:items-center sm:p-6">
           <div className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-t-[28px] bg-white p-5 sm:rounded-[28px] sm:p-6">
@@ -432,7 +454,7 @@ export function ClassesView() {
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><strong>Teacher eligibility is not editable here.</strong> Required, allowed, preferred and prohibited teachers belong to versioned Rulebook policy. New classes begin with no invented eligibility.</div>
               <div className={`rounded-xl border p-3 text-sm ${durationImpact.length ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700"}`}><strong>Schedule impact:</strong> {durationImpact.length ? `${durationImpact.length} current assignment(s) retain their old scheduled duration until the schedule is repaired/revalidated.` : "Saving scheduling-significant changes advances the Planning Dataset and marks the existing schedule stale for revalidation."}</div>
               {!creating && original && editing.weeklyFrequency < original.weeklyFrequency ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">Reducing weekly frequency is protected. If a session being removed appears anywhere in schedule history, the save will be blocked rather than deleting historical identity.</div> : null}
-              <div className="flex gap-2"><button onClick={closeEditor} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !editing.name.trim() || !editing.subject.trim() || !editing.level.trim() || editing.durationMinutes <= 0 || editing.weeklyFrequency <= 0} onClick={() => void save()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : activeRepair ? "Apply reviewed repair" : creating ? "Add class" : "Save class"}</button></div>
+              <div className="flex flex-wrap gap-2">{!creating && !activeRepair ? <button disabled={saving} onClick={() => void archiveClass()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 px-3 font-semibold text-amber-900 disabled:opacity-50"><Archive className="size-4" />Archive</button> : null}<button onClick={closeEditor} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !editing.name.trim() || !editing.subject.trim() || !editing.level.trim() || editing.durationMinutes <= 0 || editing.weeklyFrequency <= 0} onClick={() => void save()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : activeRepair ? "Apply reviewed repair" : creating ? "Add class" : "Save class"}</button></div>
             </div>
           </div>
         </div>
