@@ -58,6 +58,22 @@ docker build -t dwde-solver ./solver
 docker run --rm -p 8080:8080 -e SOLVER_INTERNAL_TOKEN=local-dev-secret dwde-solver
 ```
 
+## Published container image
+
+`.github/workflows/solver-image.yml` publishes the tested production container to GitHub Container Registry when solver code reaches `main`, and can also be invoked manually.
+
+The package name is:
+
+```text
+ghcr.io/masterzoidberg/studioscheduler-solver
+```
+
+Every publication gets both a convenience `main` tag and an immutable commit tag of the form `sha-<full-git-sha>`. The workflow also emits an OCI image digest and generates BuildKit provenance plus an SBOM.
+
+Production deployments should pin the **image digest** (or at minimum the immutable SHA tag), not the moving `main` tag. That makes the running solver traceable to the exact repository revision that CI tested. GHCR package visibility is managed separately from repository visibility, so consumers must not assume the package is public.
+
+No runtime credential is baked into the image. A deployed service must receive `SOLVER_INTERNAL_TOKEN` through its platform secret/environment mechanism. The Next.js backend must receive the matching token as `SOLVER_INTERNAL_TOKEN` plus the deployed HTTPS endpoint as `SOLVER_SERVICE_URL`. Neither value belongs in `NEXT_PUBLIC_*` configuration.
+
 ## Safety properties
 
 - one search worker and a fixed seed are used for same-runner reproducibility
@@ -67,5 +83,6 @@ docker run --rm -p 8080:8080 -e SOLVER_INTERNAL_TOKEN=local-dev-secret dwde-solv
 - fixed-anchor assumptions are used for the current infeasibility-core diagnostic pass
 - generated assignments are candidates only; adoption must pass the governed application mutation/revalidation boundary
 - the HTTP service requires an internal server-to-server credential and echoes the exact version context used for every result
+- production images are content-addressable and traceable to the tested Git commit
 
 Soft optimization remains intentionally out of scope until HARD feasibility is proven on a ready DWDE Planning Dataset.
