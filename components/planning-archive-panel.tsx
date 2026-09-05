@@ -1,7 +1,7 @@
 "use client";
 
 import { ArchiveRestore, ArchiveX } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useWorkspace } from "@/components/workspace-provider";
 import { getBrowserSupabase } from "@/lib/supabase";
 import type { PlanningEntityType } from "@/lib/planning-inventory-client";
@@ -15,6 +15,11 @@ type ArchivedItem = {
   archivedAt: string;
 };
 
+type ArchivedLoadResult = {
+  items: ArchivedItem[];
+  error: string;
+};
+
 const labels: Record<PlanningEntityType, string> = {
   TEACHER: "Teacher",
   STUDENT: "Student",
@@ -22,74 +27,78 @@ const labels: Record<PlanningEntityType, string> = {
   CLASS: "Class",
 };
 
+async function loadArchivedItems(entityTypes: PlanningEntityType[]): Promise<ArchivedLoadResult> {
+  const wanted = new Set(entityTypes);
+  const supabase = getBrowserSupabase();
+  const queries: PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>[] = [];
+  const types: PlanningEntityType[] = [];
+
+  if (wanted.has("TEACHER")) {
+    queries.push(supabase.from("teachers").select("id,name,archived_at").not("archived_at", "is", null).order("name"));
+    types.push("TEACHER");
+  }
+  if (wanted.has("STUDENT")) {
+    queries.push(supabase.from("students").select("id,name,level,archived_at").not("archived_at", "is", null).order("name"));
+    types.push("STUDENT");
+  }
+  if (wanted.has("ROOM")) {
+    queries.push(supabase.from("rooms").select("id,name,capacity,archived_at").not("archived_at", "is", null).order("name"));
+    types.push("ROOM");
+  }
+  if (wanted.has("CLASS")) {
+    queries.push(supabase.from("class_definitions").select("id,name,subject,level,archived_at").not("archived_at", "is", null).order("name"));
+    types.push("CLASS");
+  }
+
+  const results = await Promise.all(queries);
+  const firstError = results.find((result) => result.error)?.error;
+  if (firstError) {
+    return { items: [], error: firstError instanceof Error ? firstError.message : String(firstError) };
+  }
+
+  const items: ArchivedItem[] = [];
+  results.forEach((result, index) => {
+    const entityType = types[index];
+    for (const row of result.data || []) {
+      const detail = entityType === "STUDENT"
+        ? String(row.level || "")
+        : entityType === "ROOM"
+          ? `Capacity ${row.capacity ?? "not set"}`
+          : entityType === "CLASS"
+            ? [row.subject, row.level].filter(Boolean).join(" · ")
+            : "";
+      items.push({
+        entityType,
+        id: String(row.id),
+        name: String(row.name),
+        detail,
+        archivedAt: String(row.archived_at || ""),
+      });
+    }
+  });
+  items.sort((a, b) => a.entityType.localeCompare(b.entityType) || a.name.localeCompare(b.name));
+  return { items, error: "" };
+}
+
 export function PlanningArchivePanel({ entityTypes }: { entityTypes: PlanningEntityType[] }) {
   const { canEdit, currentPlanningDatasetVersion, refresh } = useWorkspace();
   const [items, setItems] = useState<ArchivedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
-
-  const wanted = useMemo(() => new Set(entityTypes), [entityTypes]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const supabase = getBrowserSupabase();
-    const queries: PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>[] = [];
-    const types: PlanningEntityType[] = [];
-
-    if (wanted.has("TEACHER")) {
-      queries.push(supabase.from("teachers").select("id,name,archived_at").not("archived_at", "is", null).order("name"));
-      types.push("TEACHER");
-    }
-    if (wanted.has("STUDENT")) {
-      queries.push(supabase.from("students").select("id,name,level,archived_at").not("archived_at", "is", null).order("name"));
-      types.push("STUDENT");
-    }
-    if (wanted.has("ROOM")) {
-      queries.push(supabase.from("rooms").select("id,name,capacity,archived_at").not("archived_at", "is", null).order("name"));
-      types.push("ROOM");
-    }
-    if (wanted.has("CLASS")) {
-      queries.push(supabase.from("class_definitions").select("id,name,subject,level,archived_at").not("archived_at", "is", null).order("name"));
-      types.push("CLASS");
-    }
-
-    const results = await Promise.all(queries);
-    const firstError = results.find((result) => result.error)?.error;
-    if (firstError) {
-      setNotice(firstError instanceof Error ? firstError.message : String(firstError));
-      setLoading(false);
-      return;
-    }
-
-    const next: ArchivedItem[] = [];
-    results.forEach((result, index) => {
-      const entityType = types[index];
-      for (const row of result.data || []) {
-        const detail = entityType === "STUDENT"
-          ? String(row.level || "")
-          : entityType === "ROOM"
-            ? `Capacity ${row.capacity ?? "not set"}`
-            : entityType === "CLASS"
-              ? [row.subject, row.level].filter(Boolean).join(" · ")
-              : "";
-        next.push({
-          entityType,
-          id: String(row.id),
-          name: String(row.name),
-          detail,
-          archivedAt: String(row.archived_at || ""),
-        });
-      }
-    });
-    next.sort((a, b) => a.entityType.localeCompare(b.entityType) || a.name.localeCompare(b.name));
-    setItems(next);
-    setLoading(false);
-  }, [wanted]);
+  const entityTypeKey = useMemo(() => [...entityTypes].sort().join("|"), [entityTypes]);
 
   useEffect(() => {
-    void load();
-  }, [load, currentPlanningDatasetVersion]);
+    let active = true;
+    const requestedTypes = entityTypeKey.split("|").filter(Boolean) as PlanningEntityType[];
+    void loadArchivedItems(requestedTypes).then((result) => {
+      if (!active) return;
+      setItems(result.items);
+      if (result.error) setNotice(result.error);
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, [entityTypeKey, currentPlanningDatasetVersion]);
 
   async function restore(item: ArchivedItem) {
     if (!canEdit || restoring) return;
@@ -108,8 +117,13 @@ export function PlanningArchivePanel({ entityTypes }: { entityTypes: PlanningEnt
       return;
     }
     await refresh();
-    await load();
-    setNotice(`${item.name} restored. Planning Dataset advanced to v${result.planningDatasetVersion ?? "?"}; review readiness before scheduling.`);
+    const reloaded = await loadArchivedItems(entityTypeKey.split("|").filter(Boolean) as PlanningEntityType[]);
+    setItems(reloaded.items);
+    setNotice(
+      reloaded.error
+        ? reloaded.error
+        : `${item.name} restored. Planning Dataset advanced to v${result.planningDatasetVersion ?? "?"}; review readiness before scheduling.`,
+    );
   }
 
   return (
