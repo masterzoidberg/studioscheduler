@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const migration = readFileSync("supabase/migrations/20260905031500_planning_inventory_archive_v40.sql", "utf8");
+const guards = readFileSync("supabase/migrations/20260905032000_planning_inventory_archive_guards_v40.sql", "utf8");
 const browserState = readFileSync("components/workspace-provider.tsx", "utf8");
 const serverState = readFileSync("lib/server-studio-state.ts", "utf8");
 const peopleView = readFileSync("components/people-view.tsx", "utf8");
@@ -35,10 +36,23 @@ describe("planning inventory archive lifecycle", () => {
     }
   });
 
-  it("blocks unsafe student archives and locked teacher or room archives", () => {
+  it("scopes archived history reads to the DWDE studio", () => {
+    expect(archivePanel).toContain('const STUDIO_ID = "11111111-1111-4111-8111-111111111111"');
+    expect(archivePanel.match(/\.eq\("studio_id", STUDIO_ID\)/g)?.length ?? 0).toBe(4);
+  });
+
+  it("blocks unsafe student, teacher, room, and class archives", () => {
     expect(migration).toContain("STUDENT_ARCHIVE_BLOCKED_ACTIVE_ROSTER");
     expect(migration).toContain("_ARCHIVE_BLOCKED_LOCKED_SESSION");
     expect(migration).toContain("CLASS_ROSTER_ARCHIVED_STUDENT");
+    expect(guards).toContain("CLASS_ARCHIVE_BLOCKED_LOCKED_SESSION");
+  });
+
+  it("makes archived records read-only until explicitly restored", () => {
+    expect(guards).toContain("ARCHIVED_ENTITY_READ_ONLY");
+    for (const table of ["teachers", "students", "rooms", "class_definitions", "class_sessions"]) {
+      expect(guards).toContain(`on public.${table}`);
+    }
   });
 
   it("archives class sessions with the class but keeps restoration explicit", () => {
@@ -46,12 +60,14 @@ describe("planning inventory archive lifecycle", () => {
     expect(migration).toContain("update public.class_definitions set archived_at=case when p_archive then v_now else null end");
   });
 
-  it("routes archive and restore through the governed RPC", () => {
+  it("routes archive and restore through the governed RPC with explicit archive confirmation", () => {
     expect(archiveClient).toContain('rpc("set_planning_entity_archive_v40"');
     expect(peopleView).toContain('archiveEntity("TEACHER"');
     expect(peopleView).toContain('archiveEntity("STUDENT"');
     expect(peopleView).toContain('archiveEntity("ROOM"');
+    expect(peopleView).toContain("window.confirm");
     expect(classesView).toContain("archiveClass()");
+    expect(classesView).toContain("window.confirm");
     expect(archivePanel).toContain("Restore");
     expect(archivePanel).toContain("setPlanningEntityArchived");
   });
