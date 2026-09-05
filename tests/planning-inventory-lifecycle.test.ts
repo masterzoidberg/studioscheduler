@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const migration = readFileSync("supabase/migrations/20260905031500_planning_inventory_archive_v40.sql", "utf8");
-const guards = readFileSync("supabase/migrations/20260905032000_planning_inventory_archive_guards_v40.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260905034428_planning_inventory_archive_v40.sql", "utf8");
+const guards = readFileSync("supabase/migrations/20260905034442_planning_inventory_archive_guards_v40.sql", "utf8");
 const browserState = readFileSync("components/workspace-provider.tsx", "utf8");
 const serverState = readFileSync("lib/server-studio-state.ts", "utf8");
 const peopleView = readFileSync("components/people-view.tsx", "utf8");
