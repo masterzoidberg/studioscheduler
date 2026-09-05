@@ -139,6 +139,7 @@ export function PeopleView() {
 
   async function archiveEntity(entityType: "TEACHER" | "STUDENT" | "ROOM", entityId: string, name: string) {
     if (!canEdit || saving) return;
+    if (!window.confirm(`Archive ${name} from the active planning inventory? The record will remain in history and can be restored later.`)) return;
     setSaving(true);
     setNotice("");
     const result = await setPlanningEntityArchived({

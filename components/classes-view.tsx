@@ -232,6 +232,7 @@ export function ClassesView() {
 
   async function archiveClass() {
     if (!editing || creating || activeRepair || !canEdit || saving) return;
+    if (!window.confirm(`Archive ${editing.name} and its weekly sessions from active planning? Historical schedule records will be preserved and the class can be restored later.`)) return;
     setSaving(true);
     setNotice("");
     const result = await setPlanningEntityArchived({
