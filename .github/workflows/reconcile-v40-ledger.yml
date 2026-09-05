@@ -1,0 +1,45 @@
+name: Reconcile v40 migration ledger
+
+on:
+  push:
+    branches:
+      - chore/reconcile-v40-migration-ledger
+    paths:
+      - .github/workflows/reconcile-v40-ledger.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Align v40 filenames with Supabase ledger
+        run: |
+          git mv supabase/migrations/20260905031500_planning_inventory_archive_v40.sql supabase/migrations/20260905034428_planning_inventory_archive_v40.sql
+          git mv supabase/migrations/20260905032000_planning_inventory_archive_guards_v40.sql supabase/migrations/20260905034442_planning_inventory_archive_guards_v40.sql
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('tests/planning-inventory-lifecycle.test.ts')
+          text=path.read_text()
+          pairs={
+            '20260905031500_planning_inventory_archive_v40.sql':'20260905034428_planning_inventory_archive_v40.sql',
+            '20260905032000_planning_inventory_archive_guards_v40.sql':'20260905034442_planning_inventory_archive_guards_v40.sql',
+          }
+          for old,new in pairs.items():
+            if text.count(old) != 1: raise SystemExit(f'expected one {old}, found {text.count(old)}')
+            text=text.replace(old,new,1)
+          path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Commit reconciliation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/migrations tests/planning-inventory-lifecycle.test.ts
+          git commit -m "Align v40 migration filenames with Supabase ledger"
+          git push origin HEAD:${GITHUB_REF_NAME}
