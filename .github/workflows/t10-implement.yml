@@ -1,0 +1,76 @@
+name: T10 Authoritative Manual MOVE
+
+on:
+  push:
+    branches:
+      - feat/pre-cami-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Apply T10 patch
+        run: |
+          python .github/t10-apply.py apply
+          python .github/t10-fix.py
+      - name: Pin npm
+        run: npm install --global npm@11.6.0 --no-audit --no-fund
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Disposable database integration
+        if: runner.os == 'Linux'
+        run: npm run test:db
+
+  commit:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: feat/pre-cami-hardening
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Apply accepted T10 patch
+        run: |
+          python .github/t10-apply.py apply
+          python .github/t10-fix.py
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/schedule/move/route.ts lib/manual-move-command.ts components/workspace-provider.tsx supabase/migrations/20260907110000_authoritative_manual_move_v46.sql tests/manual-move-command.test.ts tests/manual-move-route-contract.test.ts tests/manual-move-migration.test.ts scripts/test-db.mjs
+          git commit -m "feat: route manual moves through authoritative IR"
+      - name: Finalize canonical plan
+        run: python .github/t10-apply.py finalize
+      - name: Remove one-time helpers and commit handoff
+        run: |
+          rm .github/t10-apply.py .github/t10-fix.py .github/workflows/t10-implement.yml
+          git add -A
+          git commit -m "docs: accept T10 and queue T11"
+          git push origin HEAD:feat/pre-cami-hardening
