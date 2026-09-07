@@ -13,12 +13,36 @@ if text.count(combined) != 1:
 text = text.replace(combined, workspace_block + context_block, 1)
 path.write_text(text, encoding="utf-8", newline="\n")
 
-# The disposable bootstrap requires a non-null studio slug. Keep the T10 second-
-# workspace witness fully valid so failures reach the tenant-selection guard.
+# Disposable-database fixture corrections. These alter only the generated test
+# script, never application migrations or production permissions.
 db_path = Path("scripts/test-db.mjs")
 db = db_path.read_text(encoding="utf-8")
+
 old = "insert into public.studios(id,name)\nvalues ('22222222-2222-4222-8222-222222222222','T10 Other Studio')"
 new = "insert into public.studios(id,slug,name)\nvalues ('22222222-2222-4222-8222-222222222222','t10-other-studio','T10 Other Studio')"
 if db.count(old) != 1:
     raise SystemExit(f"expected one T10 second-studio fixture match, found {db.count(old)}")
-db_path.write_text(db.replace(old, new, 1), encoding="utf-8", newline="\n")
+db = db.replace(old, new, 1)
+
+# service_role intentionally has no USAGE on private. A disposable test-only
+# SECURITY DEFINER witness captures the same context through the database owner,
+# while the actual transaction is still invoked as service_role. It is dropped
+# before the harness completes.
+role_marker = "set role service_role;\ndo $block$"
+context_helper = """create or replace function public.t10_test_solver_context(p_studio_id uuid)\nreturns jsonb\nlanguage sql\nsecurity definer\nset search_path=''\nas $$ select private.build_solver_context_token_v43(p_studio_id) $$;\nrevoke all on function public.t10_test_solver_context(uuid) from public,anon,authenticated;\ngrant execute on function public.t10_test_solver_context(uuid) to service_role;\n\nset role service_role;\ndo $block$"""
+if db.count(role_marker) != 1:
+    raise SystemExit(f"expected one T10 service-role marker, found {db.count(role_marker)}")
+db = db.replace(role_marker, context_helper, 1)
+
+private_call = "v_context:=private.build_solver_context_token_v43(v_studio);"
+if db.count(private_call) != 2:
+    raise SystemExit(f"expected two T10 private context calls, found {db.count(private_call)}")
+db = db.replace(private_call, "v_context:=public.t10_test_solver_context(v_studio);", 2)
+
+pass_marker = "reset role;\n\nselect 'T10 PASS: explicit tenant/context guard, duration-derived MOVE, pinned model linkage, audit evidence, and atomic stale/lock rejection' as result;"
+pass_replacement = "reset role;\ndrop function public.t10_test_solver_context(uuid);\n\nselect 'T10 PASS: explicit tenant/context guard, duration-derived MOVE, pinned model linkage, audit evidence, and atomic stale/lock rejection' as result;"
+if db.count(pass_marker) != 1:
+    raise SystemExit(f"expected one T10 PASS cleanup marker, found {db.count(pass_marker)}")
+db = db.replace(pass_marker, pass_replacement, 1)
+
+db_path.write_text(db, encoding="utf-8", newline="\n")
