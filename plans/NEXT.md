@@ -1,10 +1,10 @@
 # Current Execution Queue
 
 Current Milestone: DWDE Operational
-Current Task: T08
-Next Task: T09
+Current Task: T09
+Next Task: T10
 
-Baseline: `17b3a60`. T07 is DONE. T08 is the next executable task; T09 remains pending T08. Status authority: [TASKS.md](TASKS.md). Recompute this view after each accepted task. Later tasks remain in the ledger.
+Baseline: `17b3a60`. T08 is DONE. T09 is the next executable task; T10 remains pending T09. Status authority: [TASKS.md](TASKS.md). Recompute this view after each accepted task. Later tasks remain in the ledger.
 
 Exact verification commands below include the T02 `npm run test:db` harness. See [TEST_STRATEGY](TEST_STRATEGY.md) and [database harness documentation](../docs/testing/database-integration.md) for setup. Missing tools/data are recorded blockers, never implicit passes.
 
@@ -333,18 +333,18 @@ Add/run the task's regression tests and capture criterion-specific evidence; see
 
 ## T08 — Candidate stale-schedule binding
 
-**Current status:** READY
+**Current status:** DONE
 
-**Dependency check:** Satisfied: T07 is verified DONE. T08 is now the first executable unfinished task.
+**Dependency check:** Satisfied and accepted: T07 is DONE; all T08 acceptance criteria are verified.
 
 **Objective:** Bind reviewed candidates to the base schedule and lock state.
 
 ### Exact acceptance criteria
 
-- [ ] Candidate context includes base ScheduleVersion and unambiguous lock identity alongside studio, Rulebook, planning, and compiler/model context.
-- [ ] An intervening schedule edit or lock change rejects stale adoption even when policy/planning versions are unchanged.
-- [ ] The UI preserves the reviewed context and explains the need to regenerate/re-review.
-- [ ] Transactional expected-version checks use submitted reviewed context, not substituted fresh values.
+- [x] Candidate context includes base ScheduleVersion and unambiguous lock identity alongside studio, Rulebook, planning, and compiler/model context.
+- [x] An intervening schedule edit or lock change rejects stale adoption even when policy/planning versions are unchanged.
+- [x] The UI preserves the reviewed context and explains the need to regenerate/re-review.
+- [x] Transactional expected-version checks use submitted reviewed context, not substituted fresh values.
 
 ### Exact verification commands
 
@@ -378,9 +378,9 @@ Add/run the task's regression tests and capture criterion-specific evidence; see
 
 ## T09 — Session-specific solver locks
 
-**Current status:** NOT_STARTED
+**Current status:** READY
 
-**Dependency check:** Not satisfied; waiting for verified DONE: T07, T08.
+**Dependency check:** Satisfied: T07 and T08 are verified DONE. T09 is now the first executable unfinished task.
 
 **Objective:** Lock exact weekly sessions independently of class display names.
 

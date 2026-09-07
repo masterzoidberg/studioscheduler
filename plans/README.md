@@ -6,10 +6,10 @@ These files are the **canonical active development plan** for DWDE production re
 
 - Current phase: Correctness — T03–T10.
 - Current milestone: A — DWDE Operational.
-- Current task: **T08 — candidate stale-schedule binding**.
-- Next task: T09 after T08 acceptance.
+- Current task: **T09 — session-specific solver locks**.
+- Next task: T10 after T09 acceptance.
 - Planning baseline: HEAD `17b3a60`, inspected 2026-09-06.
-- Implementation progress: T01 through T07 have verified DONE evidence. T07 now builds feasibility requests from a single coherent database snapshot, reconstructs planning facts from the immutable PlanningDatasetVersion snapshot, excludes historical assignments, and rejects policy/model/schedule/lock drift before or during a solve. T08 is READY; T09 remains NOT_STARTED pending T08.
+- Implementation progress: T01 through T08 have verified DONE evidence. T08 now binds every reviewed FEASIBLE candidate to the exact coherent base ScheduleVersion and schedule/lock fingerprint, rejects stale/concurrent/double adoption, and preserves the stale reviewed candidate in the UI with regenerate/re-review guidance. T09 is READY; T10 remains NOT_STARTED pending T09.
 
 ## Navigation
 
@@ -67,8 +67,8 @@ For L-sized parents, record bounded traceable children before implementation. Do
 
 Record BLK-NNN under the affected task: observation/date, evidence/path, affected criteria, impact, owner or needed action, and an objective unblock condition. Cross-task blockers are linked here. Record an architectural deviation as DEC-NNN with reason and affected tasks.
 
-T01 through T07 are accepted. T02's initial Docker blocker was resolved and recorded as historical evidence in [TASKS](TASKS.md). Upcoming prerequisites requiring verification:
-- T08: candidate stale-schedule binding.
+T01 through T08 are accepted. T02's initial Docker blocker was resolved and recorded as historical evidence in [TASKS](TASKS.md). Upcoming prerequisites requiring verification:
+- T09: session-specific solver locks.
 - T14/T16: complete DWDE data and a named manager's acceptance; do not invent missing studio facts.
 - T16: authorized deployment/restore evidence; tests never target production.
 - T27/T29: independent studio/pilot participation; do not fabricate customer outcomes.

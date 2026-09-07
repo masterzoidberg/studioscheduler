@@ -15,8 +15,8 @@ Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [execution rules](C
 | [T05](#t05) | Unsupported DWDE policy guard | DONE | A | P0 | T01, T03 | M |
 | [T06](#t06) | Archive-aware adoption | DONE | A | P0 | T02, T04 | M |
 | [T07](#t07) | Coherent solver snapshots | DONE | A | P0 | T02, T03, T05, T06 | M |
-| [T08](#t08) | Candidate stale-schedule binding | READY | A | P0 | T07 | M |
-| [T09](#t09) | Session-specific solver locks | NOT_STARTED | A | P0 | T07, T08 | M |
+| [T08](#t08) | Candidate stale-schedule binding | DONE | A | P0 | T07 | M |
+| [T09](#t09) | Session-specific solver locks | READY | A | P0 | T07, T08 | M |
 | [T10](#t10) | Manual MOVE through authoritative IR | NOT_STARTED | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
 | [T11](#t11) | ASSIGN/UNASSIGN canonical authority | NOT_STARTED | A | P0 | T10 | M |
 | [T12](#t12) | Rebase/undo canonical authority | NOT_STARTED | A | P0 | T10, T11 | M |
@@ -835,7 +835,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T08 |
-| Status | READY |
+| Status | DONE |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T07 |
@@ -864,10 +864,10 @@ Paths above exist at the planning baseline. New routes, fixtures, forward migrat
 
 ### Acceptance criteria
 
-- [ ] Candidate context includes base ScheduleVersion and unambiguous lock identity alongside studio, Rulebook, planning, and compiler/model context.
-- [ ] An intervening schedule edit or lock change rejects stale adoption even when policy/planning versions are unchanged.
-- [ ] The UI preserves the reviewed context and explains the need to regenerate/re-review.
-- [ ] Transactional expected-version checks use submitted reviewed context, not substituted fresh values.
+- [x] Candidate context includes base ScheduleVersion and unambiguous lock identity alongside studio, Rulebook, planning, and compiler/model context.
+- [x] An intervening schedule edit or lock change rejects stale adoption even when policy/planning versions are unchanged.
+- [x] The UI preserves the reviewed context and explains the need to regenerate/re-review.
+- [x] Transactional expected-version checks use submitted reviewed context, not substituted fresh values.
 
 ### Required tests
 
@@ -894,11 +894,50 @@ Do not implement scenario merging or automatic conflict resolution.
 
 ### Completion evidence
 
-Not yet verified. Record commit SHA, exact commands/exit codes, environment, regression cases, artifact links, manager acceptance where required, and remaining limitations. No implementation task was marked DONE during plan creation.
+Task/child: T08
+
+Starting HEAD: `bcdfa92f8086c089f1e16809fc24ea43e5aa3e98` on `feat/pre-cami-hardening` (T01–T07 accepted).
+
+Implemented files:
+- [lib/solver-candidate-context.ts](../lib/solver-candidate-context.ts)
+- [app/api/solver/feasibility/route.ts](../app/api/solver/feasibility/route.ts)
+- [app/api/solver/adopt/route.ts](../app/api/solver/adopt/route.ts)
+- [components/solver-feasibility-card.tsx](../components/solver-feasibility-card.tsx)
+- [supabase/migrations/20260907070000_candidate_stale_schedule_binding_v44.sql](../supabase/migrations/20260907070000_candidate_stale_schedule_binding_v44.sql)
+- [tests/solver-candidate-context.test.ts](../tests/solver-candidate-context.test.ts)
+- [tests/candidate-stale-binding.test.ts](../tests/candidate-stale-binding.test.ts)
+- [scripts/test-db.mjs](../scripts/test-db.mjs)
+
+Acceptance criterion → evidence:
+- Exact reviewed context: feasibility returns a separate versioned `candidateContext` without changing the CP-SAT service problem contract. It carries the complete T07 coherent token, including base ScheduleVersion ID/version and `scheduleAssignmentsHash`, plus compiler identity; missing/partial context fails closed.
+- Stale schedule/lock rejection: adoption compares the submitted reviewed context against the current coherent context before revalidation, and V4.4 repeats the comparison transactionally under the existing scheduling advisory locks. The disposable DB regression changes only the lock bit while Rulebook/Planning remain unchanged and proves stale adoption rejects.
+- Review-preserving UI: the candidate card displays reviewed ScheduleVersion and schedule/lock fingerprint. A stale response keeps the reviewed candidate visible, clears approval, disables adoption, and tells the manager to generate a fresh candidate and review it again.
+- No fresh-version substitution: the application sends `p_expected_context: reviewedContext` unchanged. V4.4 derives the expected schedule/rulebook/enforcement/planning/model versions from that submitted context before delegating canonical persistence/legacy validation to V3.3. Concurrent-editor and repeated/double adoption regressions prove only the first exact reviewed context can commit.
+
+Verification evidence: GitHub Actions run `34086356692` completed successfully on Ubuntu and Windows. Ubuntu 24.04 used Node `v22.23.2` with npm pinned to `11.6.0`; the disposable DB harness used the existing pinned PostgreSQL 17.6 image.
+- `npm run lint` — 0 on Ubuntu and Windows; two pre-existing warnings remain.
+- `npm run typecheck` — 0 on Ubuntu and Windows.
+- `npm test` — 0; Ubuntu reported 50 files / 297 tests passed, including 3 reviewed-context and 4 stale-binding tests.
+- `npm run build` — 0 on Ubuntu and Windows; Next.js 16.3.3 production build passed.
+- `npm run test:db` — 0 on Ubuntu; migrations reconstructed through V4.4 and emitted `T08 PASS: exact reviewed context adopts once; same-version lock drift, concurrent editor stale review, and double adoption reject atomically without fresh-version substitution`.
+
+Implementation commit: `0c8456826d22dd4d26c1bed194f6bcdbed481348` (`feat: bind reviewed solver candidates to base schedule`). The first disposable DB run exposed that the synthetic test crossed the intentionally private schema as `service_role`. The correction preserved that boundary: the service-role-only public V4.4 RPC is a narrow security-definer function while broad private-schema access remains ungranted; the final full matrix passed.
+
+Risks/limitations: no production or staging database was read or mutated, and V4.4 remains a forward migration pending separately authorized deployment. T08 binds the currently supported aggregate schedule/lock fingerprint; T09 still owns session-specific multi-session lock semantics throughout prepare/solve/validate/adopt.
+
+Decision deviations: none. The external solver-service wire contract was deliberately unchanged; review/adoption context is a separate versioned wrapper.
+
+New blockers and unblock condition: none.
+
+Resulting task status: DONE.
+
+Newly READY tasks: T09. T10 remains NOT_STARTED pending T09.
+
+Updated plan files: `plans/README.md`, `plans/TASKS.md`, `plans/NEXT.md`, and `plans/DWDE_RELEASE_PLAN.md` (A05 verified evidence).
 
 ### Notes/blockers
 
-T07 is verified DONE. T08 is READY and is the first executable unfinished task.
+T07 and T08 are verified DONE. T08 is accepted with no remaining task-specific blocker. T09 is READY and is now first in the numeric execution spine.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
@@ -913,7 +952,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T09 |
-| Status | NOT_STARTED |
+| Status | READY |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T07, T08 |
@@ -980,7 +1019,7 @@ Not yet verified. Record commit SHA, exact commands/exit codes, environment, reg
 
 ### Notes/blockers
 
-Waiting for dependency acceptance: T07, T08. This is normal sequencing, not a BLOCKED status.
+Dependencies T07 and T08 are verified DONE. T09 is READY and is the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
