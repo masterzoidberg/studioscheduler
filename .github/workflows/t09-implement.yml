@@ -86,3 +86,5 @@ jobs:
           git diff --cached --check
           git commit -m "docs: accept T09 and queue T10"
           git push origin HEAD:feat/pre-cami-hardening
+
+# rerun: qualification-aware shared fixture
