@@ -4,12 +4,12 @@ These files are the **canonical active development plan** for DWDE production re
 
 **Project objective:** finish a trustworthy DWDE scheduling workflow, then onboard unrelated recurring class/activity organizations without bespoke application, compiler, or solver code. DWDE remains prepopulated and becomes one configured tenant.
 
-- Current phase: Phase 0 — Verification foundation.
+- Current phase: Correctness — T03–T10.
 - Current milestone: A — DWDE Operational.
-- Current task: **T06 — archive-aware adoption**.
-- Next task: T07 after T06 acceptance.
+- Current task: **T07 — coherent solver snapshots**.
+- Next task: T08 after T07 acceptance.
 - Planning baseline: HEAD `17b3a60`, inspected 2026-09-06.
-- Implementation progress: T01, T02, T03, T04, and T05 have verified DONE evidence. T02's disposable reconstruction and role/RLS/stale-version run passed; T03's canonical comparison and live JSONB publication/read-back run passed; T04's canonical interval gateway and live adoption/rollback run passed; T05's reviewed-policy provenance/content guard and OPS-003 fail-closed regressions passed. T06 is READY and T07 is NOT_STARTED pending T06.
+- Implementation progress: T01 through T06 have verified DONE evidence. T06 aligns solver-facing active inventory with transactional adoption, rejects archived class/session/teacher/room identities, preserves historical resolution, and passed the disposable archive/restore lifecycle. T07 is READY; T08 remains NOT_STARTED pending T07.
 
 ## Navigation
 
@@ -67,8 +67,8 @@ For L-sized parents, record bounded traceable children before implementation. Do
 
 Record BLK-NNN under the affected task: observation/date, evidence/path, affected criteria, impact, owner or needed action, and an objective unblock condition. Cross-task blockers are linked here. Record an architectural deviation as DEC-NNN with reason and affected tasks.
 
-T01, T02, T03, T04, and T05 are accepted. T02's initial Docker blocker was resolved and recorded as historical evidence in [TASKS](TASKS.md). Upcoming prerequisites requiring verification:
-- T06: archive-aware adoption.
+T01 through T06 are accepted. T02's initial Docker blocker was resolved and recorded as historical evidence in [TASKS](TASKS.md). Upcoming prerequisites requiring verification:
+- T07: coherent solver snapshots.
 - T14/T16: complete DWDE data and a named manager's acceptance; do not invent missing studio facts.
 - T16: authorized deployment/restore evidence; tests never target production.
 - T27/T29: independent studio/pilot participation; do not fabricate customer outcomes.

@@ -1,10 +1,10 @@
 # Current Execution Queue
 
 Current Milestone: DWDE Operational
-Current Task: T06
-Next Task: T07
+Current Task: T07
+Next Task: T08
 
-Baseline: `17b3a60`. T05 is DONE. T06 is the next executable task; T07 remains pending T06. Status authority: [TASKS.md](TASKS.md). Recompute this view after each accepted task. Later tasks remain in the ledger.
+Baseline: `17b3a60`. T06 is DONE. T07 is the next executable task; T08 remains pending T07. Status authority: [TASKS.md](TASKS.md). Recompute this view after each accepted task. Later tasks remain in the ledger.
 
 Exact verification commands below include the T02 `npm run test:db` harness. See [TEST_STRATEGY](TEST_STRATEGY.md) and [database harness documentation](../docs/testing/database-integration.md) for setup. Missing tools/data are recorded blockers, never implicit passes.
 
@@ -240,18 +240,20 @@ Add/run the task's regression tests and capture criterion-specific evidence; see
 
 ## T06 — Archive-aware adoption
 
-**Current status:** READY
+**Current status:** DONE
 
-**Dependency check:** Satisfied: T02 and T04 are DONE. T06 is queued after T05 in the numeric execution spine.
+**Dependency check:** Satisfied and accepted: T02 and T04 are DONE; all T06 acceptance criteria are verified.
 
 **Objective:** Make active inventory consistent between solver preparation and database adoption.
 
 ### Exact acceptance criteria
 
-- [ ] Every active session is required exactly once; archived sessions are excluded from current candidate completeness.
-- [ ] Archived teachers/rooms/classes cannot be introduced into a new active candidate.
-- [ ] Archive → confirm → solve → adopt and restore → reconfirm execute successfully in the disposable database.
-- [ ] Historical versions still resolve archived identities; adjacent current-state count/query defects are fixed or explicitly assigned to T11/T12.
+- [x] Every active session is required exactly once; archived sessions are excluded from current candidate completeness.
+- [x] Archived teachers/rooms/classes cannot be introduced into a new active candidate.
+- [x] Archive → confirm → solve → adopt and restore → reconfirm execute successfully in the disposable database.
+- [x] Historical versions still resolve archived identities; adjacent current-state count/query defects are fixed or explicitly assigned to T11/T12.
+
+**Verified run:** GitHub Actions run `34083389232` passed Ubuntu and Windows quality gates; Ubuntu also passed `npm run test:db` with the T06 archive/restore candidate lifecycle.
 
 ### Exact verification commands
 
@@ -284,9 +286,9 @@ Add/run the task's regression tests and capture criterion-specific evidence; see
 
 ## T07 — Coherent solver snapshots
 
-**Current status:** NOT_STARTED
+**Current status:** READY
 
-**Dependency check:** Not satisfied; waiting for verified DONE: T02, T03, T05, T06.
+**Dependency check:** Satisfied: T02, T03, T05, and T06 are verified DONE. T07 is now the first executable unfinished task.
 
 **Objective:** Build solver requests from coherent immutable planning and policy context.
 

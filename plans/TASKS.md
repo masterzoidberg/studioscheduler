@@ -13,8 +13,8 @@ Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [execution rules](C
 | [T03](#t03) | Canonical Constraint Model comparison | DONE | A | P0 | T01, T02 | S |
 | [T04](#t04) | Canonical candidate intervals | DONE | A | P0 | T02, T03 | M |
 | [T05](#t05) | Unsupported DWDE policy guard | DONE | A | P0 | T01, T03 | M |
-| [T06](#t06) | Archive-aware adoption | READY | A | P0 | T02, T04 | M |
-| [T07](#t07) | Coherent solver snapshots | NOT_STARTED | A | P0 | T02, T03, T05, T06 | M |
+| [T06](#t06) | Archive-aware adoption | DONE | A | P0 | T02, T04 | M |
+| [T07](#t07) | Coherent solver snapshots | READY | A | P0 | T02, T03, T05, T06 | M |
 | [T08](#t08) | Candidate stale-schedule binding | NOT_STARTED | A | P0 | T07 | M |
 | [T09](#t09) | Session-specific solver locks | NOT_STARTED | A | P0 | T07, T08 | M |
 | [T10](#t10) | Manual MOVE through authoritative IR | NOT_STARTED | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
@@ -607,7 +607,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T06 |
-| Status | READY |
+| Status | DONE |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T02, T04 |
@@ -635,10 +635,10 @@ Paths above exist at the planning baseline. New routes, fixtures, forward migrat
 
 ### Acceptance criteria
 
-- [ ] Every active session is required exactly once; archived sessions are excluded from current candidate completeness.
-- [ ] Archived teachers/rooms/classes cannot be introduced into a new active candidate.
-- [ ] Archive → confirm → solve → adopt and restore → reconfirm execute successfully in the disposable database.
-- [ ] Historical versions still resolve archived identities; adjacent current-state count/query defects are fixed or explicitly assigned to T11/T12.
+- [x] Every active session is required exactly once; archived sessions are excluded from current candidate completeness.
+- [x] Archived teachers/rooms/classes cannot be introduced into a new active candidate.
+- [x] Archive → confirm → solve → adopt and restore → reconfirm execute successfully in the disposable database.
+- [x] Historical versions still resolve archived identities; adjacent current-state count/query defects are fixed or explicitly assigned to T11/T12.
 
 ### Required tests
 
@@ -665,11 +665,46 @@ Do not delete archived records, rewrite historical schedules, or broaden into ge
 
 ### Completion evidence
 
-Not yet verified. Record commit SHA, exact commands/exit codes, environment, regression cases, artifact links, manager acceptance where required, and remaining limitations. No implementation task was marked DONE during plan creation.
+Task/child: T06
+
+Starting HEAD: `879c7ecebef4156b1d40eddca29a08f1b8772e35` on `feat/pre-cami-hardening` (T01–T05 accepted).
+
+Implemented files:
+- [supabase/migrations/20260907030000_archive_aware_solver_adoption_v42.sql](../supabase/migrations/20260907030000_archive_aware_solver_adoption_v42.sql)
+- [lib/server-studio-state.ts](../lib/server-studio-state.ts)
+- [tests/archive-aware-adoption.test.ts](../tests/archive-aware-adoption.test.ts)
+- [scripts/test-db.mjs](../scripts/test-db.mjs)
+
+Acceptance criterion → evidence:
+- Active completeness: V4.2 counts only sessions whose session and parent class are both active, requires exact row/distinct-session cardinality, and the disposable lifecycle proves an archived-only active inventory accepts zero assignments while a restored active session is required exactly once; a duplicate-session candidate rejects atomically.
+- Archived targets: V4.2 resolves candidate sessions, parent classes, teachers, and rooms only when active and repeats those joins during insert. The live lifecycle restores the class while leaving teacher/room archived and proves candidate adoption rejects without creating a ScheduleVersion.
+- Archive/confirm/solve/adopt lifecycle: the test archives the class/session, teacher, and room; confirms Planning Dataset v10; exercises the solver-facing active-session boundary and adopts the resulting empty feasible candidate; restores class/session and confirms v11; rejects archived teacher/room usage; restores teacher and room, confirms v13, and adopts the restored one-session candidate. The CP-SAT implementation itself was unchanged by T06; this task verifies that solver-facing inventory and governed adoption agree on the same active entity set.
+- Historical identity: after archive, a historical ScheduleVersion assignment still resolves the archived session, parent class, teacher, and room by preserved IDs. No archive row is deleted or historical schedule rewritten. Broader incremental ASSIGN/UNASSIGN archived-target behavior remains explicitly owned by T11, and archive-aware recovery/rebase behavior remains explicitly owned by T12.
+
+Verification evidence: GitHub Actions run `34083389232` at commit `8aa233241462fab87bfaec9275a08492bd1cd341` completed successfully on Ubuntu and Windows. Ubuntu 24.04 used Node `v22.23.2` with npm pinned to `11.6.0`; the disposable DB harness used the existing pinned PostgreSQL 17.6 image.
+- `npm run lint` — 0 on Ubuntu and Windows; two pre-existing warnings remain.
+- `npm run typecheck` — 0 on Ubuntu and Windows.
+- `npm test` — 0; Ubuntu reported 47 files / 284 tests passed, including 6 T06 regressions.
+- `npm run build` — 0 on Ubuntu and Windows; Next.js 16.3.3 production build passed.
+- `npm run test:db` — 0 on Ubuntu; migrations reconstructed through V4.2 and emitted `T06 PASS: archive -> confirm -> adopt excludes archived inventory; archived resources reject; historical identities resolve; restore -> reconfirm -> adopt requires each active session exactly once`.
+
+Core implementation commit: `cd1b95f666ccdc07b8b037b288e606a5f436aa53`. Verification-assertion correction: `8aa233241462fab87bfaec9275a08492bd1cd341`. The first verification run exposed only a case-sensitive wording assertion in the new static test; the assertion was corrected without changing scheduling/database behavior or weakening the gate, then the full second run passed.
+
+Risks/limitations: no production database was read or mutated for T06 verification and no application deployment was performed. V4.1/V4.2 remain forward migrations pending a separately authorized release/deployment step. T07 still owns coherent immutable solver snapshot construction, T11 owns broader incremental archived-target commands, and T12 owns archive-aware recovery semantics.
+
+Decision deviations: none. Historical migration SQL and production-ledger fingerprints remain unchanged.
+
+New blockers and unblock condition: none.
+
+Resulting task status: DONE.
+
+Newly READY tasks: T07. T08 remains NOT_STARTED pending T07.
+
+Updated plan files: `plans/README.md`, `plans/TASKS.md`, `plans/NEXT.md`, and `plans/DWDE_RELEASE_PLAN.md` (A06 partial evidence).
 
 ### Notes/blockers
 
-Dependencies T02 and T04 are verified DONE. T06 is READY and queued after T05 in the numeric execution spine.
+Dependencies T02 and T04 are verified DONE. T06 is accepted with no remaining task-specific blocker. T07 is READY and is now first in the numeric execution spine.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
@@ -684,7 +719,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T07 |
-| Status | NOT_STARTED |
+| Status | READY |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T02, T03, T05, T06 |
@@ -747,7 +782,7 @@ Not yet verified. Record commit SHA, exact commands/exit codes, environment, reg
 
 ### Notes/blockers
 
-Waiting for dependency acceptance: T02, T03, T05, T06. This is normal sequencing, not a BLOCKED status.
+Dependencies T02, T03, T05, and T06 are verified DONE. T07 is READY and is the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
