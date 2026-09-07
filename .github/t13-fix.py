@@ -14,4 +14,25 @@ old = "const constraintModelOutput = psql(container, 'service_role', constraintM
 new = "const constraintModelOutput = psql(container, 'postgres', constraintModelRoundTripSql, 'Constraint Model JSONB round-trip integration tests');"
 if text.count(old) != 1:
     raise SystemExit(f"expected one T03 round-trip connection marker, found {text.count(old)}")
-path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+text = text.replace(old, new, 1)
+
+# T04/T06/T08 are semantic regression fixtures for now-retired adoption
+# primitives. After T13 those primitives are intentionally inaccessible to
+# application roles, so preserve their historical behavior tests as owner-only
+# migration regressions. T13 separately proves service/authenticated denial.
+for start_marker, end_marker in [
+    ("const candidateIntervalAdoptionSql = String.raw`", "const archiveAwareAdoptionSql = String.raw`"),
+    ("const archiveAwareAdoptionSql = String.raw`", "const coherentSolverSnapshotSql = String.raw`"),
+    ("const candidateStaleBindingSql = String.raw`", "const sessionSpecificLockAdoptionSql = String.raw`"),
+]:
+    start = text.find(start_marker)
+    end = text.find(end_marker, start + len(start_marker))
+    if start < 0 or end < 0:
+        raise SystemExit(f"missing legacy semantic fixture boundary: {start_marker}")
+    section = text[start:end]
+    if "set role service_role;" not in section:
+        raise SystemExit(f"expected service-role marker in legacy semantic fixture: {start_marker}")
+    section = section.replace("set role service_role;", "set role postgres;")
+    text = text[:start] + section + text[end:]
+
+path.write_text(text, encoding="utf-8", newline="\n")
