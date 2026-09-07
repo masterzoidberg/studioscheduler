@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServerSupabase } from "@/lib/supabase";
-import { loadCanonicalSolverStudioState } from "@/lib/server-studio-state";
+import {
+  loadCanonicalSolverSnapshot,
+  loadCurrentSolverContextToken,
+  solverSnapshotContextTokensMatch,
+  type CanonicalSolverSnapshot,
+} from "@/lib/server-studio-state";
 import { prepareFeasibilitySolve, type FeasibilitySolverProblem } from "@/lib/solver-problem";
 import { constraintModelDefinition } from "@/lib/constraint-model-version";
 import { legacySafetyBridgeReport } from "@/lib/legacy-safety-bridge";
@@ -46,31 +51,24 @@ async function authorizeWorkspace(request: NextRequest): Promise<AuthorizedWorks
   };
 }
 
-async function loadPublishedConstraintModel(supabase: SupabaseClient): Promise<PublishedConstraintModelRecord | null> {
-  const query = await supabase
-    .from("constraint_model_versions")
-    .select("version,rulebook_version,compiler_version,snapshot,complete_hard_constraint_compilation")
-    .eq("studio_id", STUDIO_ID)
-    .eq("status", "CURRENT")
-    .maybeSingle();
-  if (query.error) throw query.error;
-  if (!query.data) return null;
-  return {
-    version: Number(query.data.version),
-    rulebookVersion: Number(query.data.rulebook_version),
-    compilerVersion: String(query.data.compiler_version),
-    complete: Boolean(query.data.complete_hard_constraint_compilation),
-    snapshot: query.data.snapshot as PublishedConstraintModelRecord["snapshot"],
-  };
+function publishedModel(snapshot: CanonicalSolverSnapshot): PublishedConstraintModelRecord | null {
+  const published = snapshot.publishedConstraintModel;
+  return published ? {
+    version: published.version,
+    rulebookVersion: published.rulebookVersion,
+    compilerVersion: published.compilerVersion,
+    complete: published.complete,
+    snapshot: published.snapshot,
+  } : null;
 }
 
-async function syncPublishedConstraintModelForSolve(
+async function publishConstraintModelForSolve(
   supabase: SupabaseClient,
   problem: FeasibilitySolverProblem,
   published: PublishedConstraintModelRecord | null,
-): Promise<PublishedConstraintModelRecord | null> {
+) {
   const decision = constraintModelSyncDecision(problem, published);
-  if (decision.action !== "PUBLISH") return published;
+  if (decision.action !== "PUBLISH") return false;
 
   const definition = constraintModelDefinition(problem.constraintModel);
   const result = await supabase.rpc("publish_constraint_model_v30", {
@@ -79,7 +77,7 @@ async function syncPublishedConstraintModelForSolve(
     p_expected_rulebook_version: problem.context.rulebookVersion,
   });
   if (result.error) throw result.error;
-  return loadPublishedConstraintModel(supabase);
+  return true;
 }
 
 function serviceConfiguration() {
@@ -100,11 +98,11 @@ async function buildGatewayPreflight(
   supabase: SupabaseClient,
   options: { syncPublishedModel?: boolean } = {},
 ) {
-  const state = await loadCanonicalSolverStudioState(supabase, STUDIO_ID);
-  const preparation = prepareFeasibilitySolve(state);
+  let snapshot = await loadCanonicalSolverSnapshot(supabase, STUDIO_ID);
+  let preparation = prepareFeasibilitySolve(snapshot.state);
   if (!preparation.ok) {
     return {
-      state,
+      snapshot,
       preparation,
       published: null,
       publishedBlockers: [],
@@ -113,12 +111,27 @@ async function buildGatewayPreflight(
     };
   }
 
-  let published = await loadPublishedConstraintModel(supabase);
-  if (options.syncPublishedModel) {
-    published = await syncPublishedConstraintModelForSolve(supabase, preparation.problem, published);
+  let published = publishedModel(snapshot);
+  if (options.syncPublishedModel && await publishConstraintModelForSolve(supabase, preparation.problem, published)) {
+    // Publication is a context mutation. Reload the complete coherent snapshot
+    // instead of combining the new model pointer with planning/rules read earlier.
+    snapshot = await loadCanonicalSolverSnapshot(supabase, STUDIO_ID);
+    preparation = prepareFeasibilitySolve(snapshot.state);
+    if (!preparation.ok) {
+      return {
+        snapshot,
+        preparation,
+        published: null,
+        publishedBlockers: [],
+        legacyBridge: null,
+        blockers: preparation.blockers,
+      };
+    }
+    published = publishedModel(snapshot);
   }
+
   const publishedBlockers = publishedConstraintModelBlockers(preparation.problem, published);
-  const legacyBridge = legacySafetyBridgeReport(state, preparation.problem.constraintModel);
+  const legacyBridge = legacySafetyBridgeReport(snapshot.state, preparation.problem.constraintModel);
   const legacyBlockers = legacyBridge.complete ? [] : [{
     code: "LEGACY_SAFETY_BRIDGE_INCOMPLETE",
     message: `The new Constraint IR has not yet accounted for ${legacyBridge.uncoveredRuleIds.length} protection(s) from the current legacy EnforcementVersion.`,
@@ -127,13 +140,26 @@ async function buildGatewayPreflight(
   }];
   const normalizedPublishedBlockers = publishedBlockers.map((blocker) => ({ ...blocker, ruleIds: [] as string[] }));
   return {
-    state,
+    snapshot,
     preparation,
     published,
     publishedBlockers,
     legacyBridge,
     blockers: [...normalizedPublishedBlockers, ...legacyBlockers],
   };
+}
+
+async function snapshotContextIsCurrent(supabase: SupabaseClient, snapshot: CanonicalSolverSnapshot) {
+  const current = await loadCurrentSolverContextToken(supabase, STUDIO_ID);
+  return solverSnapshotContextTokensMatch(snapshot.contextToken, current);
+}
+
+function contextChangedResponse() {
+  return NextResponse.json({
+    status: "BLOCKED",
+    code: "SOLVER_CONTEXT_CHANGED_RETRY",
+    error: "Rulebook, planning, model, schedule, lock, or policy context changed during solver preparation/execution. Generate a fresh candidate from one coherent snapshot.",
+  }, { status: 409 });
 }
 
 export async function GET(request: NextRequest) {
@@ -185,8 +211,8 @@ export async function POST(request: NextRequest) {
     }
 
     // An explicit OWNER/EDITOR solve may repair a missing or plainly stale
-    // deterministic ConstraintModelVersion. GET remains read-only, and a
-    // same-identity snapshot mismatch still fails closed through the gateway.
+    // deterministic ConstraintModelVersion. Any such publication is followed by
+    // a full coherent-snapshot reload before the service request is constructed.
     const gateway = await buildGatewayPreflight(authorized.supabase, { syncPublishedModel: true });
     if (!gateway.preparation.ok) {
       return NextResponse.json({
@@ -203,6 +229,10 @@ export async function POST(request: NextRequest) {
         code: "SOLVER_GATEWAY_BLOCKED",
         blockers: gateway.blockers,
       }, { status: 409 });
+    }
+
+    if (!await snapshotContextIsCurrent(authorized.supabase, gateway.snapshot)) {
+      return contextChangedResponse();
     }
 
     const problem = gateway.preparation.problem;
@@ -230,6 +260,13 @@ export async function POST(request: NextRequest) {
       }, { status: 502 });
     }
 
+    // The external solve may be long enough for a manager/editor to change
+    // planning or policy. Discard the result if any coherent-context token field
+    // changed; T08 separately binds a reviewed candidate through later adoption.
+    if (!await snapshotContextIsCurrent(authorized.supabase, gateway.snapshot)) {
+      return contextChangedResponse();
+    }
+
     const payload = await response.json() as SolverServicePayload;
     const resultStatus = payload.result?.status || "UNKNOWN";
     if (resultStatus === "INFEASIBLE" || resultStatus === "UNKNOWN") {
@@ -251,7 +288,7 @@ export async function POST(request: NextRequest) {
       }, { status: 502 });
     }
 
-    const candidate = validateFeasibleSolverCandidate(gateway.state, problem, payload);
+    const candidate = validateFeasibleSolverCandidate(gateway.snapshot.state, problem, payload);
     if (!candidate.ok || !candidate.validation) {
       return NextResponse.json({
         error: "The solver returned a candidate that did not pass independent application-side Constraint IR validation.",

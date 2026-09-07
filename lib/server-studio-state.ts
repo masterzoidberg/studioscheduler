@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ConstraintModelDefinitionV1 } from "@/lib/constraint-model-version";
 import type {
   Assignment,
+  PlanningDatasetSnapshotV1,
   PlanningDatasetVersion,
   RuleEnforcementMapping,
   RuleEnforcementVersion,
@@ -13,6 +15,15 @@ import type {
 const object = (value: unknown) => value && typeof value === "object" && !Array.isArray(value)
   ? value as Record<string, unknown>
   : {};
+const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
 
 function mapRule(row: Record<string, unknown>): StudioRule {
   const strength = row.strength ? row.strength as StudioRule["strength"] : null;
@@ -123,100 +134,269 @@ function mapSchedule(row: Record<string, unknown>, assignments: Assignment[]): S
   };
 }
 
+export interface SolverSnapshotContextToken {
+  schemaVersion: "1.0";
+  studioId: string;
+  rulebookVersion: number | null;
+  rulebookId: string | null;
+  rulebookSourceHash: string | null;
+  rulebookSnapshotHash: string | null;
+  rulesHash: string;
+  planningDatasetVersion: number | null;
+  planningDatasetId: string | null;
+  planningSnapshotHash: string | null;
+  planningConfirmedForSchedulingAt: string | null;
+  enforcementVersion: number | null;
+  enforcementId: string | null;
+  constraintModelVersion: number | null;
+  constraintModelId: string | null;
+  constraintModelSnapshotHash: string | null;
+  scheduleVersion: number | null;
+  scheduleId: string | null;
+  scheduleRulebookVersion: number | null;
+  scheduleEnforcementVersion: number | null;
+  schedulePlanningDatasetVersion: number | null;
+  scheduleConstraintModelVersion: number | null;
+  scheduleAssignmentsHash: string;
+}
+
+export interface SolverSnapshotPublishedConstraintModel {
+  version: number;
+  rulebookVersion: number;
+  compilerVersion: string;
+  snapshotHash: string;
+  complete: boolean;
+  snapshot: ConstraintModelDefinitionV1;
+}
+
+export interface CanonicalSolverSnapshot {
+  state: StudioState;
+  contextToken: SolverSnapshotContextToken;
+  publishedConstraintModel: SolverSnapshotPublishedConstraintModel | null;
+}
+
+function immutableName(value: unknown, kind: string, id: string, schemaVersion: string) {
+  if (typeof value === "string" && value.trim()) return value;
+  throw new Error(
+    `SOLVER_PLANNING_SNAPSHOT_SCHEMA_UNSUPPORTED: Planning Dataset schema ${schemaVersion} does not contain the immutable ${kind} name for ${id}. `
+    + "The current name-bound compiler cannot safely reconstruct that historical snapshot, and mutable live rows are never used as a fallback.",
+  );
+}
+
+function planningFactsFromSnapshot(snapshot: PlanningDatasetSnapshotV1) {
+  if (!["1.0", "1.1", "1.2", "1.3"].includes(snapshot.schemaVersion)) {
+    throw new Error(`SOLVER_PLANNING_SNAPSHOT_SCHEMA_UNSUPPORTED: Unsupported Planning Dataset schema ${String(snapshot.schemaVersion)}.`);
+  }
+
+  const teacherRows = Array.isArray(snapshot.teachers) ? snapshot.teachers : [];
+  const teacherById = new Map(teacherRows.map((teacher) => [String(teacher.id), teacher]));
+  const teachers = [...(snapshot.teacherIds || [])]
+    .sort(compareCanonicalStrings)
+    .map((id) => {
+      const teacher = teacherById.get(String(id));
+      return {
+        id: String(id),
+        name: immutableName(teacher?.name, "teacher", String(id), snapshot.schemaVersion),
+        subjects: [] as string[],
+      };
+    });
+
+  const rooms = [...(snapshot.rooms || [])]
+    .map((room) => ({
+      id: String(room.id),
+      name: immutableName(room.name, "room", String(room.id), snapshot.schemaVersion),
+      capacity: room.capacity == null ? undefined : Number(room.capacity),
+      features: [...(room.features || [])].sort(compareCanonicalStrings),
+    }))
+    .sort((a, b) => compareCanonicalStrings(a.id, b.id));
+
+  const students = [...(snapshot.students || [])]
+    .map((student) => ({
+      id: String(student.id),
+      name: immutableName(student.name, "student", String(student.id), snapshot.schemaVersion),
+      level: String(student.level || ""),
+      cohortIds: [...(student.cohortIds || [])].sort(compareCanonicalStrings),
+    }))
+    .sort((a, b) => compareCanonicalStrings(a.id, b.id));
+
+  const cohorts = [...(snapshot.cohorts || [])]
+    .map((cohort) => ({
+      id: String(cohort.id),
+      name: immutableName(cohort.name, "cohort", String(cohort.id), snapshot.schemaVersion),
+      studentIds: [...(cohort.studentIds || [])].sort(compareCanonicalStrings),
+    }))
+    .sort((a, b) => compareCanonicalStrings(a.id, b.id));
+
+  const classes = [...(snapshot.classes || [])]
+    .map((klass) => ({
+      id: String(klass.id),
+      name: immutableName(klass.name, "class", String(klass.id), snapshot.schemaVersion),
+      subject: String(klass.subject || ""),
+      level: String(klass.level || ""),
+      durationMinutes: Number(klass.durationMinutes || 0),
+      weeklyFrequency: Number(klass.weeklyFrequency || 0),
+      rosterStudentIds: [...(klass.rosterStudentIds || [])].sort(compareCanonicalStrings),
+      eligibleTeacherIds: [] as string[],
+      companyOnly: Boolean(klass.companyOnly),
+    }))
+    .sort((a, b) => compareCanonicalStrings(a.id, b.id));
+  const classIds = new Set(classes.map((klass) => klass.id));
+
+  const sessions = [...(snapshot.sessions || [])]
+    .map((session) => {
+      if (!classIds.has(String(session.classId))) {
+        throw new Error(`SOLVER_PLANNING_SNAPSHOT_INVALID: Session ${String(session.id)} references missing class ${String(session.classId)} in the pinned snapshot.`);
+      }
+      return {
+        id: String(session.id),
+        classId: String(session.classId),
+        ordinal: Number(session.ordinal),
+        durationMinutes: session.durationMinutes == null ? undefined : Number(session.durationMinutes),
+        locked: Boolean(session.locked),
+      };
+    })
+    .sort((a, b) => compareCanonicalStrings(a.id, b.id));
+
+  return { teachers, rooms, students, cohorts, classes, sessions };
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.keys(value).sort(compareCanonicalStrings).map((key) => [key, canonicalize(value[key])]));
+  }
+  return value;
+}
+
+export function solverSnapshotContextTokensMatch(
+  left: SolverSnapshotContextToken,
+  right: SolverSnapshotContextToken,
+) {
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+}
+
+export function parseCanonicalSolverSnapshotPayload(raw: unknown, studioId: string): CanonicalSolverSnapshot {
+  if (!isRecord(raw)) throw new Error("SOLVER_SNAPSHOT_INVALID: Solver snapshot RPC returned a non-object payload.");
+  if (!isRecord(raw.contextToken)) throw new Error("SOLVER_SNAPSHOT_INVALID: Solver snapshot context token is missing.");
+  const contextToken = raw.contextToken as unknown as SolverSnapshotContextToken;
+  if (contextToken.schemaVersion !== "1.0" || contextToken.studioId !== studioId) {
+    throw new Error("SOLVER_SNAPSHOT_INVALID: Solver snapshot token does not match the requested studio or schema.");
+  }
+
+  const integrity = object(raw.integrity);
+  if (integrity.planningSnapshotHashValid !== true) {
+    throw new Error("SOLVER_PLANNING_SNAPSHOT_HASH_MISMATCH: Current PlanningDatasetVersion snapshot does not match its stored hash.");
+  }
+
+  if (!isRecord(raw.studio) || String(raw.studio.id) !== studioId) {
+    throw new Error("SOLVER_SNAPSHOT_INVALID: Requested studio is missing from the coherent snapshot.");
+  }
+  if (!isRecord(raw.rulebookVersion)) throw new Error("SOLVER_SNAPSHOT_INVALID: No current RulebookVersion exists.");
+  if (!isRecord(raw.planningDatasetVersion)) throw new Error("SOLVER_SNAPSHOT_INVALID: No current PlanningDatasetVersion exists.");
+
+  const rulebook = mapRulebook(raw.rulebookVersion);
+  const planning = mapPlanningDataset(raw.planningDatasetVersion);
+  if (planning.snapshot.studioId !== studioId) {
+    throw new Error("SOLVER_PLANNING_SNAPSHOT_INVALID: Pinned Planning Dataset belongs to another studio.");
+  }
+  if (rulebook.version !== contextToken.rulebookVersion || planning.version !== contextToken.planningDatasetVersion
+      || planning.snapshotHash !== contextToken.planningSnapshotHash) {
+    throw new Error("SOLVER_SNAPSHOT_INVALID: Version rows and context token disagree inside the coherent snapshot.");
+  }
+
+  const planningFacts = planningFactsFromSnapshot(planning.snapshot);
+  const rules = asArray(raw.rules).map((row) => {
+    if (!isRecord(row)) throw new Error("SOLVER_SNAPSHOT_INVALID: Rule snapshot contains a malformed row.");
+    if (String(row.studio_id) !== studioId) throw new Error("SOLVER_SNAPSHOT_TENANT_LEAK: Snapshot contains a rule from another studio.");
+    return mapRule(row);
+  });
+
+  const enforcementVersions = isRecord(raw.enforcementVersion) ? [mapEnforcement(raw.enforcementVersion)] : [];
+  if (enforcementVersions[0] && enforcementVersions[0].version !== contextToken.enforcementVersion) {
+    throw new Error("SOLVER_SNAPSHOT_INVALID: EnforcementVersion and context token disagree.");
+  }
+
+  const currentScheduleRaw = isRecord(raw.currentSchedule) ? raw.currentSchedule : null;
+  const currentAssignmentsRaw = asArray(raw.currentAssignments);
+  const currentScheduleId = currentScheduleRaw ? String(currentScheduleRaw.id) : null;
+  const assignments = currentAssignmentsRaw.map((row) => {
+    if (!isRecord(row)) throw new Error("SOLVER_SNAPSHOT_INVALID: Current assignment snapshot contains a malformed row.");
+    if (String(row.studio_id) !== studioId) throw new Error("SOLVER_SNAPSHOT_TENANT_LEAK: Snapshot contains an assignment from another studio.");
+    if (!currentScheduleId || String(row.schedule_version_id) !== currentScheduleId) {
+      throw new Error("SOLVER_SNAPSHOT_HISTORICAL_ASSIGNMENT_LEAK: Snapshot contains an assignment outside the current ScheduleVersion.");
+    }
+    return mapAssignment(row);
+  });
+  const scheduleVersions = currentScheduleRaw ? [mapSchedule(currentScheduleRaw, assignments)] : [];
+  if (scheduleVersions[0] && (scheduleVersions[0].version !== contextToken.scheduleVersion || scheduleVersions[0].id !== contextToken.scheduleId)) {
+    throw new Error("SOLVER_SNAPSHOT_INVALID: Current ScheduleVersion and context token disagree.");
+  }
+
+  let publishedConstraintModel: SolverSnapshotPublishedConstraintModel | null = null;
+  if (isRecord(raw.constraintModelVersion)) {
+    if (integrity.constraintModelSnapshotHashValid !== true) {
+      throw new Error("SOLVER_CONSTRAINT_MODEL_HASH_MISMATCH: Current ConstraintModelVersion snapshot does not match its stored hash.");
+    }
+    publishedConstraintModel = {
+      version: Number(raw.constraintModelVersion.version),
+      rulebookVersion: Number(raw.constraintModelVersion.rulebook_version),
+      compilerVersion: String(raw.constraintModelVersion.compiler_version),
+      snapshotHash: String(raw.constraintModelVersion.snapshot_hash || ""),
+      complete: Boolean(raw.constraintModelVersion.complete_hard_constraint_compilation),
+      snapshot: raw.constraintModelVersion.snapshot as ConstraintModelDefinitionV1,
+    };
+    if (publishedConstraintModel.version !== contextToken.constraintModelVersion
+        || publishedConstraintModel.snapshotHash !== contextToken.constraintModelSnapshotHash) {
+      throw new Error("SOLVER_SNAPSHOT_INVALID: ConstraintModelVersion and context token disagree.");
+    }
+  } else if (contextToken.constraintModelVersion !== null) {
+    throw new Error("SOLVER_SNAPSHOT_INVALID: Context token references a missing ConstraintModelVersion.");
+  }
+
+  return {
+    contextToken,
+    publishedConstraintModel,
+    state: {
+      studioId,
+      studioName: String(raw.studio.name || "DWDE Studio"),
+      ...planningFacts,
+      rules,
+      rulebookVersions: [rulebook],
+      enforcementVersions,
+      planningDatasetVersions: [planning],
+      enforcementProposals: [],
+      ruleHistory: [],
+      scheduleVersions,
+      scenarios: [],
+      auditEvents: [],
+    },
+  };
+}
+
+export async function loadCanonicalSolverSnapshot(
+  supabase: SupabaseClient,
+  studioId: string,
+): Promise<CanonicalSolverSnapshot> {
+  const result = await supabase.rpc("get_solver_snapshot_v43", { p_studio_id: studioId });
+  if (result.error) throw result.error;
+  return parseCanonicalSolverSnapshotPayload(result.data, studioId);
+}
+
+export async function loadCurrentSolverContextToken(
+  supabase: SupabaseClient,
+  studioId: string,
+): Promise<SolverSnapshotContextToken> {
+  const result = await supabase.rpc("get_solver_context_token_v43", { p_studio_id: studioId });
+  if (result.error) throw result.error;
+  if (!isRecord(result.data) || result.data.schemaVersion !== "1.0" || result.data.studioId !== studioId) {
+    throw new Error("SOLVER_SNAPSHOT_INVALID: Current solver context token is malformed.");
+  }
+  return result.data as unknown as SolverSnapshotContextToken;
+}
+
 export async function loadCanonicalSolverStudioState(
   supabase: SupabaseClient,
   studioId: string,
 ): Promise<StudioState> {
-  const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ, assignmentsQ] = await Promise.all([
-    supabase.from("studios").select("id,name").eq("id", studioId).single(),
-    supabase.from("teachers").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
-    supabase.from("rooms").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
-    supabase.from("students").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
-    supabase.from("cohorts").select("*").eq("studio_id", studioId).order("id"),
-    supabase.from("class_definitions").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
-    supabase.from("class_sessions").select("*").eq("studio_id", studioId).is("archived_at", null).order("id"),
-    supabase.from("rules").select("*").eq("studio_id", studioId).order("id"),
-    supabase.from("rulebook_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
-    supabase.from("rule_enforcement_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
-    supabase.from("planning_dataset_versions").select("*").eq("studio_id", studioId).eq("status", "CURRENT").order("version", { ascending: false }),
-    supabase.from("schedule_versions").select("*").eq("studio_id", studioId).eq("is_current", true).order("version", { ascending: false }),
-    supabase.from("assignments").select("*").eq("studio_id", studioId).order("id"),
-  ]);
-
-  const firstError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rulebookQ, enforcementQ, planningQ, scheduleQ, assignmentsQ]
-    .find((query) => query.error)?.error;
-  if (firstError) throw firstError;
-
-  const assignmentsBySchedule = new Map<string, Assignment[]>();
-  for (const row of assignmentsQ.data || []) {
-    const scheduleId = String(row.schedule_version_id);
-    const items = assignmentsBySchedule.get(scheduleId) || [];
-    items.push(mapAssignment(row as Record<string, unknown>));
-    assignmentsBySchedule.set(scheduleId, items);
-  }
-
-  const classes = (classesQ.data || []).map((row) => ({
-    id: String(row.id),
-    name: String(row.name),
-    subject: String(row.subject || ""),
-    level: String(row.level || ""),
-    durationMinutes: Number(row.duration_minutes || 0),
-    weeklyFrequency: Number(row.weekly_frequency || 0),
-    rosterStudentIds: row.roster_student_ids || [],
-    eligibleTeacherIds: row.eligible_teacher_ids || [],
-    companyOnly: Boolean(row.company_only),
-  }));
-  const activeClassIds = new Set(classes.map((klass) => klass.id));
-  const sessions = (sessionsQ.data || [])
-    .filter((row) => activeClassIds.has(String(row.class_id)))
-    .map((row) => ({
-      id: String(row.id),
-      classId: String(row.class_id),
-      ordinal: Number(row.ordinal),
-      durationMinutes: row.duration_minutes == null ? undefined : Number(row.duration_minutes),
-      locked: Boolean(row.locked),
-    }));
-
-  return {
-    studioId,
-    studioName: String(studioQ.data?.name || "DWDE Studio"),
-    teachers: (teachersQ.data || []).map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      subjects: row.subjects || [],
-      notes: row.notes || undefined,
-      displayColor: row.display_color || undefined,
-    })),
-    rooms: (roomsQ.data || []).map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      capacity: row.capacity == null ? undefined : Number(row.capacity),
-      features: row.features || [],
-    })),
-    students: (studentsQ.data || []).map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      level: String(row.level || ""),
-      cohortIds: row.cohort_ids || [],
-    })),
-    cohorts: (cohortsQ.data || []).map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      studentIds: row.student_ids || [],
-    })),
-    classes,
-    sessions,
-    rules: (rulesQ.data || []).map((row) => mapRule(row as Record<string, unknown>)),
-    rulebookVersions: (rulebookQ.data || []).map((row) => mapRulebook(row as Record<string, unknown>)),
-    enforcementVersions: (enforcementQ.data || []).map((row) => mapEnforcement(row as Record<string, unknown>)),
-    planningDatasetVersions: (planningQ.data || []).map((row) => mapPlanningDataset(row as Record<string, unknown>)),
-    enforcementProposals: [],
-    ruleHistory: [],
-    scheduleVersions: (scheduleQ.data || []).map((row) => {
-      const scheduleId = String(row.id);
-      return mapSchedule(row as Record<string, unknown>, assignmentsBySchedule.get(scheduleId) || []);
-    }),
-    scenarios: [],
-    auditEvents: [],
-  };
+  return (await loadCanonicalSolverSnapshot(supabase, studioId)).state;
 }

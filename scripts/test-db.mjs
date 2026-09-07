@@ -989,6 +989,82 @@ reset role;
 select 'T06 PASS: archive -> confirm -> adopt excludes archived inventory; archived resources reject; historical identities resolve; restore -> reconfirm -> adopt requires each active session exactly once' as result;
 `;
 
+const coherentSolverSnapshotSql = String.raw`
+set search_path=public,extensions;
+-- Run synthetic concurrent mutations as the disposable database owner.
+-- auth.uid() still resolves the deidentified owner claim below, so the
+-- member-authorized snapshot RPC exercises its real identity check.
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_snapshot jsonb;
+  v_before jsonb;
+  v_after jsonb;
+  v_original_description text;
+  v_current_schedule uuid;
+  v_current_assignment text;
+  v_current_count integer;
+  v_all_count integer;
+begin
+  v_snapshot := public.get_solver_snapshot_v43(v_studio);
+  v_before := v_snapshot->'contextToken';
+
+  if (v_snapshot->'integrity'->>'planningSnapshotHashValid')::boolean is distinct from true then
+    raise exception 'T07 Planning Dataset snapshot hash did not verify';
+  end if;
+  if (v_snapshot->'integrity'->>'constraintModelSnapshotHashValid')::boolean is distinct from true then
+    raise exception 'T07 Constraint Model snapshot hash did not verify';
+  end if;
+  if (v_snapshot->'planningDatasetVersion'->>'snapshot_hash') is distinct from (v_before->>'planningSnapshotHash') then
+    raise exception 'T07 planning row/hash token mismatch';
+  end if;
+  if v_snapshot ? 'teachers' or v_snapshot ? 'rooms' or v_snapshot ? 'classes' then
+    raise exception 'T07 snapshot RPC leaked mutable planning tables instead of the PlanningDatasetVersion snapshot';
+  end if;
+
+  select id into v_current_schedule from public.schedule_versions where studio_id=v_studio and is_current;
+  select count(*) into v_current_count from public.assignments where studio_id=v_studio and schedule_version_id=v_current_schedule;
+  select count(*) into v_all_count from public.assignments where studio_id=v_studio;
+  if jsonb_array_length(v_snapshot->'currentAssignments') <> v_current_count then
+    raise exception 'T07 current-assignment snapshot count mismatch';
+  end if;
+  if exists (
+    select 1 from jsonb_array_elements(v_snapshot->'currentAssignments') item
+    where item->>'schedule_version_id' is distinct from v_current_schedule::text
+  ) then
+    raise exception 'T07 snapshot included a historical ScheduleVersion assignment';
+  end if;
+  if v_all_count <= v_current_count then
+    raise exception 'T07 fixture did not contain historical assignments needed to prove exclusion';
+  end if;
+
+  select description into v_original_description from public.rules where studio_id=v_studio and id='OPS-002';
+  update public.rules set description=description||' [T07 transient policy drift]' where studio_id=v_studio and id='OPS-002';
+  v_after := public.get_solver_context_token_v43(v_studio);
+  if v_after = v_before or v_after->>'rulesHash' = v_before->>'rulesHash' then
+    raise exception 'T07 policy mutation did not invalidate the coherent context token';
+  end if;
+  update public.rules set description=v_original_description where studio_id=v_studio and id='OPS-002';
+
+  select a.id into v_current_assignment
+  from public.assignments a where a.studio_id=v_studio and a.schedule_version_id=v_current_schedule
+  order by a.id limit 1;
+  if v_current_assignment is null then raise exception 'T07 fixture has no current assignment'; end if;
+  v_before := public.get_solver_context_token_v43(v_studio);
+  update public.assignments set locked=not locked where studio_id=v_studio and id=v_current_assignment;
+  v_after := public.get_solver_context_token_v43(v_studio);
+  if v_after = v_before or v_after->>'scheduleAssignmentsHash' = v_before->>'scheduleAssignmentsHash' then
+    raise exception 'T07 lock/assignment mutation did not invalidate the coherent context token';
+  end if;
+  update public.assignments set locked=not locked where studio_id=v_studio and id=v_current_assignment;
+end
+$block$;
+reset role;
+
+select 'T07 PASS: one coherent snapshot uses pinned planning facts/current assignments only; policy and lock/schedule drift invalidate the context token' as result;
+`;
+
 function psql(container, user, sql, label) {
   const result = runProcess(
     'docker',
@@ -1070,6 +1146,8 @@ async function runHarness() {
     process.stdout.write(candidateIntervalOutput);
     const archiveAwareOutput = psql(container, 'postgres', archiveAwareAdoptionSql, 'T06 archive-aware adoption integration tests');
     process.stdout.write(archiveAwareOutput);
+    const coherentSnapshotOutput = psql(container, 'postgres', coherentSolverSnapshotSql, 'T07 coherent solver snapshot integration tests');
+    process.stdout.write(coherentSnapshotOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);
