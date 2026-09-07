@@ -41,6 +41,6 @@ describe("archive-aware solver adoption", () => {
   it("preserves archive history instead of deleting or rewriting historical identities", () => {
     expect(migration).not.toMatch(/delete\s+from\s+public\.(class_sessions|class_definitions|teachers|rooms)/i);
     expect(migration).not.toMatch(/update\s+public\.(class_sessions|class_definitions|teachers|rooms)\s+set\s+archived_at/i);
-    expect(migration).toContain("Historical ScheduleVersions");
+    expect(migration).toMatch(/historical ScheduleVersions/i);
   });
 });
