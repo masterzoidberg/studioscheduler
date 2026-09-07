@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getServerSupabase } from "@/lib/supabase";
+import { getServerAdminSupabase, getServerSupabase } from "@/lib/supabase";
 import {
   loadCanonicalSolverSnapshot,
   loadCurrentSolverContextToken,
@@ -64,15 +64,20 @@ function publishedModel(snapshot: CanonicalSolverSnapshot): PublishedConstraintM
 }
 
 async function publishConstraintModelForSolve(
-  supabase: SupabaseClient,
+  actorUserId: string,
   problem: FeasibilitySolverProblem,
   published: PublishedConstraintModelRecord | null,
 ) {
   const decision = constraintModelSyncDecision(problem, published);
   if (decision.action !== "PUBLISH") return false;
 
+  // T13: only the deterministic server compiler may cross the publication
+  // boundary. Browser-authenticated clients no longer execute V3.0 directly.
   const definition = constraintModelDefinition(problem.constraintModel);
-  const result = await supabase.rpc("publish_constraint_model_v30", {
+  const admin = getServerAdminSupabase();
+  const result = await admin.rpc("publish_server_constraint_model_v49", {
+    p_studio_id: STUDIO_ID,
+    p_actor_user_id: actorUserId,
     p_snapshot: definition,
     p_reason: `Solver preflight sync of ${definition.compilerVersion} for Rulebook v${definition.rulebookVersion}: ${decision.reason}`,
     p_expected_rulebook_version: problem.context.rulebookVersion,
@@ -97,7 +102,7 @@ function adoptionConfiguration() {
 
 async function buildGatewayPreflight(
   supabase: SupabaseClient,
-  options: { syncPublishedModel?: boolean } = {},
+  options: { syncPublishedModel?: boolean; actorUserId?: string } = {},
 ) {
   let snapshot = await loadCanonicalSolverSnapshot(supabase, STUDIO_ID);
   let preparation = prepareFeasibilitySolve(snapshot.state);
@@ -113,7 +118,10 @@ async function buildGatewayPreflight(
   }
 
   let published = publishedModel(snapshot);
-  if (options.syncPublishedModel && await publishConstraintModelForSolve(supabase, preparation.problem, published)) {
+  if (options.syncPublishedModel) {
+    if (!options.actorUserId) throw new Error("Constraint Model publication requires an authenticated actor.");
+  }
+  if (options.syncPublishedModel && await publishConstraintModelForSolve(options.actorUserId!, preparation.problem, published)) {
     // Publication is a context mutation. Reload the complete coherent snapshot
     // instead of combining the new model pointer with planning/rules read earlier.
     snapshot = await loadCanonicalSolverSnapshot(supabase, STUDIO_ID);
@@ -214,7 +222,10 @@ export async function POST(request: NextRequest) {
     // An explicit OWNER/EDITOR solve may repair a missing or plainly stale
     // deterministic ConstraintModelVersion. Any such publication is followed by
     // a full coherent-snapshot reload before the service request is constructed.
-    const gateway = await buildGatewayPreflight(authorized.supabase, { syncPublishedModel: true });
+    const gateway = await buildGatewayPreflight(authorized.supabase, {
+      syncPublishedModel: true,
+      actorUserId: authorized.userId,
+    });
     if (!gateway.preparation.ok) {
       return NextResponse.json({
         status: "BLOCKED",

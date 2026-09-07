@@ -478,7 +478,7 @@ begin
   limit 1;
   if v_rulebook is null then raise exception 'T03 JSONB test has no current RulebookVersion'; end if;
 
-  v_first:=public.publish_constraint_model_v30(v_submitted,'T03 JSONB publication',v_rulebook);
+  v_first:=public.publish_server_constraint_model_v49('11111111-1111-4111-8111-111111111111','10000000-0000-4000-8000-000000000001',v_submitted,'T03 JSONB publication',v_rulebook);
   select snapshot,snapshot_hash,version into v_readback,v_hash,v_version
   from public.constraint_model_versions
   where studio_id='11111111-1111-4111-8111-111111111111'
@@ -494,7 +494,7 @@ begin
     raise exception 'T03 publication returned a hash different from the historical snapshot hash';
   end if;
 
-  v_republished:=public.publish_constraint_model_v30(v_reordered,'T03 JSONB reordered read-back',v_rulebook);
+  v_republished:=public.publish_server_constraint_model_v49('11111111-1111-4111-8111-111111111111','10000000-0000-4000-8000-000000000001',v_reordered,'T03 JSONB reordered read-back',v_rulebook);
   if (v_republished->>'alreadyCurrent')::boolean is distinct from true then
     raise exception 'T03 reordered JSONB model caused a silent new publication';
   end if;
@@ -653,7 +653,7 @@ where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT';
 
 const candidateIntervalAdoptionSql = String.raw`
 set search_path=public,extensions;
-set role service_role;
+set role postgres;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
 do $block$
 declare
@@ -795,7 +795,7 @@ $block$;
 
 -- With the only class/session archived, an empty candidate is complete. Trying to
 -- reintroduce that archived session must reject atomically.
-set role service_role;
+set role postgres;
 do $block$
 declare
   v_studio uuid := '11111111-1111-4111-8111-111111111111';
@@ -870,7 +870,7 @@ from public.planning_dataset_versions
 where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT';
 reset role;
 
-set role service_role;
+set role postgres;
 do $block$
 declare
   v_studio uuid := '11111111-1111-4111-8111-111111111111';
@@ -931,7 +931,7 @@ from public.planning_dataset_versions
 where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT';
 reset role;
 
-set role service_role;
+set role postgres;
 do $block$
 declare
   v_studio uuid := '11111111-1111-4111-8111-111111111111';
@@ -1074,7 +1074,7 @@ select set_config(
   private.build_solver_candidate_context_v44('11111111-1111-4111-8111-111111111111')::text,
   false
 );
-set role service_role;
+set role postgres;
 do $block$
 declare
   v_studio uuid := '11111111-1111-4111-8111-111111111111';
@@ -1710,7 +1710,7 @@ async function runHarness() {
     psql(container, 'postgres', transaction(fixtureSql), 'fixture seed');
     const output = psql(container, 'authenticated', roleTestSql, 'owner/editor/viewer/nonmember integration tests');
     process.stdout.write(output);
-    const constraintModelOutput = psql(container, 'authenticated', constraintModelRoundTripSql, 'Constraint Model JSONB round-trip integration tests');
+    const constraintModelOutput = psql(container, 'postgres', constraintModelRoundTripSql, 'Constraint Model JSONB round-trip integration tests');
     process.stdout.write(constraintModelOutput);
     psql(container, 'postgres', candidateIntervalFixtureSql, 'T04 candidate interval fixture');
     psql(container, 'authenticated', planningConfirmationSql, 'T04 planning confirmation');
@@ -1730,6 +1730,8 @@ async function runHarness() {
     process.stdout.write(incrementalOutput);
     const recoveryOutput = psql(container, 'postgres', authoritativeRecoverySql, 'T12 authoritative rebase/undo recovery integration tests');
     process.stdout.write(recoveryOutput);
+    const bypassClosureOutput = psql(container, 'postgres', legacyWriteBypassClosureSql, 'T13 legacy write bypass closure integration tests');
+    process.stdout.write(bypassClosureOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);
@@ -1946,6 +1948,149 @@ where sv.id=a.schedule_version_id and sv.studio_id='11111111-1111-4111-8111-1111
 
 drop function public.t12_test_solver_context(uuid);
 select 'T12 PASS: archive-aware REBASE preserves history; current-policy UNDO normalizes duration; stale replay and effective-lock rollback reject atomically' as result;
+`;
+
+const legacyWriteBypassClosureSql = String.raw`
+set search_path=public,extensions;
+
+-- Enumerate every known superseded writer after all migrations. Historical
+-- functions may remain for owner-level internal delegation, but neither an
+-- authenticated browser nor a service-role application caller may invoke them.
+do $block$
+declare
+  v_sig text;
+  v_legacy text[]:=array[
+    'public.apply_schedule_patch_v21(text,jsonb,text,integer,integer,boolean)',
+    'public.rebase_current_schedule_v21(integer,integer,text)',
+    'public.apply_schedule_patch_v22(text,jsonb,text,integer,integer,integer,boolean)',
+    'public.rebase_current_schedule_v22(integer,integer,integer,text)',
+    'public.apply_schedule_builder_patch_v23(text,text,text,jsonb,text,integer,integer,integer,boolean)',
+    'public.undo_last_schedule_change_v23(integer,integer,integer,text)',
+    'public.apply_schedule_command_v25(text,text,text,jsonb,text,integer,integer,integer,integer,boolean)',
+    'public.undo_last_schedule_change_v25(integer,integer,integer,integer,text)',
+    'public.rebase_current_schedule_v25(integer,integer,integer,integer,text)',
+    'public.publish_constraint_model_v30(jsonb,text,integer)',
+    'public.adopt_solver_candidate_v33(uuid,uuid,text,text,integer,integer,integer,integer,integer,jsonb,jsonb)',
+    'public.adopt_solver_candidate_v44(uuid,uuid,text,text,jsonb,jsonb,jsonb)'
+  ];
+begin
+  foreach v_sig in array v_legacy loop
+    if to_regprocedure(v_sig) is null then raise exception 'T13 expected historical function is missing: %',v_sig; end if;
+    if has_function_privilege('authenticated',v_sig,'execute')
+       or has_function_privilege('service_role',v_sig,'execute') then
+      raise exception 'T13 legacy function remains executable: %',v_sig;
+    end if;
+  end loop;
+
+  foreach v_sig in array array[
+    'public.apply_authoritative_move_v46(uuid,uuid,text,jsonb,text,jsonb,jsonb,boolean)',
+    'public.apply_authoritative_incremental_command_v47(text,uuid,uuid,text,text,jsonb,text,jsonb,jsonb,jsonb,boolean)',
+    'public.apply_authoritative_schedule_recovery_v48(text,uuid,uuid,uuid,text,jsonb,jsonb,jsonb,jsonb)',
+    'public.publish_server_constraint_model_v49(uuid,uuid,jsonb,text,integer)',
+    'public.adopt_solver_candidate_v49(uuid,uuid,text,text,jsonb,jsonb,jsonb)'
+  ] loop
+    if not has_function_privilege('service_role',v_sig,'execute') then
+      raise exception 'T13 canonical service boundary is not executable: %',v_sig;
+    end if;
+    if has_function_privilege('authenticated',v_sig,'execute') then
+      raise exception 'T13 canonical service boundary leaked to authenticated: %',v_sig;
+    end if;
+  end loop;
+end
+$block$;
+
+-- A browser-authenticated caller cannot execute the legacy schedule or model
+-- publication surfaces even with a valid owner JWT claim.
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+do $block$
+declare
+  v_rejected boolean:=false;
+  v_before integer;
+begin
+  select count(*) into v_before from public.schedule_versions where studio_id='11111111-1111-4111-8111-111111111111';
+  begin
+    perform public.apply_schedule_command_v25(
+      'MOVE','t11-assignment',null,'{"day":"Tuesday"}'::jsonb,'T13 must deny direct V2.5',
+      0,0,0,0,false
+    );
+  exception when insufficient_privilege then
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T13 authenticated legacy schedule RPC unexpectedly executed'; end if;
+  if (select count(*) from public.schedule_versions where studio_id='11111111-1111-4111-8111-111111111111')<>v_before then
+    raise exception 'T13 denied legacy schedule RPC changed history';
+  end if;
+
+  v_rejected:=false;
+  begin
+    perform public.publish_constraint_model_v30('{}'::jsonb,'T13 must deny direct V3.0',0);
+  exception when insufficient_privilege then
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T13 direct V3.0 model publication unexpectedly executed'; end if;
+end
+$block$;
+reset role;
+
+-- The privileged publication and adoption boundaries recheck the human actor's
+-- current membership inside the transaction. A user authorized earlier in the
+-- request cannot commit after being downgraded to VIEWER.
+update public.studio_members
+set role='VIEWER'
+where studio_id='11111111-1111-4111-8111-111111111111'
+  and user_id='10000000-0000-4000-8000-000000000002';
+set role service_role;
+do $block$
+declare
+  v_rejected boolean:=false;
+begin
+  begin
+    perform public.publish_server_constraint_model_v49(
+      '11111111-1111-4111-8111-111111111111',
+      '10000000-0000-4000-8000-000000000002',
+      '{}'::jsonb,'T13 downgraded model publisher',0
+    );
+  exception when others then
+    if position('Editor membership required for selected workspace' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T13 actor role recheck did not reject downgraded editor'; end if;
+
+  v_rejected:=false;
+  begin
+    perform public.adopt_solver_candidate_v49(
+      '11111111-1111-4111-8111-111111111111',
+      '10000000-0000-4000-8000-000000000002',
+      'T13 downgraded editor','T13 must reject downgraded adoption',
+      '{}'::jsonb,'[]'::jsonb,'{}'::jsonb
+    );
+  exception when others then
+    if position('Editor membership required for selected workspace' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T13 adoption actor role recheck did not reject downgraded editor'; end if;
+end
+$block$;
+reset role;
+update public.studio_members
+set role='EDITOR'
+where studio_id='11111111-1111-4111-8111-111111111111'
+  and user_id='10000000-0000-4000-8000-000000000002';
+
+-- Retained readers are intentional: coherent snapshot/context and historical
+-- version rows remain readable under membership/RLS. T13 only closes mutation
+-- surfaces and does not erase audit/history inspection.
+do $block$
+begin
+  if not has_function_privilege('authenticated','public.get_solver_context_token_v43(uuid)','execute')
+     or not has_function_privilege('authenticated','public.get_solver_snapshot_v43(uuid)','execute') then
+    raise exception 'T13 accidentally revoked governed coherent readers';
+  end if;
+end
+$block$;
+
+select 'T13 PASS: privilege enumeration leaves only current service authority; authenticated legacy schedule/model RPCs deny; downgraded actors fail publication/adoption; governed readers remain' as result;
 `;
 
 export async function main(argv = process.argv.slice(2)) {

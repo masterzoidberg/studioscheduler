@@ -13,8 +13,8 @@ describe("T08 candidate stale-schedule binding", () => {
     expect(feasibilityRoute).toContain("body: JSON.stringify({ problem, maxSeconds: service.maxSeconds })");
   });
 
-  it("passes the submitted reviewed context unchanged into a transactional V4.4 adoption boundary", () => {
-    expect(adoptionRoute).toContain('admin.rpc("adopt_solver_candidate_v44"');
+  it("passes the submitted reviewed context unchanged into the hardened transactional adoption boundary", () => {
+    expect(adoptionRoute).toContain('admin.rpc("adopt_solver_candidate_v49"');
     expect(adoptionRoute).toContain("p_expected_context: reviewedContext");
     expect(adoptionRoute).not.toContain("p_expected_schedule_version: currentSchedule.version");
     expect(migration).toContain("v_current_context is distinct from p_expected_context");

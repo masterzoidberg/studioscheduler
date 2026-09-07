@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
 
     // Critical T08 boundary: pass the manager-reviewed context into the database
     // unchanged. Do not substitute versions from a fresh server read here.
-    const result = await admin.rpc("adopt_solver_candidate_v44", {
+    const result = await admin.rpc("adopt_solver_candidate_v49", {
       p_studio_id: STUDIO_ID,
       p_actor_user_id: authorized.userId,
       p_actor_label: authorized.actorLabel,
