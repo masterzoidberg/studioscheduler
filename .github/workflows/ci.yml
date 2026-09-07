@@ -7,7 +7,11 @@ on:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
@@ -37,7 +41,11 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+      - name: Disposable database integration
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run test:db
       - name: Smoke-test rendered routes
+        if: matrix.os == 'ubuntu-latest'
         run: |
           npm start > /tmp/dwde-next.log 2>&1 &
           SERVER_PID=$!

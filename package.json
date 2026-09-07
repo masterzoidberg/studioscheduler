@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:db": "node scripts/test-db.mjs --target=docker-local --allow-disposable"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",

@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 const governedRepairs = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260904190328_rulebook_v36_governed_repairs.sql"),
   "utf8",
-);
+).replace(/\r\n?/g, "\n");
 const retireV35 = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260904190357_retire_direct_v35_structure_rpc.sql"),
   "utf8",
-);
+).replace(/\r\n?/g, "\n");
 const client = readFileSync(resolve(process.cwd(), "lib/planning-inventory-client.ts"), "utf8");
 const repairsView = readFileSync(resolve(process.cwd(), "components/planning-repairs-view.tsx"), "utf8");
 

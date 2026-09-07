@@ -6,7 +6,7 @@ import { PLANNING_CLASS_STRUCTURE_REQUIREMENTS } from "@/lib/planning-class-stru
 const migration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260904185246_atomic_rulebook_structure_repair_v35.sql"),
   "utf8",
-);
+).replace(/\r\n?/g, "\n");
 const classesView = readFileSync(resolve(process.cwd(), "components/classes-view.tsx"), "utf8");
 
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");

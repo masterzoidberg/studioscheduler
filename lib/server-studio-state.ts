@@ -59,6 +59,7 @@ function mapRulebook(row: Record<string, unknown>): RulebookVersion {
     formatVersion: row.format_version ? String(row.format_version) : undefined,
     documentType: row.document_type ? String(row.document_type) : undefined,
     sourceMetadata: object(row.source_metadata),
+    snapshot: Array.isArray(row.snapshot) ? row.snapshot : undefined,
   };
 }
 

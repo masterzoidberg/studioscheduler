@@ -189,6 +189,7 @@ export async function POST(request: NextRequest) {
       sessionId: assignment.sessionId,
       day: assignment.day,
       startTime: assignment.startTime,
+      endTime: assignment.endTime,
       teacherId: assignment.teacherId,
       roomId: assignment.roomId,
     }));

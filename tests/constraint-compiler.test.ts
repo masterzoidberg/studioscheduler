@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { StudioRule, StudioState } from "@/lib/domain";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
+import { evaluateScheduleReadiness } from "@/lib/schedule-readiness";
 
 const prefixCounts: Record<string, number> = {
   ADV: 4, AIM: 9, BAL: 14, CAM: 19, CUR: 9, DATA: 8, DEN: 5, FIX: 4, FRI: 3,
@@ -64,6 +65,21 @@ function state(): StudioState {
       snapshot: { schemaVersion: "1.2", studioId: "studio", sourceManifest: null, teacherIds: [], rooms: [], students: [], cohorts: [], classes: [], sessions: [] },
     }],
   };
+}
+
+function reviewedV3State(): StudioState {
+  const s = state();
+  s.rulebookVersions[0] = {
+    ...s.rulebookVersions[0],
+    rulebookId: "dwde-2026-2027-master-rulebook",
+    sourceHash: "7d03e131bd0b6a1eddafff70fd3024628215236d3d846cb156d1514329120c5b",
+    ruleCount: 178,
+    formatVersion: "2.1",
+    documentType: "DWDE_SITE_RULEBOOK",
+    sourceMetadata: { provenance: "POST_REVIEW_CAMI_CONFIRMATION" },
+    snapshot: structuredClone(s.rules),
+  } as typeof s.rulebookVersions[0] & { snapshot: unknown[] };
+  return s;
 }
 
 function findConstraint(model: ReturnType<typeof compileConstraintModel>, id: string) {
@@ -185,5 +201,53 @@ describe("canonical Constraint IR compiler", () => {
     const b = state();
     b.rules.reverse();
     expect(compileConstraintModel(b)).toEqual(compileConstraintModel(a));
+  });
+
+  it("keeps the reviewed DWDE V3 close semantics reproducible", () => {
+    const model = compileConstraintModel(reviewedV3State());
+    expect(model.completeHardConstraintCompilation).toBe(true);
+    expect(findConstraint(model, "weekday-normal-latest-finish")?.parameters.latestFinish).toBe("21:30");
+  });
+
+  it("fails closed for a newly versioned or draft current Rulebook", () => {
+    const s = reviewedV3State();
+    s.rulebookVersions[0] = {
+      ...s.rulebookVersions[0],
+      version: 4,
+      sourceHash: undefined,
+      changedRuleIds: ["OPS-003"],
+      snapshot: structuredClone(s.rules),
+    };
+
+    const model = compileConstraintModel(s);
+    expect(model.completeHardConstraintCompilation).toBe(false);
+    expect(findConstraint(model, "weekday-normal-latest-finish")).toBeUndefined();
+    expect(evaluateScheduleReadiness(s).blockers).toContainEqual(expect.objectContaining({
+      code: "UNSUPPORTED_REVIEWED_POLICY",
+      message: expect.stringContaining("supports only reviewed Rulebook V3"),
+    }));
+  });
+
+  it.each([
+    ["wording", (rule: StudioRule) => { rule.description = "Weekday classes must close by 19:00."; }],
+    ["strength", (rule: StudioRule) => { rule.strength = "MODERATE"; rule.classificationRaw = "MODERATE"; }],
+    ["status", (rule: StudioRule) => { rule.status = "NEEDS_REVIEW"; }],
+    ["executable policy content", (rule: StudioRule) => { rule.parameters = { latestFinish: "19:00" }; }],
+  ])("fails closed when OPS-003 %s changes outside the reviewed V3 snapshot", (_change, mutate) => {
+    const s = reviewedV3State();
+    mutate(s.rules.find((rule) => rule.id === "OPS-003")!);
+
+    const model = compileConstraintModel(s);
+    expect(model.completeHardConstraintCompilation).toBe(false);
+    expect(model.uncompiledConstraintRuleIds).toContain("OPS-003");
+    expect(findConstraint(model, "weekday-normal-latest-finish")).toBeUndefined();
+    const pinnedRules = s.rulebookVersions[0].snapshot as StudioRule[];
+    expect(pinnedRules.find((rule) => rule.id === "OPS-003")?.description).not.toContain("19:00");
+
+    const readiness = evaluateScheduleReadiness(s);
+    expect(readiness.blockers).toContainEqual(expect.objectContaining({
+      code: "UNSUPPORTED_REVIEWED_POLICY",
+      ruleIds: expect.arrayContaining(["OPS-003"]),
+    }));
   });
 });

@@ -2,6 +2,7 @@ import type { ClassDefinition, ClassSession, PlanningDatasetVersion, StudioState
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
 import { validateConstraintModelBindings, type ConstraintDataBindingReport } from "@/lib/constraint-data-binding";
 import { ruleExecutionCoverage } from "@/lib/rule-execution-registry";
+import { reviewedDwdeV3PolicySupport } from "@/lib/reviewed-rulebook";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
 export type ScheduleReadinessSeverity = "BLOCKER" | "WARNING";
@@ -394,6 +395,11 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
   }
 
   const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
+  const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? null;
+  const policySupport = reviewedDwdeV3PolicySupport(currentRulebook, state.rules);
+  if (!policySupport.supported) {
+    add(issues, "UNSUPPORTED_REVIEWED_POLICY", policySupport.message, policySupport.ruleIds);
+  }
   const currentSchedule = state.scheduleVersions.find((version) => version.isCurrent) ?? null;
   const schedulePlanningVersion = currentSchedule?.planningDatasetVersion ?? null;
   const confirmedPlanning = planningConfirmation(currentPlanning);

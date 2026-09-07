@@ -1,6 +1,7 @@
 import type { StudioRule, StudioState } from "@/lib/domain";
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 import { compileConstraintModel as compileV01 } from "@/lib/constraint-compiler";
+import { reviewedDwdeV3PolicySupport } from "@/lib/reviewed-rulebook";
 
 export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -96,14 +97,26 @@ function v3Constraints(ruleMap: Map<string, StudioRule>): ConstraintIRNode[] {
 
 export function compileConstraintModelV3(state: StudioState): ConstraintModelSnapshotV1 {
   const base = compileV01(state);
+  const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? null;
+  const policySupport = reviewedDwdeV3PolicySupport(currentRulebook, state.rules);
   const activeRules = state.rules.filter((rule) => rule.status === "ACTIVE");
   const ruleMap = new Map(activeRules.map((rule) => [rule.id, rule]));
   const baseHardConstraints = base.hardConstraints.map((node) => withSequencingInterpretation(node, ruleMap));
   const additions = v3Constraints(ruleMap);
-  const hardConstraints = [...baseHardConstraints, ...additions]
+  const candidateHardConstraints = [...baseHardConstraints, ...additions];
+  const candidateRuleIds = [...new Set(candidateHardConstraints.flatMap((node) => node.ruleIds))];
+  const unsupportedRuleIds = policySupport.supported
+    ? []
+    : policySupport.ruleIds.length > 0 ? policySupport.ruleIds : candidateRuleIds;
+  const unsupportedRuleIdSet = new Set(unsupportedRuleIds);
+  const hardConstraints = candidateHardConstraints
+    .filter((node) => policySupport.supported || node.ruleIds.every((ruleId) => !unsupportedRuleIdSet.has(ruleId)))
     .sort((a, b) => compareCanonicalStrings(a.id, b.id));
   const representedRuleIds = new Set(hardConstraints.flatMap((node) => node.ruleIds));
-  const uncompiledConstraintRuleIds = base.uncompiledConstraintRuleIds
+  const uncompiledConstraintRuleIds = [...new Set([
+    ...base.uncompiledConstraintRuleIds,
+    ...unsupportedRuleIds,
+  ])]
     .filter((ruleId) => !representedRuleIds.has(ruleId))
     .sort(compareCanonicalStrings);
 
@@ -112,7 +125,7 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
     compilerVersion: CONSTRAINT_COMPILER_VERSION,
     hardConstraints,
     uncompiledConstraintRuleIds,
-    completeHardConstraintCompilation: uncompiledConstraintRuleIds.length === 0,
+    completeHardConstraintCompilation: policySupport.supported && uncompiledConstraintRuleIds.length === 0,
   };
 }
 
