@@ -33,9 +33,11 @@ describe("archive-aware solver adoption", () => {
     expect(migration).toContain("an active locked session has no current assignment");
   });
 
-  it("keeps server solver sessions inside the active parent-class inventory", () => {
-    expect(serverState).toContain("const activeClassIds = new Set(classes.map((klass) => klass.id));");
-    expect(serverState).toContain(".filter((row) => activeClassIds.has(String(row.class_id)))");
+  it("keeps server solver sessions inside the active parent-class inventory through the pinned Planning Dataset snapshot", () => {
+    expect(serverState).toContain("planningFactsFromSnapshot(planning.snapshot)");
+    expect(serverState).toContain("const classIds = new Set(classes.map((klass) => klass.id));");
+    expect(serverState).toContain("if (!classIds.has(String(session.classId)))");
+    expect(serverState).toContain('.rpc("get_solver_snapshot_v43"');
   });
 
   it("preserves archive history instead of deleting or rewriting historical identities", () => {
