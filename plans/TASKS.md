@@ -16,8 +16,8 @@ Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [execution rules](C
 | [T06](#t06) | Archive-aware adoption | DONE | A | P0 | T02, T04 | M |
 | [T07](#t07) | Coherent solver snapshots | DONE | A | P0 | T02, T03, T05, T06 | M |
 | [T08](#t08) | Candidate stale-schedule binding | DONE | A | P0 | T07 | M |
-| [T09](#t09) | Session-specific solver locks | READY | A | P0 | T07, T08 | M |
-| [T10](#t10) | Manual MOVE through authoritative IR | NOT_STARTED | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
+| [T09](#t09) | Session-specific solver locks | DONE | A | P0 | T07, T08 | M |
+| [T10](#t10) | Manual MOVE through authoritative IR | READY | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
 | [T11](#t11) | ASSIGN/UNASSIGN canonical authority | NOT_STARTED | A | P0 | T10 | M |
 | [T12](#t12) | Rebase/undo canonical authority | NOT_STARTED | A | P0 | T10, T11 | M |
 | [T13](#t13) | Close legacy write bypasses | NOT_STARTED | A | P0 | T10, T11, T12 | S |
@@ -952,7 +952,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T09 |
-| Status | READY |
+| Status | DONE |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T07, T08 |
@@ -982,10 +982,10 @@ Paths above exist at the planning baseline. New routes, fixtures, forward migrat
 
 ### Acceptance criteria
 
-- [ ] One selected session of a multi-session activity preserves day/start/teacher/room while other meetings remain movable.
-- [ ] Runtime locks bind stable session IDs and preserve canonical duration.
-- [ ] Assignment/session lock precedence is explicit; locked placements cannot be lost at preparation, solve, validation, or adoption.
-- [ ] Missing, stale, conflicting, and impossible locks fail with deterministic explanations.
+- [x] One selected session of a multi-session activity preserves day/start/teacher/room while other meetings remain movable.
+- [x] Runtime locks bind stable session IDs and preserve canonical duration.
+- [x] Assignment/session lock precedence is explicit; locked placements cannot be lost at preparation, solve, validation, or adoption.
+- [x] Missing, stale, conflicting, and impossible locks fail with deterministic explanations.
 
 ### Required tests
 
@@ -1015,7 +1015,38 @@ Do not redesign all sequencing or introduce a general locking service.
 
 ### Completion evidence
 
-Not yet verified. Record commit SHA, exact commands/exit codes, environment, regression cases, artifact links, manager acceptance where required, and remaining limitations. No implementation task was marked DONE during plan creation.
+Task/child: T09
+
+Starting HEAD: `ccd51862a5bc4e981f93ce9c64c35fec837df8a8` on `feat/pre-cami-hardening` (T01–T08 accepted).
+
+Implementation commit: `d4ca679b5648cbe2c0bd7fb13999acf3eefaca95` (`feat: make solver locks session-specific`).
+
+Implemented outcome:
+- TypeScript preparation now defines effective runtime lock precedence as `SESSION OR ASSIGNMENT`. Either representation protects the exact current placement; a false value on one side cannot cancel a true lock on the other. Active archived-out sessions remain historical rather than current lock obligations.
+- Multi-session classes are no longer rejected merely because one meeting is locked. Solver payloads carry the exact locked `sessionId` and canonical current placement, while sibling sessions remain independently variable.
+- CP-SAT applies runtime locks directly to the selected session variables for day/start/teacher/room. Runtime locks are not converted into class-name `FIXED_ASSIGNMENT` policy nodes; policy-fixed assignments remain separate constraints. Diagnostic solves name runtime assumptions as `runtime-lock:<sessionId>`, so a policy/runtime conflict can report both stable IDs.
+- Canonical duration remains derived from the pinned session override/class duration. Preparation rejects an inconsistent locked current end time rather than silently changing the lock, and solver output derives the locked end from that canonical duration.
+- Candidate validation independently rejects movement of the exact locked session and preserves the effective lock marker only for locked meetings.
+- V4.5 wraps the canonical V3.3 adoption writer. The pre-V4.5 implementation is renamed and removed from the service-role surface; the canonical name now protects `session.locked OR current_assignment.locked`, invokes the historical validated writer, and carries assignment-only locks into the newly adopted ScheduleVersion. T08's reviewed-context V4.4 RPC automatically resolves the wrapped canonical V3.3 function, so no fresh-version substitution was introduced.
+- Shared serialized fixture `tests/fixtures/session-lock-semantics.json` is consumed by TypeScript and Python regressions. It covers a 75-minute locked first meeting of a two-meeting class and an independently movable sibling.
+
+Acceptance criterion → evidence:
+- Multi-session exact meeting: the shared fixture and Python service/CP-SAT tests preserve `multi-session-1` at Monday 18:30 with its teacher/room while the sibling meeting remains movable and non-overlapping.
+- Stable ID + duration: runtime CP-SAT constraints attach to `session['id']`; the fixture's 75-minute override returns 18:30–19:45.
+- Precedence through adoption: TypeScript regressions prove assignment-lock and session-lock OR semantics; the disposable PostgreSQL lifecycle sets an assignment-only lock while `class_sessions.locked=false`, adopts an unchanged reviewed candidate, proves the new assignment remains locked, then proves movement rejects atomically.
+- Deterministic failures: TypeScript returns `LOCKED_SESSION_PLACEMENT_UNRESOLVED`, `LOCKED_SESSION_PLACEMENT_STALE`, and `LOCKED_SESSION_DURATION_MISMATCH`; Python reports `runtime-lock:<sessionId>` for impossible locks and reports both runtime and policy-fixed IDs for a direct conflict.
+
+Verification evidence: GitHub Actions run `34088739598` passed the required T09 quality matrix. Ubuntu and Windows passed `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build`; Ubuntu additionally passed `npm run test:db` through V4.5 and `python -m pytest -q` in a disposable solver virtual environment. The DB harness emitted the T09 PASS lifecycle for assignment/session lock precedence and atomic movement rejection.
+
+Risks/limitations: no production or staging database was read or mutated, and V4.5 remains a forward migration pending separately authorized deployment. T09 does not redesign lock authoring UI or all schedule mutation commands; T10–T13 still own canonical manual-command authority and legacy-write closure. Policy `FIXED_ASSIGNMENT` remains class-selector based by design and is separate from runtime session locks.
+
+Decision deviations: none. No general locking service or new infrastructure tier was introduced.
+
+New blockers and unblock condition: none.
+
+Resulting task status: DONE.
+
+Newly READY tasks: T10. T11 remains NOT_STARTED pending T10.
 
 ### Notes/blockers
 
@@ -1034,7 +1065,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T10 |
-| Status | NOT_STARTED |
+| Status | READY |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T03, T04, T05, T06, T07, T08, T09 |
@@ -1099,7 +1130,7 @@ Not yet verified. Record commit SHA, exact commands/exit codes, environment, reg
 
 ### Notes/blockers
 
-Waiting for dependency acceptance: T03, T04, T05, T06, T07, T08, T09. This is normal sequencing, not a BLOCKED status.
+Dependencies T03 through T09 are verified DONE. T10 is READY and is now the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
