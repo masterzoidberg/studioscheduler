@@ -27,13 +27,14 @@ describe("planning inventory archive lifecycle", () => {
     expect(migration).toContain("s.archived_at is null and c.archived_at is null");
   });
 
-  it("filters archived entities from both browser workspace and server solver state", () => {
-    for (const source of [browserState, serverState]) {
-      for (const table of ["teachers", "rooms", "students", "class_definitions", "class_sessions"]) {
-        expect(source).toContain(`from(\"${table}\").select(\"*\")`);
-        expect(source).toMatch(new RegExp(`from\\(\\\"${table}\\\"\\).*?is\\(\\\"archived_at\\\", null\\)`, "s"));
-      }
+  it("filters archived browser inventory and gives the solver only the immutable archive-filtered Planning Dataset snapshot", () => {
+    for (const table of ["teachers", "rooms", "students", "class_definitions", "class_sessions"]) {
+      expect(browserState).toContain(`from(\"${table}\").select(\"*\")`);
+      expect(browserState).toMatch(new RegExp(`from\\(\\\"${table}\\\"\\).*?is\\(\\\"archived_at\\\", null\\)`, "s"));
+      expect(serverState).not.toContain(`.from(\"${table}\")`);
     }
+    expect(serverState).toContain('.rpc("get_solver_snapshot_v43"');
+    expect(serverState).toContain("planningFactsFromSnapshot(planning.snapshot)");
   });
 
   it("scopes archived history reads to the DWDE studio", () => {
