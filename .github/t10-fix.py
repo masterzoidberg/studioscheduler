@@ -12,3 +12,13 @@ if text.count(combined) != 1:
     raise SystemExit(f"expected one T10 context/workspace block, found {text.count(combined)}")
 text = text.replace(combined, workspace_block + context_block, 1)
 path.write_text(text, encoding="utf-8", newline="\n")
+
+# The disposable bootstrap requires a non-null studio slug. Keep the T10 second-
+# workspace witness fully valid so failures reach the tenant-selection guard.
+db_path = Path("scripts/test-db.mjs")
+db = db_path.read_text(encoding="utf-8")
+old = "insert into public.studios(id,name)\nvalues ('22222222-2222-4222-8222-222222222222','T10 Other Studio')"
+new = "insert into public.studios(id,slug,name)\nvalues ('22222222-2222-4222-8222-222222222222','t10-other-studio','T10 Other Studio')"
+if db.count(old) != 1:
+    raise SystemExit(f"expected one T10 second-studio fixture match, found {db.count(old)}")
+db_path.write_text(db.replace(old, new, 1), encoding="utf-8", newline="\n")
