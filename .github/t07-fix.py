@@ -23,3 +23,12 @@ text = text.replace(
     1,
 )
 p.write_text(text, encoding="utf-8", newline="\n")
+
+p = Path("scripts/test-db.mjs")
+text = p.read_text(encoding="utf-8")
+needle = "const coherentSolverSnapshotSql = String.raw`\nset search_path=public,extensions;\nset role authenticated;\nselect set_config"
+replacement = "const coherentSolverSnapshotSql = String.raw`\nset search_path=public,extensions;\n-- Run synthetic concurrent mutations as the disposable database owner.\n-- auth.uid() still resolves the deidentified owner claim below, so the\n-- member-authorized snapshot RPC exercises its real identity check.\nselect set_config"
+if needle not in text:
+    raise SystemExit("T07 DB role fixture: expected coherent snapshot header not found")
+text = text.replace(needle, replacement, 1)
+p.write_text(text, encoding="utf-8", newline="\n")
