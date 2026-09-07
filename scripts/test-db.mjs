@@ -1728,6 +1728,8 @@ async function runHarness() {
     process.stdout.write(manualMoveOutput);
     const incrementalOutput = psql(container, 'postgres', authoritativeIncrementalSql, 'T11 authoritative incremental ASSIGN/UNASSIGN integration tests');
     process.stdout.write(incrementalOutput);
+    const recoveryOutput = psql(container, 'postgres', authoritativeRecoverySql, 'T12 authoritative rebase/undo recovery integration tests');
+    process.stdout.write(recoveryOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);
@@ -1735,6 +1737,216 @@ async function runHarness() {
     }
   }
 }
+
+
+const authoritativeRecoverySql = String.raw`
+set search_path=public,extensions;
+
+create or replace function public.t12_test_solver_context(p_studio uuid)
+returns jsonb language sql stable security definer set search_path=''
+as $function$ select private.build_solver_context_token_v43(p_studio) $function$;
+revoke all on function public.t12_test_solver_context(uuid) from public,anon,authenticated;
+grant execute on function public.t12_test_solver_context(uuid) to service_role;
+
+-- Archive the class through the governed inventory path. The current ScheduleVersion
+-- remains historical evidence with its assignment, while the current Planning Dataset
+-- now excludes the class/session and deliberately makes that schedule context stale.
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+select public.set_planning_entity_archive_v40(
+  'CLASS','t04-class',true,'T12 archive-before-rebase',
+  (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+);
+select public.confirm_current_planning_dataset_v39(
+  version,snapshot_hash,'T12 confirmed archive recovery input',
+  '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
+)
+from public.planning_dataset_versions
+where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT';
+reset role;
+
+set role service_role;
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_context jsonb;
+  v_result jsonb;
+  v_source uuid;
+  v_before_count integer;
+  v_rejected boolean:=false;
+begin
+  v_context:=public.t12_test_solver_context(v_studio);
+  v_source:=(v_context->>'scheduleId')::uuid;
+  if (v_context->>'schedulePlanningDatasetVersion')=(v_context->>'planningDatasetVersion') then
+    raise exception 'T12 fixture expected archive to make the source schedule planning link stale';
+  end if;
+  if not exists(select 1 from public.assignments where schedule_version_id=v_source and id='t11-assignment') then
+    raise exception 'T12 historical source assignment missing before rebase';
+  end if;
+  v_result:=public.apply_authoritative_schedule_recovery_v48(
+    'REBASE',v_studio,v_owner,v_source,'T12 archive-aware rebase',v_context,'[]'::jsonb,
+    '{"valid":true,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
+    '{"mode":"REBASE","scheduleComplete":true,"publishable":true,"unscheduledSessionIds":[],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[],"retiredAssignmentIds":["t11-assignment"]}'::jsonb
+  );
+  if exists(select 1 from public.assignments where schedule_version_id=(v_result->>'scheduleId')::uuid) then
+    raise exception 'T12 archive-aware rebase reintroduced a retired assignment';
+  end if;
+  if not exists(select 1 from public.assignments where schedule_version_id=v_source and id='t11-assignment') then
+    raise exception 'T12 rebase rewrote historical assignments';
+  end if;
+  if not exists(
+    select 1 from public.schedule_versions sv where sv.id=(v_result->>'scheduleId')::uuid and sv.is_current
+      and sv.rulebook_version=(v_context->>'rulebookVersion')::integer
+      and sv.enforcement_version=(v_context->>'enforcementVersion')::integer
+      and sv.planning_dataset_version=(v_context->>'planningDatasetVersion')::integer
+      and sv.constraint_model_version=(v_context->>'constraintModelVersion')::integer
+  ) then raise exception 'T12 rebase did not preserve all four current authority links'; end if;
+  if not exists(
+    select 1 from public.audit_events e where e.studio_id=v_studio and e.action='SCHEDULE_REBASE'
+      and e.entity_id=(v_result->>'scheduleId') and e.payload->>'authority'='SERVER_CONSTRAINT_IR_V48'
+  ) then raise exception 'T12 rebase audit evidence missing'; end if;
+
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.apply_authoritative_schedule_recovery_v48(
+      'REBASE',v_studio,v_owner,v_source,'T12 stale rebase replay',v_context,'[]'::jsonb,'{}'::jsonb,'{}'::jsonb
+    );
+  exception when others then
+    if position('STALE_RECOVERY_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T12 stale rebase replay unexpectedly succeeded'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_before_count then
+    raise exception 'T12 stale rebase replay persisted a ScheduleVersion';
+  end if;
+end
+$block$;
+reset role;
+
+-- Restore the archived class/session, then change the current per-session duration.
+-- The old T11 historical assignment remains 90 minutes; T12 UNDO must normalize it
+-- to the new 105-minute current planning fact before adoption.
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+select public.set_planning_entity_archive_v40(
+  'CLASS','t04-class',false,'T12 restore-before-undo',
+  (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+);
+reset role;
+update public.class_sessions set duration_minutes=105
+where studio_id='11111111-1111-4111-8111-111111111111' and id='t04-session';
+select private.ensure_planning_dataset_version_v25(
+  '11111111-1111-4111-8111-111111111111',null,'T12 duration recovery fixture','Change active session duration to 105 minutes before undo'
+);
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+select public.confirm_current_planning_dataset_v39(
+  version,snapshot_hash,'T12 confirmed restored 105-minute duration',
+  '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
+)
+from public.planning_dataset_versions
+where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT';
+reset role;
+
+set role service_role;
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_context jsonb;
+  v_source uuid;
+  v_result jsonb;
+  v_before_count integer;
+  v_rejected boolean:=false;
+begin
+  v_context:=public.t12_test_solver_context(v_studio);
+  select id into v_source from public.schedule_versions
+  where studio_id=v_studio and version=(v_context->>'scheduleVersion')::integer-1;
+  if v_source is null then raise exception 'T12 immediate previous undo source missing'; end if;
+  if not exists(select 1 from public.assignments where schedule_version_id=v_source and id='t11-assignment' and end_time='18:45'::time) then
+    raise exception 'T12 expected immutable 90-minute historical source assignment';
+  end if;
+
+  v_result:=public.apply_authoritative_schedule_recovery_v48(
+    'UNDO',v_studio,v_owner,v_source,'T12 current-policy undo with duration normalization',v_context,
+    '[{"assignmentId":"t11-assignment","sessionId":"t04-session","day":"Monday","startTime":"17:15","endTime":"19:00","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}]'::jsonb,
+    '{"valid":true,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
+    '{"mode":"UNDO","scheduleComplete":true,"publishable":true,"unscheduledSessionIds":[],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[],"retiredAssignmentIds":[]}'::jsonb
+  );
+  if not exists(
+    select 1 from public.assignments a where a.schedule_version_id=(v_result->>'scheduleId')::uuid
+      and a.id='t11-assignment' and a.start_time='17:15'::time and a.end_time='19:00'::time
+  ) then raise exception 'T12 undo did not persist current 105-minute canonical duration'; end if;
+  if not exists(select 1 from public.assignments where schedule_version_id=v_source and id='t11-assignment' and end_time='18:45'::time) then
+    raise exception 'T12 undo mutated historical assignment duration';
+  end if;
+  if not exists(
+    select 1 from public.audit_events e where e.studio_id=v_studio and e.action='SCHEDULE_UNDO'
+      and e.entity_id=(v_result->>'scheduleId') and e.payload->>'authority'='SERVER_CONSTRAINT_IR_V48'
+  ) then raise exception 'T12 undo audit evidence missing'; end if;
+
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  v_rejected:=false;
+  begin
+    perform public.apply_authoritative_schedule_recovery_v48(
+      'UNDO',v_studio,v_owner,v_source,'T12 stale undo replay',v_context,
+      '[{"assignmentId":"t11-assignment","sessionId":"t04-session","day":"Monday","startTime":"17:15","endTime":"19:00","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}]'::jsonb,
+      '{}'::jsonb,'{}'::jsonb
+    );
+  exception when others then
+    if position('STALE_RECOVERY_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T12 stale undo replay unexpectedly succeeded'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_before_count then
+    raise exception 'T12 stale undo replay persisted a ScheduleVersion';
+  end if;
+end
+$block$;
+reset role;
+
+-- A one-step undo may not remove the just-restored effective lock by reaching back
+-- to the immediately previous empty version.
+update public.assignments a set locked=true
+from public.schedule_versions sv
+where sv.id=a.schedule_version_id and sv.studio_id='11111111-1111-4111-8111-111111111111' and sv.is_current and a.id='t11-assignment';
+set role service_role;
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_context jsonb:=public.t12_test_solver_context(v_studio);
+  v_source uuid;
+  v_before_count integer;
+  v_rejected boolean:=false;
+begin
+  select id into v_source from public.schedule_versions where studio_id=v_studio and version=(v_context->>'scheduleVersion')::integer-1;
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.apply_authoritative_schedule_recovery_v48(
+      'UNDO',v_studio,v_owner,v_source,'T12 locked undo rejection',v_context,'[]'::jsonb,
+      '{"valid":false,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
+      '{"mode":"UNDO","scheduleComplete":false,"publishable":false,"unscheduledSessionIds":["t04-session"],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[],"retiredAssignmentIds":[]}'::jsonb
+    );
+  exception when others then
+    if position('LOCKED_SESSION_PLACEMENT_CHANGED' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T12 locked undo unexpectedly succeeded'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_before_count then
+    raise exception 'T12 locked undo persisted a ScheduleVersion';
+  end if;
+end
+$block$;
+reset role;
+update public.assignments a set locked=false
+from public.schedule_versions sv
+where sv.id=a.schedule_version_id and sv.studio_id='11111111-1111-4111-8111-111111111111' and sv.is_current and a.id='t11-assignment';
+
+drop function public.t12_test_solver_context(uuid);
+select 'T12 PASS: archive-aware REBASE preserves history; current-policy UNDO normalizes duration; stale replay and effective-lock rollback reject atomically' as result;
+`;
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);

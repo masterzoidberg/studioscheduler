@@ -58,6 +58,7 @@ interface WorkspaceContextValue {
   applyRulePatch: (patch: RulePatch) => Promise<MutationResult>;
   applySchedulePatch: (patch: SchedulePatch) => Promise<MutationResult>;
   rebaseSchedule: () => Promise<MutationResult>;
+  undoSchedule: () => Promise<MutationResult>;
   proposeEnforcementMapping: (ruleId: string, mapping: RuleEnforcementMapping, rationale: string, source?: "USER" | "AI") => Promise<MutationResult>;
   reviewEnforcementProposal: (proposalId: string, decision: "APPROVE" | "REJECT", reason: string) => Promise<MutationResult>;
   exportPackage: () => Record<string, unknown> | null;
@@ -350,20 +351,49 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (caught) { return fail(caught); }
   }
 
-  async function rebaseSchedule(): Promise<MutationResult> {
+  async function runScheduleRecovery(operation: "REBASE" | "UNDO"): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
+    if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("rebase_current_schedule_v25", {
-        p_expected_schedule_version: currentScheduleVersion,
-        p_expected_rulebook_version: currentRulebookVersion,
-        p_expected_enforcement_version: currentEnforcementVersion,
-        p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-        p_reason: `Revalidate unchanged assignments against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} / Planning Dataset v${currentPlanningDatasetVersion}`,
+      const response = await fetch("/api/schedule/recovery", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          studioId: state.studioId,
+          operation,
+          reason: operation === "REBASE"
+            ? `Revalidate Schedule v${currentScheduleVersion} against the current scheduling context`
+            : `Undo Schedule v${currentScheduleVersion} under the current scheduling context`,
+        }),
       });
-      if (rpcError) throw rpcError;
-      const details = object(data); await load();
-      return { ok: true, version: Number(details.scheduleVersion || 0), validation: details.validation as unknown as ValidationResult, details };
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: String(payload.error || "The authoritative recovery gate rejected this operation."),
+          validation: (payload.legacyValidation || payload.validation) as ValidationResult | undefined,
+          details: payload,
+        };
+      }
+      await load();
+      return {
+        ok: true,
+        version: Number(payload.scheduleVersion || 0),
+        validation: payload.validation as ValidationResult | undefined,
+        details: payload,
+      };
     } catch (caught) { return fail(caught); }
+  }
+
+  async function rebaseSchedule(): Promise<MutationResult> {
+    return runScheduleRecovery("REBASE");
+  }
+
+  async function undoSchedule(): Promise<MutationResult> {
+    return runScheduleRecovery("UNDO");
   }
 
   async function proposeEnforcementMapping(ruleId: string, mapping: RuleEnforcementMapping, rationale: string, proposalSource: "USER" | "AI" = "USER"): Promise<MutationResult> {
@@ -516,7 +546,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
     currentPlanningDatasetVersion,currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,currentSchedulePlanningDatasetVersion,
     scheduleIsStale,validation,
-    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySchedulePatch,rebaseSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
+    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySchedulePatch,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
     updateTeacher,updateRoom,updateClass,createScenario,inviteMember,setMemberRole,removeMember,cancelInvite,
   };
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
