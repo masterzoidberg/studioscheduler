@@ -66,3 +66,20 @@ if provider.count(old) != 1:
     raise SystemExit(f"expected one provider endpoint block, found {provider.count(old)}")
 provider = provider.replace(old, new, 1)
 provider_path.write_text(provider, encoding="utf-8", newline="\n")
+
+# Archive/restore mutators correctly create a new PlanningDatasetVersion. T12 owns
+# canonical rebase/recovery, so this disposable T11 defense-in-depth fixture uses a
+# test-only schedule pointer relink after each direct archive toggle. That isolates
+# V4.7's active-row rejection without weakening the coherent-context precondition
+# or depending on the pre-T12 rebase path, which does not preserve model linkage.
+db_path = Path("scripts/test-db.mjs")
+db = db_path.read_text(encoding="utf-8")
+studio = "11111111-1111-4111-8111-111111111111"
+archive = f"update public.rooms set archived_at=now() where studio_id='{studio}' and id='t04-room';"
+restore = f"update public.rooms set archived_at=null where studio_id='{studio}' and id='t04-room';"
+relink = f"""\nupdate public.schedule_versions\nset planning_dataset_version=(\n  select pd.version from public.planning_dataset_versions pd\n  where pd.studio_id='{studio}' and pd.status='CURRENT'\n  order by pd.version desc limit 1\n)\nwhere studio_id='{studio}' and is_current;"""
+for marker in [archive, restore]:
+    if db.count(marker) != 1:
+        raise SystemExit(f"expected one T11 archive fixture marker {marker!r}, found {db.count(marker)}")
+    db = db.replace(marker, marker + relink, 1)
+db_path.write_text(db, encoding="utf-8", newline="\n")
