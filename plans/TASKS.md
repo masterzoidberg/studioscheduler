@@ -19,8 +19,8 @@ Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [execution rules](C
 | [T09](#t09) | Session-specific solver locks | DONE | A | P0 | T07, T08 | M |
 | [T10](#t10) | Manual MOVE through authoritative IR | DONE | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
 | [T11](#t11) | ASSIGN/UNASSIGN canonical authority | DONE | A | P0 | T10 | M |
-| [T12](#t12) | Rebase/undo canonical authority | READY | A | P0 | T10, T11 | M |
-| [T13](#t13) | Close legacy write bypasses | NOT_STARTED | A | P0 | T10, T11, T12 | S |
+| [T12](#t12) | Rebase/undo canonical authority | DONE | A | P0 | T10, T11 | M |
+| [T13](#t13) | Close legacy write bypasses | READY | A | P0 | T10, T11, T12 | S |
 | [T14](#t14) | Representative full DWDE acceptance fixture/solve | NOT_STARTED | A | P0 | T05, T06, T07, T08, T09, T10, T11, T12, T13 | M |
 | [T15](#t15) | Bounded and understandable solve failures | NOT_STARTED | A | P0 | T14 | M |
 | [T16](#t16) | Manager workflow/export/mobile verification | NOT_STARTED | A | P0 | T14, T15 | M |
@@ -1251,7 +1251,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T12 |
-| Status | READY |
+| Status | DONE |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T10, T11 |
@@ -1279,10 +1279,10 @@ Paths above exist at the planning baseline. New routes, fixtures, forward migrat
 
 ### Acceptance criteria
 
-- [ ] Undo, rebase, and revalidation use coherent context and the same deterministic scheduling semantics.
-- [ ] Recovery creates a new version and never rewrites historical assignments or facts.
-- [ ] Incompatible current-policy restores fail clearly; historical inspection remains possible.
-- [ ] Archive/duration changes and stale version tokens cannot corrupt recovered state.
+- [x] Undo, rebase, and revalidation use coherent context and the same deterministic scheduling semantics.
+- [x] Recovery creates a new version and never rewrites historical assignments or facts.
+- [x] Incompatible current-policy restores fail clearly; historical inspection remains possible.
+- [x] Archive/duration changes and stale version tokens cannot corrupt recovered state.
 
 ### Required tests
 
@@ -1309,11 +1309,29 @@ Do not implement scenario merge, arbitrary rollback of production data, or event
 
 ### Completion evidence
 
-Not yet verified. Record commit SHA, exact commands/exit codes, environment, regression cases, artifact links, manager acceptance where required, and remaining limitations. No implementation task was marked DONE during plan creation.
+Task/child: T12
+
+Starting HEAD: `3235a4f37d0b8750a672ec50888d09063e9b4258`.
+
+Implementation commit: `53ac7f3c032113a5a3da97b488c0d9d528b82f23`. GitHub Actions verification run: `34148258020`.
+
+Implemented files: `lib/schedule-recovery.ts`, `app/api/schedule/recovery/route.ts`, `components/workspace-provider.tsx`, `components/schedule/schedule-edit-controls.tsx`, forward migration `supabase/migrations/20260907170000_authoritative_schedule_recovery_v48.sql`, `tests/schedule-recovery.test.ts`, `tests/recovery-route-contract.test.ts`, `tests/recovery-migration.test.ts`, and `scripts/test-db.mjs`. Historical V2.5 recovery migrations and production-ledger bytes were not edited.
+
+Acceptance evidence: REBASE and one-step UNDO now enter one authenticated explicit-studio server route. The route reconstructs the T07 coherent snapshot, requires a confirmed current PlanningDatasetVersion and complete current published ConstraintModelVersion, compiles and compares the current deterministic IR, treats current/immediately-previous assignments only as recovery source material, normalizes active placements to current session durations/resources, evaluates current IR plus the legacy safety floor, rechecks the exact context token, and commits only through service-role V4.8. REBASE may retire placements removed from active inventory into an explicit incomplete draft; UNDO fails clearly rather than silently skipping an otherwise-active placement whose teacher/room is no longer active. Effective session/assignment locks cannot be removed or relocated.
+
+V4.8 transaction evidence: exact coherent context is rechecked under schedule/planning/model advisory locks; UNDO is limited to `current.version - 1`; candidate rows must exactly correspond to recoverable source placements while end time matches the current effective duration; archived sessions/classes are excluded; current effective locks are preserved; all four authority links are written to a newly inserted ScheduleVersion; historical assignment rows are never updated/deleted; authoritative IR/draft status and recovery provenance are audited.
+
+Disposable PostgreSQL lifecycle: governed class archive + planning confirmation makes the old schedule stale; authoritative REBASE creates a new current version with the retired assignment excluded while the historical assignment remains queryable; stale replay creates no version. After class restore and a test-only current session-duration change from 90 to 105 minutes plus a new confirmed PlanningDatasetVersion, one-step UNDO re-adopts the immediate historical placement with a canonical 105-minute end while the old 90-minute row remains unchanged. Replaying the stale token and trying to undo away an effective current lock both reject atomically.
+
+Verification: GitHub Actions run `34148258020` executed `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `npm run test:db` on Ubuntu; Windows executed lint/typecheck/test/build with Docker DB integration intentionally Linux-only. All required gates passed before implementation/handoff commit. Lint retained only the two pre-existing warnings.
+
+Remaining limitation / T13 bypass register: historical authenticated `rebase_current_schedule_v25`, `undo_last_schedule_change_v25`, and other superseded write RPC grants remain callable until T13 revokes or safely delegates them. T12 removes the active browser callers but does not claim the canonical server authority is yet unavoidable.
+
+Resulting task status: DONE. Newly READY task: T13.
 
 ### Notes/blockers
 
-Dependencies T10 and T11 are verified DONE. T12 is READY and is now the first executable unfinished task.
+Dependencies T10 and T11 are verified DONE. T12 is DONE. T13 is READY and is now the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
@@ -1390,7 +1408,7 @@ Not yet verified. Record commit SHA, exact commands/exit codes, environment, reg
 
 ### Notes/blockers
 
-Waiting for dependency acceptance: T10, T11, T12. This is normal sequencing, not a BLOCKED status.
+Dependencies T10, T11, and T12 are verified DONE. T13 is READY and is the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
