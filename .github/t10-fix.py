@@ -39,6 +39,26 @@ if db.count(private_call) != 2:
     raise SystemExit(f"expected two T10 private context calls, found {db.count(private_call)}")
 db = db.replace(private_call, "v_context:=public.t10_test_solver_context(v_studio);", 2)
 
+# T09 solver adoption legitimately replaces assignment row IDs. T10 must locate
+# the current assignment through the stable session ID, not a historical row ID.
+declare_marker = "  v_owner uuid := '10000000-0000-4000-8000-000000000001';\n  v_context jsonb;"
+if db.count(declare_marker) != 1:
+    raise SystemExit(f"expected one T10 declaration marker, found {db.count(declare_marker)}")
+db = db.replace(declare_marker, "  v_owner uuid := '10000000-0000-4000-8000-000000000001';\n  v_assignment_id text;\n  v_context jsonb;", 1)
+
+begin_marker = "begin\n  v_context:=public.t10_test_solver_context(v_studio);"
+resolve_assignment = """begin\n  select a.id into v_assignment_id\n  from public.assignments a\n  join public.schedule_versions sv on sv.id=a.schedule_version_id\n  where sv.studio_id=v_studio and sv.is_current and a.session_id='t04-session';\n  if v_assignment_id is null then raise exception 'T10 current assignment for stable session t04-session is missing'; end if;\n  v_context:=public.t10_test_solver_context(v_studio);"""
+if db.count(begin_marker) != 1:
+    raise SystemExit(f"expected one T10 begin marker, found {db.count(begin_marker)}")
+db = db.replace(begin_marker, resolve_assignment, 1)
+
+# Replace only the T10 lifecycle's obsolete historical assignment ID usages.
+if db.count("'t04-existing-assignment'") < 5:
+    raise SystemExit(f"expected T10 historical assignment references, found {db.count(chr(39)+'t04-existing-assignment'+chr(39))}")
+db = db.replace("v_studio,v_owner,'t04-existing-assignment',", "v_studio,v_owner,v_assignment_id,", 3)
+db = db.replace("a.id='t04-existing-assignment'", "a.id=v_assignment_id", 2)
+db = db.replace("e.entity_id='t04-existing-assignment'", "e.entity_id=v_assignment_id", 1)
+
 pass_marker = "reset role;\n\nselect 'T10 PASS: explicit tenant/context guard, duration-derived MOVE, pinned model linkage, audit evidence, and atomic stale/lock rejection' as result;"
 pass_replacement = "reset role;\ndrop function public.t10_test_solver_context(uuid);\n\nselect 'T10 PASS: explicit tenant/context guard, duration-derived MOVE, pinned model linkage, audit evidence, and atomic stale/lock rejection' as result;"
 if db.count(pass_marker) != 1:
