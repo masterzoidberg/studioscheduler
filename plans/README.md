@@ -6,10 +6,10 @@ These files are the **canonical active development plan** for DWDE production re
 
 - Current phase: DWDE completion — T11–T16.
 - Current milestone: A — DWDE Operational.
-- Current task: **T13 — close legacy write bypasses**.
-- Next task: T14 after T13 acceptance.
+- Current task: **T14 — blocked pending manager-reviewed complete DWDE planning data**.
+- Next task after the data gate: T14 acceptance fixture/solve, then T15.
 - Planning baseline: HEAD `17b3a60`, inspected 2026-09-06.
-- Implementation progress: T01 through T12 have verified DONE evidence. T12 moves rebase/undo off direct browser V2.5 recovery RPCs and onto a coherent current-policy server Constraint IR boundary plus service-role V4.8 transaction. Historical placements are source material only: active identities/durations are normalized under current planning facts, retired assignments stay historical, incompatible restores fail, effective locks persist, and recovery always creates a new ScheduleVersion. T13 is READY.
+- Implementation progress: T01 through T13 have verified DONE evidence. T13 closes authenticated/direct-service legacy scheduling and model-publication RPC bypasses, moves deterministic Constraint Model publication behind service-role V4.9, and adds commit-time actor-role checking to V4.9 solver adoption. T14 is BLOCKED only on the required manager-reviewed complete DWDE Planning Dataset snapshot.
 
 ## Navigation
 
@@ -68,7 +68,7 @@ For L-sized parents, record bounded traceable children before implementation. Do
 Record BLK-NNN under the affected task: observation/date, evidence/path, affected criteria, impact, owner or needed action, and an objective unblock condition. Cross-task blockers are linked here. Record an architectural deviation as DEC-NNN with reason and affected tasks.
 
 T01 through T08 are accepted. T02's initial Docker blocker was resolved and recorded as historical evidence in [TASKS](TASKS.md). Upcoming prerequisites requiring verification:
-- T13: revoke/delegate superseded canonical write entry points and prove direct legacy-call denial.
+- T13: verified DONE; superseded canonical write entry points are retired from application roles and direct legacy-call denial is executed in the DB harness.
 - T14/T16: complete DWDE data and a named manager's acceptance; do not invent missing studio facts.
 - T16: authorized deployment/restore evidence; tests never target production.
 - T27/T29: independent studio/pilot participation; do not fabricate customer outcomes.

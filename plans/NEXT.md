@@ -471,3 +471,8 @@ Add/run the task's regression tests and capture criterion-specific evidence; see
 **Non-goals:** Do not migrate unrelated commands or delete legacy authority before T11–T13.
 
 [Implementation prompt](prompts/T10-manual-move-authoritative-ir.md)
+
+
+## T13 handoff (e6084552b4)
+
+T13 is DONE via verification run `34154652798`. The next milestone task is T14, currently BLOCKED by BLK-014 until the manager reviews/confirms a complete DWDE PlanningDatasetVersion. Do not substitute synthetic facts for that acceptance evidence.

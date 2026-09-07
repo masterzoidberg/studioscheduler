@@ -20,8 +20,8 @@ Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [execution rules](C
 | [T10](#t10) | Manual MOVE through authoritative IR | DONE | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
 | [T11](#t11) | ASSIGN/UNASSIGN canonical authority | DONE | A | P0 | T10 | M |
 | [T12](#t12) | Rebase/undo canonical authority | DONE | A | P0 | T10, T11 | M |
-| [T13](#t13) | Close legacy write bypasses | READY | A | P0 | T10, T11, T12 | S |
-| [T14](#t14) | Representative full DWDE acceptance fixture/solve | NOT_STARTED | A | P0 | T05, T06, T07, T08, T09, T10, T11, T12, T13 | M |
+| [T13](#t13) | Close legacy write bypasses | DONE | A | P0 | T10, T11, T12 | S |
+| [T14](#t14) | Representative full DWDE acceptance fixture/solve | BLOCKED | A | P0 | T05, T06, T07, T08, T09, T10, T11, T12, T13 | M |
 | [T15](#t15) | Bounded and understandable solve failures | NOT_STARTED | A | P0 | T14 | M |
 | [T16](#t16) | Manager workflow/export/mobile verification | NOT_STARTED | A | P0 | T14, T15 | M |
 | [T17](#t17) | Preference scoring | NOT_STARTED | C | P1 | T14 | M |
@@ -1346,7 +1346,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T13 |
-| Status | READY |
+| Status | DONE |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T10, T11, T12 |
@@ -1374,10 +1374,10 @@ Paths above exist at the planning baseline. New routes, fixtures, forward migrat
 
 ### Acceptance criteria
 
-- [ ] All superseded canonical scheduling write entry points are revoked or delegate safely; authenticated callers cannot bypass IR.
-- [ ] Privileged transactions recheck the actor's current role for the explicit studio and version context.
-- [ ] Constraint publication is server-derived or equivalently protected against arbitrary client artifacts.
-- [ ] Executed privilege enumeration and direct-RPC tests demonstrate no legacy bypass; retained historical readers are documented.
+- [x] All superseded canonical scheduling write entry points are revoked or delegate safely; authenticated callers cannot bypass IR.
+- [x] Privileged transactions recheck the actor's current role for the explicit studio and version context.
+- [x] Constraint publication is server-derived or equivalently protected against arbitrary client artifacts.
+- [x] Executed privilege enumeration and direct-RPC tests demonstrate no legacy bypass; retained historical readers are documented.
 
 ### Required tests
 
@@ -1404,11 +1404,31 @@ Do not delete historical migrations or roll back to a weaker authority if proble
 
 ### Completion evidence
 
-Not yet verified. Record commit SHA, exact commands/exit codes, environment, regression cases, artifact links, manager acceptance where required, and remaining limitations. No implementation task was marked DONE during plan creation.
+Task/child: T13
+
+Starting HEAD: `c7e072fa135f4dde8bed71af3ea391c41f547717`.
+
+Implementation commit: `e6084552b4c253d147ea5c0dd59bcdc5e676f995`. GitHub Actions verification run: `34154652798`.
+
+Implemented forward migration `supabase/migrations/20260907190000_close_legacy_write_bypasses_v49.sql`, server publication/adoption route changes, `tests/legacy-write-bypass-closure.test.ts`, and executed disposable PostgreSQL regressions in `scripts/test-db.mjs`. Historical migrations and production-ledger bytes remain unchanged.
+
+Authority closure: V2.1/V2.2/V2.3/V2.5 schedule mutation/rebase/undo functions, V3.0 arbitrary-artifact Constraint Model publication, direct V3.3 adoption, and V4.4 adoption primitive are no longer executable by `authenticated` or direct `service_role` application callers. V4.6 MOVE, V4.7 ASSIGN/UNASSIGN, V4.8 recovery, V4.9 deterministic model publication, and V4.9 reviewed candidate adoption are the retained service-role scheduling mutation surfaces. Historical functions remain owner-callable only where a current SECURITY DEFINER wrapper delegates structurally.
+
+Actor authorization: V4.9 Constraint Model publication and solver adoption recheck `studio_members` for the explicit studio/actor and require OWNER/EDITOR inside the privileged transaction. The publication compatibility bridge also rejects selected-workspace mismatch. Existing V4.6/V4.7/V4.8 already perform the same commit-time role check.
+
+Constraint publication: feasibility preflight now builds the Constraint IR with the deterministic server compiler and publishes only through service-role `publish_server_constraint_model_v49`; browser-authenticated callers cannot submit artifacts directly to V3.0.
+
+Executed DB evidence: post-migration privilege enumeration verifies all retired signatures are denied to authenticated/service roles and all current service boundaries are authenticated-denied/service-role-allowed. Direct authenticated V2.5 schedule and V3.0 model-publication calls raise privilege errors without creating versions. Downgrading an EDITOR to VIEWER immediately blocks V4.9 publication and adoption despite service-role transport. Governed coherent snapshot/context readers remain executable so history and diagnostics stay inspectable.
+
+Verification: run `34154652798` passed `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and Ubuntu `npm run test:db`; Windows passed lint/typecheck/test/build with Docker DB integration intentionally Linux-only. Lint retained only the pre-existing warnings.
+
+No production or staging database was read or mutated, and V4.9 is only a forward migration pending separately authorized deployment.
+
+Resulting task status: DONE. T14 dependency chain is satisfied but T14 is BLOCKED on the manager-reviewed complete DWDE planning snapshot required by its own acceptance criteria; synthetic data cannot satisfy that gate.
 
 ### Notes/blockers
 
-Dependencies T10, T11, and T12 are verified DONE. T13 is READY and is the first executable unfinished task.
+Dependencies T10, T11, and T12 are verified DONE. T13 is DONE. T14 is dependency-ready but BLOCKED pending the manager-reviewed complete DWDE planning snapshot; see BLK-014.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
@@ -1423,7 +1443,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T14 |
-| Status | NOT_STARTED |
+| Status | BLOCKED |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T05, T06, T07, T08, T09, T10, T11, T12, T13 |
@@ -1493,7 +1513,7 @@ Not yet verified. Record commit SHA, exact commands/exit codes, environment, reg
 
 ### Notes/blockers
 
-Waiting for dependency acceptance: T05, T06, T07, T08, T09, T10, T11, T12, T13. This is normal sequencing, not a BLOCKED status.
+BLK-014 — 2026-09-07: T13 is verified DONE, so code dependencies are satisfied. Full T14 acceptance requires a manager-reviewed complete DWDE snapshot covering people/classes/sessions/rosters/qualifications/availability and explicit omissions. The current planning inventory is not yet manager-confirmed complete. Impact: a synthetic fixture may support development but cannot be called full DWDE acceptance. Owner/action: Cami/manager reviews and confirms the exact PlanningDatasetVersion/hash and missing facts. Unblock condition: manager-confirmed complete DWDE snapshot is available for the private acceptance fixture.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
