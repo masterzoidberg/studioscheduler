@@ -123,7 +123,7 @@ def test_solve_preserves_single_session_locked_placement(monkeypatch):
     }
 
 
-def test_service_rejects_ambiguous_multi_session_lock(monkeypatch):
+def test_service_preserves_one_locked_meeting_of_multi_session_class(monkeypatch):
     monkeypatch.setenv("SOLVER_INTERNAL_TOKEN", "internal-secret")
     payload = problem()
     payload["classes"][0]["weeklyFrequency"] = 2
@@ -132,7 +132,7 @@ def test_service_rejects_ambiguous_multi_session_lock(monkeypatch):
             "id": "session-1",
             "classId": "class",
             "ordinal": 1,
-            "durationMinutes": None,
+            "durationMinutes": 75,
             "locked": True,
             "lockedPlacement": {
                 "day": "Monday",
@@ -150,14 +150,46 @@ def test_service_rejects_ambiguous_multi_session_lock(monkeypatch):
             "lockedPlacement": None,
         },
     ]
+    payload["constraintModel"]["hardConstraints"] = [
+        {"id": "teacher-no-overlap", "kind": "RESOURCE_NO_OVERLAP", "ruleIds": [], "selector": {}, "parameters": {"resource": "TEACHER"}, "explanation": "teacher overlap"},
+        {"id": "room-no-overlap", "kind": "RESOURCE_NO_OVERLAP", "ruleIds": [], "selector": {}, "parameters": {"resource": "ROOM"}, "explanation": "room overlap"},
+    ]
 
     response = client.post(
         "/v1/feasibility",
         headers={"Authorization": "Bearer internal-secret"},
         json={"problem": payload},
     )
+    assert response.status_code == 200
+    assignments = {item["sessionId"]: item for item in response.json()["result"]["assignments"]}
+    assert assignments["session-1"] == {
+        "sessionId": "session-1",
+        "day": "Monday",
+        "startTime": "18:30",
+        "endTime": "19:45",
+        "teacherId": "teacher",
+        "roomId": "room",
+    }
+    assert (assignments["session-2"]["day"], assignments["session-2"]["startTime"]) != ("Monday", "18:30")
+
+
+def test_service_rejects_structurally_stale_runtime_lock(monkeypatch):
+    monkeypatch.setenv("SOLVER_INTERNAL_TOKEN", "internal-secret")
+    payload = problem()
+    payload["sessions"][0]["locked"] = True
+    payload["sessions"][0]["lockedPlacement"] = {
+        "day": "Monday",
+        "startTime": "18:30",
+        "teacherId": "missing-teacher",
+        "roomId": "room",
+    }
+    response = client.post(
+        "/v1/feasibility",
+        headers={"Authorization": "Bearer internal-secret"},
+        json={"problem": payload},
+    )
     assert response.status_code == 422
-    assert "multi-session class" in response.json()["detail"]
+    assert response.json()["detail"] == "Runtime lock session references missing teacher 'missing-teacher'"
 
 
 def test_service_rejects_context_model_version_drift(monkeypatch):

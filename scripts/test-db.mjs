@@ -1187,6 +1187,94 @@ reset role;
 select 'T08 PASS: exact reviewed context adopts once; same-version lock drift, concurrent editor stale review, and double adoption reject atomically without fresh-version substitution' as result;
 `;
 
+const sessionSpecificLockAdoptionSql = String.raw`
+set search_path=public,extensions;
+
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_schedule public.schedule_versions%rowtype;
+  v_context jsonb;
+  v_candidate jsonb;
+  v_moved jsonb;
+  v_result jsonb;
+  v_before_count integer;
+  v_after_count integer;
+  v_rejected boolean := false;
+begin
+  select * into v_schedule from public.schedule_versions where studio_id=v_studio and is_current;
+  update public.assignments
+  set locked=true
+  where schedule_version_id=v_schedule.id and session_id='t04-session';
+  if not found then raise exception 'T09 fixture has no current t04 assignment to lock'; end if;
+  if exists(select 1 from public.class_sessions where id='t04-session' and locked=true) then
+    raise exception 'T09 fixture requires an assignment-only lock to prove OR precedence';
+  end if;
+
+  select jsonb_build_array(jsonb_build_object(
+    'sessionId',a.session_id,
+    'day',a.day,
+    'startTime',to_char(a.start_time,'HH24:MI'),
+    'endTime',to_char(a.end_time,'HH24:MI'),
+    'teacherId',a.teacher_id,
+    'roomId',a.room_id
+  )) into v_candidate
+  from public.assignments a
+  where a.schedule_version_id=v_schedule.id and a.session_id='t04-session';
+
+  v_context := private.build_solver_candidate_context_v44(v_studio);
+  v_result := public.adopt_solver_candidate_v44(
+    v_studio,v_owner,'T09 integration actor','Preserve assignment-only runtime lock',
+    v_context,v_candidate,'{"valid":true,"hardViolations":0}'::jsonb
+  );
+
+  if v_result->>'runtimeLockPrecedence' is distinct from 'SESSION_OR_ASSIGNMENT' then
+    raise exception 'T09 canonical adoption did not report effective lock precedence';
+  end if;
+  if not exists (
+    select 1 from public.assignments a
+    join public.schedule_versions sv on sv.id=a.schedule_version_id
+    where sv.studio_id=v_studio and sv.is_current and a.session_id='t04-session' and a.locked=true
+  ) then
+    raise exception 'T09 assignment-only lock was lost during adoption';
+  end if;
+  if exists(select 1 from public.class_sessions where id='t04-session' and locked=true) then
+    raise exception 'T09 adoption incorrectly converted assignment-only lock into planning-session lock';
+  end if;
+
+  select * into v_schedule from public.schedule_versions where studio_id=v_studio and is_current;
+  v_context := private.build_solver_candidate_context_v44(v_studio);
+  select jsonb_build_array(jsonb_build_object(
+    'sessionId',a.session_id,
+    'day',a.day,
+    'startTime',to_char(a.start_time + interval '15 minutes','HH24:MI'),
+    'endTime',to_char(a.end_time + interval '15 minutes','HH24:MI'),
+    'teacherId',a.teacher_id,
+    'roomId',a.room_id
+  )) into v_moved
+  from public.assignments a
+  where a.schedule_version_id=v_schedule.id and a.session_id='t04-session';
+
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.adopt_solver_candidate_v44(
+      v_studio,v_owner,'T09 integration actor','Reject movement of assignment-only runtime lock',
+      v_context,v_moved,'{"valid":true,"hardViolations":0}'::jsonb
+    );
+  exception when others then
+    if position('LOCKED_SESSION_PLACEMENT_CHANGED' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T09 moved assignment-only lock was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T09 locked-placement rejection was not atomic'; end if;
+end
+$block$;
+
+select 'T09 PASS: assignment OR session lock precedence survives reviewed adoption; assignment-only lock persists and movement rejects atomically' as result;
+`;
+
 function psql(container, user, sql, label) {
   const result = runProcess(
     'docker',
@@ -1272,6 +1360,8 @@ async function runHarness() {
     process.stdout.write(coherentSnapshotOutput);
     const candidateStaleOutput = psql(container, 'postgres', candidateStaleBindingSql, 'T08 candidate stale-schedule binding integration tests');
     process.stdout.write(candidateStaleOutput);
+    const sessionLockOutput = psql(container, 'postgres', sessionSpecificLockAdoptionSql, 'T09 session-specific lock adoption integration tests');
+    process.stdout.write(sessionLockOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);
