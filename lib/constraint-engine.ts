@@ -448,6 +448,16 @@ export function validateConstraintModelSchedule(
       const gap = Number(node.parameters.gapMinutes || 0);
       const before = classAssignments(state, assignments, predecessor, classesBySession);
       const after = classAssignments(state, assignments, successor, classesBySession);
+      const predecessorClass = state.classes.find((klass) => normalize(klass.name) === normalize(predecessor));
+      const successorClass = state.classes.find((klass) => normalize(klass.name) === normalize(successor));
+      if (after.length && !before.length) {
+        addViolation(violations, node, `${successor} is placed while ${predecessor} is still unassigned; the direct-after obligation is incomplete.`, [], [predecessorClass?.id, successorClass?.id].filter((id): id is string => Boolean(id)));
+        continue;
+      }
+      if (before.length && !after.length) {
+        addViolation(violations, node, `${predecessor} is placed while ${successor} is still unassigned; the direct-after obligation is incomplete.`, [], [predecessorClass?.id, successorClass?.id].filter((id): id is string => Boolean(id)));
+        continue;
+      }
       if (!before.length || !after.length) continue;
       const designated = node.parameters.designatedWeeklyMeeting === true;
       const matches = after.filter((successorAssignment) => before.some((predecessorAssignment) =>

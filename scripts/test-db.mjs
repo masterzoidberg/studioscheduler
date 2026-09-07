@@ -1420,6 +1420,223 @@ drop function public.t10_test_solver_context(uuid);
 select 'T10 PASS: explicit tenant/context guard, duration-derived MOVE, pinned model linkage, audit evidence, and atomic stale/lock rejection' as result;
 `;
 
+const authoritativeIncrementalSql = String.raw`
+set search_path=public,extensions;
+
+-- T10 leaves the current placement locked as its final rejection witness. T11
+-- starts by restoring a movable current placement without changing version data.
+update public.assignments a set locked=false
+from public.schedule_versions sv
+where sv.id=a.schedule_version_id
+  and sv.studio_id='11111111-1111-4111-8111-111111111111'
+  and sv.is_current
+  and a.session_id='t04-session';
+update public.class_sessions set locked=false where studio_id='11111111-1111-4111-8111-111111111111' and id='t04-session';
+update public.rooms set archived_at=null where studio_id='11111111-1111-4111-8111-111111111111' and id='t04-room';
+
+create or replace function public.t11_test_solver_context(p_studio_id uuid)
+returns jsonb
+language sql
+security definer
+set search_path=''
+as $$ select private.build_solver_context_token_v43(p_studio_id) $$;
+revoke all on function public.t11_test_solver_context(uuid) from public,anon,authenticated;
+grant execute on function public.t11_test_solver_context(uuid) to service_role;
+
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_assignment text;
+  v_context jsonb;
+  v_result jsonb;
+  v_before_count integer;
+  v_after_count integer;
+  v_retry_rejected boolean := false;
+begin
+  select a.id into v_assignment
+  from public.assignments a join public.schedule_versions sv on sv.id=a.schedule_version_id
+  where sv.studio_id=v_studio and sv.is_current and a.session_id='t04-session';
+  if v_assignment is null then raise exception 'T11 fixture current t04 assignment is missing'; end if;
+  v_context:=public.t11_test_solver_context(v_studio);
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  v_result:=public.apply_authoritative_incremental_command_v47(
+    'UNASSIGN',v_studio,v_owner,v_assignment,'t04-session','{}'::jsonb,
+    'T11 valid unassign',v_context,
+    '{"valid":true,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
+    '{"mode":"NORMAL","scheduleComplete":false,"publishable":false,"unscheduledSessionIds":["t04-session"],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[]}'::jsonb,false
+  );
+  if (v_result->>'scheduleVersion')::integer<>(v_context->>'scheduleVersion')::integer+1 then raise exception 'T11 UNASSIGN did not advance one version'; end if;
+  if exists(select 1 from public.assignments a join public.schedule_versions sv on sv.id=a.schedule_version_id where sv.studio_id=v_studio and sv.is_current and a.session_id='t04-session') then
+    raise exception 'T11 UNASSIGN did not remove the current placement';
+  end if;
+  if coalesce((v_result->'validation'->>'scheduleComplete')::boolean,true) then raise exception 'T11 partial schedule was incorrectly marked complete'; end if;
+  begin
+    perform public.apply_authoritative_incremental_command_v47(
+      'UNASSIGN',v_studio,v_owner,v_assignment,'t04-session','{}'::jsonb,
+      'T11 stale retry',v_context,'{}'::jsonb,'{}'::jsonb,false
+    );
+  exception when others then
+    if position('STALE_INCREMENTAL_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_retry_rejected:=true;
+  end;
+  if not v_retry_rejected then raise exception 'T11 stale retry was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count+1 then raise exception 'T11 stale retry was not atomic'; end if;
+end
+$block$;
+reset role;
+
+-- Bypass governed archive bookkeeping only inside this disposable fixture so the
+-- exact context stays stable and V4.7's active-row defense is exercised directly.
+update public.rooms set archived_at=now() where studio_id='11111111-1111-4111-8111-111111111111' and id='t04-room';
+update public.schedule_versions
+set planning_dataset_version=(
+  select pd.version from public.planning_dataset_versions pd
+  where pd.studio_id='11111111-1111-4111-8111-111111111111' and pd.status='CURRENT'
+  order by pd.version desc limit 1
+)
+where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_context jsonb := public.t11_test_solver_context(v_studio);
+  v_before_count integer;
+  v_after_count integer;
+  v_rejected boolean := false;
+begin
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.apply_authoritative_incremental_command_v47(
+      'ASSIGN',v_studio,v_owner,'t11-archived-room','t04-session',
+      '{"day":"Monday","startTime":"17:15","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
+      'T11 archived room rejection',v_context,'{}'::jsonb,
+      '{"mode":"NORMAL","scheduleComplete":true,"publishable":true,"unscheduledSessionIds":[],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[]}'::jsonb,false
+    );
+  exception when others then
+    if position('ARCHIVED_OR_UNKNOWN_ROOM' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T11 archived room was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T11 archived-target rejection was not atomic'; end if;
+end
+$block$;
+reset role;
+update public.rooms set archived_at=null where studio_id='11111111-1111-4111-8111-111111111111' and id='t04-room';
+update public.schedule_versions
+set planning_dataset_version=(
+  select pd.version from public.planning_dataset_versions pd
+  where pd.studio_id='11111111-1111-4111-8111-111111111111' and pd.status='CURRENT'
+  order by pd.version desc limit 1
+)
+where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_context jsonb;
+  v_result jsonb;
+  v_before_count integer;
+  v_after_count integer;
+  v_duplicate_rejected boolean := false;
+  v_unknown_rejected boolean := false;
+begin
+  v_context:=public.t11_test_solver_context(v_studio);
+  v_result:=public.apply_authoritative_incremental_command_v47(
+    'ASSIGN',v_studio,v_owner,'t11-assignment','t04-session',
+    '{"day":"Monday","startTime":"17:15","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
+    'T11 valid assign',v_context,
+    '{"valid":true,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
+    '{"mode":"NORMAL","scheduleComplete":true,"publishable":true,"unscheduledSessionIds":[],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[]}'::jsonb,false
+  );
+  if not exists(
+    select 1 from public.assignments a join public.schedule_versions sv on sv.id=a.schedule_version_id
+    where sv.studio_id=v_studio and sv.is_current and a.id='t11-assignment'
+      and a.start_time='17:15'::time and a.end_time='18:45'::time
+  ) then raise exception 'T11 ASSIGN did not persist canonical 90-minute interval'; end if;
+  if not exists(
+    select 1 from public.schedule_versions sv where sv.studio_id=v_studio and sv.is_current
+      and sv.constraint_model_version=(v_context->>'constraintModelVersion')::integer
+  ) then raise exception 'T11 ASSIGN lost pinned ConstraintModelVersion'; end if;
+  if not exists(
+    select 1 from public.audit_events e where e.studio_id=v_studio and e.action='SCHEDULE_COMMAND' and e.entity_id='t11-assignment'
+      and e.payload->>'authority'='SERVER_CONSTRAINT_IR_V47' and (e.payload->>'authoritativeConstraintIr')::boolean=true
+  ) then raise exception 'T11 authoritative audit evidence missing'; end if;
+
+  v_context:=public.t11_test_solver_context(v_studio);
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.apply_authoritative_incremental_command_v47(
+      'ASSIGN',v_studio,v_owner,'t11-duplicate','t04-session',
+      '{"day":"Monday","startTime":"18:45","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
+      'T11 duplicate session rejection',v_context,'{}'::jsonb,'{}'::jsonb,false
+    );
+  exception when others then
+    if position('SESSION_ALREADY_ASSIGNED' in sqlerrm)=0 then raise; end if;
+    v_duplicate_rejected:=true;
+  end;
+  if not v_duplicate_rejected then raise exception 'T11 duplicate session was accepted'; end if;
+
+  begin
+    perform public.apply_authoritative_incremental_command_v47(
+      'ASSIGN',v_studio,v_owner,'t11-unknown','does-not-exist',
+      '{"day":"Monday","startTime":"18:45","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
+      'T11 unknown session rejection',v_context,'{}'::jsonb,'{}'::jsonb,false
+    );
+  exception when others then
+    if position('ARCHIVED_OR_UNKNOWN_SESSION' in sqlerrm)=0 then raise; end if;
+    v_unknown_rejected:=true;
+  end;
+  if not v_unknown_rejected then raise exception 'T11 unknown session was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T11 duplicate/unknown rejection was not atomic'; end if;
+end
+$block$;
+reset role;
+
+update public.assignments a set locked=true
+from public.schedule_versions sv
+where sv.id=a.schedule_version_id and sv.studio_id='11111111-1111-4111-8111-111111111111' and sv.is_current and a.id='t11-assignment';
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_context jsonb := public.t11_test_solver_context(v_studio);
+  v_before_count integer;
+  v_after_count integer;
+  v_rejected boolean := false;
+begin
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.apply_authoritative_incremental_command_v47(
+      'UNASSIGN',v_studio,v_owner,'t11-assignment','t04-session','{}'::jsonb,
+      'T11 locked unassign rejection',v_context,'{}'::jsonb,'{}'::jsonb,false
+    );
+  exception when others then
+    if position('LOCKED_ASSIGNMENT' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T11 locked assignment was unassigned'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T11 locked rejection was not atomic'; end if;
+end
+$block$;
+reset role;
+update public.assignments a set locked=false
+from public.schedule_versions sv
+where sv.id=a.schedule_version_id and sv.studio_id='11111111-1111-4111-8111-111111111111' and sv.is_current and a.id='t11-assignment';
+
+drop function public.t11_test_solver_context(uuid);
+select 'T11 PASS: server-authoritative ASSIGN/UNASSIGN persist canonical duration; stale retry, archived/unknown/duplicate targets, and locks reject atomically' as result;
+`;
+
 function psql(container, user, sql, label) {
   const result = runProcess(
     'docker',
@@ -1509,6 +1726,8 @@ async function runHarness() {
     process.stdout.write(sessionLockOutput);
     const manualMoveOutput = psql(container, 'postgres', authoritativeManualMoveSql, 'T10 authoritative manual MOVE integration tests');
     process.stdout.write(manualMoveOutput);
+    const incrementalOutput = psql(container, 'postgres', authoritativeIncrementalSql, 'T11 authoritative incremental ASSIGN/UNASSIGN integration tests');
+    process.stdout.write(incrementalOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);

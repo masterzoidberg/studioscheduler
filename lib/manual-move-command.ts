@@ -9,6 +9,7 @@ export interface ManualMoveDraftStatus {
   unscheduledSessionIds: string[];
   duplicateSessionIds: string[];
   unknownAssignmentSessionIds: string[];
+  completenessObligationKeys: string[];
 }
 
 export interface ManualMoveDecision {
@@ -23,7 +24,11 @@ export interface ManualMoveDecision {
   };
 }
 
-function canonicalCompleteness(state: StudioState, assignments: Assignment[]) {
+function canonicalCompleteness(
+  state: StudioState,
+  assignments: Assignment[],
+  completenessObligationKeys: string[],
+) {
   const activeSessionIds = new Set(state.sessions.map((session) => session.id));
   const counts = new Map<string, number>();
   const unknownAssignmentSessionIds = new Set<string>();
@@ -42,41 +47,52 @@ function canonicalCompleteness(state: StudioState, assignments: Assignment[]) {
   return {
     scheduleComplete: unscheduledSessionIds.length === 0
       && duplicateSessionIds.length === 0
-      && unknownAssignmentSessionIds.size === 0,
+      && unknownAssignmentSessionIds.size === 0
+      && completenessObligationKeys.length === 0,
     unscheduledSessionIds,
     duplicateSessionIds,
     unknownAssignmentSessionIds: [...unknownAssignmentSessionIds].sort(),
+    completenessObligationKeys,
   };
 }
 
-function firstIrMessage(comparison: ConstraintGateComparison) {
-  return comparison.constraintIr.after.violations[0]?.message
-    || "The proposed move is illegal under the authoritative Constraint IR.";
+function firstIrMessage(comparison: ConstraintGateComparison, operation: SchedulePatch["operation"]) {
+  return comparison.constraintIr.after.violations
+    .find((violation) => comparison.constraintIr.newBlockingViolationKeys.includes(JSON.stringify([
+      violation.constraintId,
+      [...violation.assignmentIds].sort(),
+      [...violation.affectedEntityIds].sort(),
+    ])))?.message
+    || `The proposed ${operation} is illegal under the authoritative Constraint IR.`;
+}
+
+function blockerPrefix(operation: SchedulePatch["operation"]) {
+  return operation === "MOVE" ? "MANUAL_MOVE" : "INCREMENTAL_COMMAND";
 }
 
 /**
- * Authoritative manual MOVE decision.
+ * Shared canonical schedule-command decision for MOVE / ASSIGN / UNASSIGN.
  *
- * The IR is the new placement authority. The legacy validator remains a temporary
- * safety floor until T13 closes superseded write paths, so IR may be stricter but
- * this boundary never permits a move the current legacy gate would reject.
- *
- * Completeness is deliberately orthogonal to MOVE legality: a partially built
- * schedule may be repaired/moved, but it is never reported as publishable.
+ * Placement legality and draft completeness are deliberately separate. A legal
+ * incremental command may leave required sessions or sequencing counterparts
+ * unplaced, but it may not introduce a new HARD placement violation.
  */
-export function evaluateAuthoritativeManualMove(
+export function evaluateAuthoritativeScheduleCommand(
   state: StudioState,
   patch: SchedulePatch,
   model: ConstraintModelSnapshotV1,
 ): ManualMoveDecision {
-  if (patch.operation !== "MOVE") throw new Error("Authoritative manual move evaluation accepts MOVE only.");
   const current = state.scheduleVersions.find((version) => version.isCurrent);
   if (!current) throw new Error("No current ScheduleVersion exists.");
 
   const comparison = compareConstraintGatesForCommand(state, current.assignments, patch, model);
-  const completeness = canonicalCompleteness(state, comparison.candidate.assignments);
+  const completenessObligationKeys = [...new Set([
+    ...comparison.constraintIr.completenessObligationKeys,
+    ...comparison.legacy.completenessObligationKeys,
+  ])].sort();
+  const completeness = canonicalCompleteness(state, comparison.candidate.assignments, completenessObligationKeys);
   const mode: ManualMoveDraftStatus["mode"] = (
-    comparison.constraintIr.beforeHardViolations > 0 || comparison.legacy.beforeHardViolations > 0
+    comparison.constraintIr.beforeBlockingHardViolations > 0 || comparison.legacy.beforeBlockingHardViolations > 0
   ) ? "REPAIR" : "NORMAL";
   const draftStatus: ManualMoveDraftStatus = {
     mode,
@@ -97,8 +113,8 @@ export function evaluateAuthoritativeManualMove(
       comparison,
       draftStatus,
       blocker: {
-        code: "MANUAL_MOVE_IR_UNSUPPORTED",
-        message: `Manual MOVE failed closed because ${unsupported.length} authoritative HARD constraint node(s) are unsupported by the IR evaluator.`,
+        code: `${blockerPrefix(patch.operation)}_IR_UNSUPPORTED`,
+        message: `${patch.operation} failed closed because ${unsupported.length} authoritative HARD constraint node(s) are unsupported by the IR evaluator.`,
         ruleIds: [],
         entityIds: unsupported,
       },
@@ -112,8 +128,8 @@ export function evaluateAuthoritativeManualMove(
       comparison,
       draftStatus,
       blocker: {
-        code: "MANUAL_MOVE_IR_REJECTED",
-        message: firstIrMessage(comparison),
+        code: `${blockerPrefix(patch.operation)}_IR_REJECTED`,
+        message: firstIrMessage(comparison, patch.operation),
         ruleIds: violation?.ruleIds || [],
         entityIds: violation?.affectedEntityIds || [comparison.candidate.sessionId],
       },
@@ -126,9 +142,9 @@ export function evaluateAuthoritativeManualMove(
       comparison,
       draftStatus,
       blocker: {
-        code: "MANUAL_MOVE_LEGACY_SAFETY_REJECTED",
+        code: `${blockerPrefix(patch.operation)}_LEGACY_SAFETY_REJECTED`,
         message: comparison.legacy.after.violations.find((item) => item.severity === "HARD")?.message
-          || "The proposed move does not preserve the existing production safety floor.",
+          || "The proposed command does not preserve the existing production safety floor.",
         ruleIds: comparison.legacyHardRuleIdsMissingFromIr,
         entityIds: [comparison.candidate.sessionId],
       },
@@ -136,4 +152,14 @@ export function evaluateAuthoritativeManualMove(
   }
 
   return { accepted: true, comparison, draftStatus, blocker: null };
+}
+
+/** Backward-compatible T10 entry point. */
+export function evaluateAuthoritativeManualMove(
+  state: StudioState,
+  patch: SchedulePatch,
+  model: ConstraintModelSnapshotV1,
+): ManualMoveDecision {
+  if (patch.operation !== "MOVE") throw new Error("Authoritative manual move evaluation accepts MOVE only.");
+  return evaluateAuthoritativeScheduleCommand(state, patch, model);
 }

@@ -3,8 +3,6 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, CalendarPlus2, CheckCircle2, ChevronDown, ChevronUp, Clock3, Inbox, RotateCcw, X } from "lucide-react";
 import type { Assignment, ClassSession, Day } from "@/lib/domain";
-import { validateSchedule } from "@/lib/validator";
-import { getBrowserSupabase } from "@/lib/supabase";
 import { assignmentIdForSession, defaultStartTime, placementEndTime, sessionDurationMinutes, unscheduledSessions } from "@/lib/schedule-builder";
 import { evaluateScheduleReadiness } from "@/lib/schedule-readiness";
 import { subjectMarker } from "@/lib/schedule-visuals";
@@ -19,10 +17,6 @@ function pretty(value: string) {
   return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
 }
 
-function messageOf(error: unknown) {
-  if (error && typeof error === "object" && "message" in error) return String((error as { message?: unknown }).message || "Unknown error");
-  return String(error || "Unknown error");
-}
 
 export function ScheduleBuilderPanel() {
   const {
@@ -31,10 +25,8 @@ export function ScheduleBuilderPanel() {
     currentScheduleVersion,
     currentRulebookVersion,
     currentEnforcementVersion,
-    currentPlanningDatasetVersion,
     scheduleIsStale,
-    validation,
-    refresh,
+    applySchedulePatch,
     canEdit,
   } = useWorkspace();
   const { editingEnabled } = useScheduleEditMode();
@@ -83,8 +75,7 @@ export function ScheduleBuilderPanel() {
         status: "NORMAL",
       }
     : null;
-  const placementPreview = candidate ? validateSchedule(state, [...currentAssignments, candidate]) : null;
-  const placementAllowed = Boolean(placementPreview && placementPreview.hardViolations <= validation.hardViolations);
+  const placementAllowed = Boolean(candidate);
 
   const placed = [...currentAssignments].sort((a, b) => {
     const dayDiff = days.indexOf(a.day) - days.indexOf(b.day);
@@ -112,33 +103,33 @@ export function ScheduleBuilderPanel() {
     if (!editingEnabled || !placing || !placingClass || !candidate || !placementAllowed || scheduleIsStale) return;
     setSaving(true);
     setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("apply_schedule_command_v25", {
-      p_operation: "ASSIGN",
-      p_assignment_id: candidate.id,
-      p_session_id: placing.id,
-      p_changes: {
+    const result = await applySchedulePatch({
+      id: `assign-${placing.id}-from-tray`,
+      operation: "ASSIGN",
+      assignmentId: candidate.id,
+      changes: {
+        sessionId: placing.id,
         day: candidate.day,
         startTime: candidate.startTime,
         teacherId: candidate.teacherId,
         roomId: candidate.roomId,
         status: "NORMAL",
       },
-      p_reason: `Placed ${placingClass.name} from Unscheduled`,
-      p_expected_schedule_version: currentScheduleVersion,
-      p_expected_rulebook_version: currentRulebookVersion,
-      p_expected_enforcement_version: currentEnforcementVersion,
-      p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-      p_ai_proposed: false,
+      reason: `Placed ${placingClass.name} from Unscheduled`,
+      proposedBy: "USER",
+      baseScheduleVersion: currentScheduleVersion,
+      baseRulebookVersion: currentRulebookVersion,
+      baseEnforcementVersion: currentEnforcementVersion,
     });
     setSaving(false);
-    if (error) {
-      setNotice(`Placement blocked: ${messageOf(error)}`);
+    if (!result.ok) {
+      setNotice(`Placement blocked: ${result.error || "Authoritative server validation rejected this placement."}`);
       return;
     }
-    const result = (data || {}) as Record<string, unknown>;
     setPlacing(null);
-    setNotice(`Placed ${placingClass.name}. Saved as Schedule v${Number(result.scheduleVersion || currentScheduleVersion + 1)}.`);
-    await refresh();
+    const draft = (result.details?.draftStatus || {}) as Record<string, unknown>;
+    const suffix = draft.scheduleComplete === false ? " Draft remains incomplete." : "";
+    setNotice(`Placed ${placingClass.name}. Saved as Schedule v${Number(result.version || currentScheduleVersion + 1)}.${suffix}`);
   }
 
   async function unassign() {
@@ -146,28 +137,25 @@ export function ScheduleBuilderPanel() {
     const currentClass = klassForAssignment(pendingUnassign);
     setSaving(true);
     setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("apply_schedule_command_v25", {
-      p_operation: "UNASSIGN",
-      p_assignment_id: pendingUnassign.id,
-      p_session_id: pendingUnassign.sessionId,
-      p_changes: {},
-      p_reason: `Moved ${currentClass?.name || pendingUnassign.sessionId} to Unscheduled`,
-      p_expected_schedule_version: currentScheduleVersion,
-      p_expected_rulebook_version: currentRulebookVersion,
-      p_expected_enforcement_version: currentEnforcementVersion,
-      p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-      p_ai_proposed: false,
+    const result = await applySchedulePatch({
+      id: `unassign-${pendingUnassign.id}`,
+      operation: "UNASSIGN",
+      assignmentId: pendingUnassign.id,
+      changes: {},
+      reason: `Moved ${currentClass?.name || pendingUnassign.sessionId} to Unscheduled`,
+      proposedBy: "USER",
+      baseScheduleVersion: currentScheduleVersion,
+      baseRulebookVersion: currentRulebookVersion,
+      baseEnforcementVersion: currentEnforcementVersion,
     });
     setSaving(false);
-    if (error) {
-      setNotice(`Unassign blocked: ${messageOf(error)}`);
+    if (!result.ok) {
+      setNotice(`Unassign blocked: ${result.error || "Authoritative server validation rejected this unassign."}`);
       return;
     }
-    const result = (data || {}) as Record<string, unknown>;
     setPendingUnassign(null);
     setTab("UNSCHEDULED");
-    setNotice(`Moved ${currentClass?.name || "class"} to Unscheduled. Saved as Schedule v${Number(result.scheduleVersion || currentScheduleVersion + 1)}.`);
-    await refresh();
+    setNotice(`Moved ${currentClass?.name || "class"} to Unscheduled. Saved as Schedule v${Number(result.version || currentScheduleVersion + 1)}. Draft is incomplete until every required session/relationship is satisfied.`);
   }
 
   return (
@@ -231,7 +219,7 @@ export function ScheduleBuilderPanel() {
               <label className="text-xs font-semibold text-slate-600">Teacher<select value={teacherId} onChange={(event) => setTeacherId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">Choose teacher</option>{eligibleTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><AlertTriangle className="mr-1.5 inline size-3.5" />Teacher choices are intentionally not filtered by legacy class eligibility data. Qualification must come from the reviewed Rulebook/constraint model. Current preview only enforces the rules already implemented.</div>
               <label className="text-xs font-semibold text-slate-600">Room<select value={roomId} onChange={(event) => setRoomId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">Choose room</option>{state.rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
-              <div className={`rounded-xl border p-4 ${placementAllowed ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}><div className="flex items-center gap-2 text-sm font-semibold">{placementAllowed ? <CheckCircle2 className="size-4 text-emerald-700" /> : <AlertTriangle className="size-4 text-red-700" />}Placement preview</div><p className="mt-2 text-sm text-slate-700">{placementPreview?.hardViolations ?? validation.hardViolations} detected HARD violation(s) after placement.</p>{placementPreview && placementPreview.hardViolations > validation.hardViolations ? <div className="mt-2 space-y-1 text-xs text-red-800">{placementPreview.violations.filter((item) => item.severity === "HARD").slice(0, 5).map((item, index) => <p key={index}>• {item.message}</p>)}</div> : null}<p className="mt-2 text-xs text-slate-500">This preview only covers the HARD rules currently implemented. The server checks them again before saving.</p></div>
+              <div className={`rounded-xl border p-4 ${placementAllowed ? "border-blue-200 bg-blue-50" : "border-red-200 bg-red-50"}`}><div className="flex items-center gap-2 text-sm font-semibold">{placementAllowed ? <CheckCircle2 className="size-4 text-blue-700" /> : <AlertTriangle className="size-4 text-red-700" />}Authoritative server validation</div><p className="mt-2 text-sm text-slate-700">{placementAllowed ? "Required placement fields are present. The server will evaluate the exact candidate against the pinned Constraint IR before saving." : "Choose a day, start time, teacher, and room before submitting."}</p><p className="mt-2 text-xs text-slate-500">This form does not decide schedule legality. A rejected server check creates no new ScheduleVersion.</p></div>
               <div className="flex gap-2"><button type="button" onClick={() => setPlacing(null)} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button type="button" disabled={!mutationEnabled || saving || !candidate || !placementAllowed} onClick={() => void placeSession()} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40"><CalendarPlus2 className="size-4" />{saving ? "Placing…" : "Place class"}</button></div>
             </div>
           </div>

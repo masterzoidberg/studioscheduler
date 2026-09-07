@@ -314,26 +314,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   async function applySchedulePatch(patch: SchedulePatch): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
-    if (patch.operation !== "MOVE") return { ok: false, error: "This T10 command path moves an existing assignment only." };
     if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
     if (scheduleIsStale) return {
       ok: false,
       error: `Schedule v${currentScheduleVersion} is linked to Rulebook v${currentScheduleRulebookVersion} / Enforcement v${currentScheduleEnforcementVersion} / Planning Dataset v${currentSchedulePlanningDatasetVersion || "unversioned"}. Revalidate it against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} / Planning Dataset v${currentPlanningDatasetVersion} first.`,
     };
     try {
-      const response = await fetch("/api/schedule/move", {
+      const requestInit: RequestInit = {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ studioId: state.studioId, patch }),
-      });
+      };
+      const response = patch.operation === "MOVE"
+        ? await fetch("/api/schedule/move", requestInit)
+        : await fetch("/api/schedule/incremental", requestInit);
       const payload = await response.json() as Record<string, unknown>;
       if (!response.ok) {
         return {
           ok: false,
-          error: String(payload.error || "The authoritative server MOVE gate rejected this change."),
+          error: String(payload.error || "The authoritative server schedule gate rejected this change."),
           validation: (payload.legacyValidation || payload.validation) as ValidationResult | undefined,
           details: payload,
         };
