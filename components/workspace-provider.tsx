@@ -24,7 +24,7 @@ import type {
   Teacher,
   ValidationResult,
 } from "@/lib/domain";
-import { applyAssignmentChanges, emptyValidation, validateSchedule } from "@/lib/validator";
+import { emptyValidation, validateSchedule } from "@/lib/validator";
 import { getBrowserSupabase } from "@/lib/supabase";
 
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
@@ -314,45 +314,37 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   async function applySchedulePatch(patch: SchedulePatch): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
-    if (patch.operation !== "MOVE") return { ok: false, error: "This command path moves an existing assignment only." };
+    if (patch.operation !== "MOVE") return { ok: false, error: "This T10 command path moves an existing assignment only." };
+    if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
     if (scheduleIsStale) return {
       ok: false,
       error: `Schedule v${currentScheduleVersion} is linked to Rulebook v${currentScheduleRulebookVersion} / Enforcement v${currentScheduleEnforcementVersion} / Planning Dataset v${currentSchedulePlanningDatasetVersion || "unversioned"}. Revalidate it against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} / Planning Dataset v${currentPlanningDatasetVersion} first.`,
     };
-    const existing = currentAssignments.find((assignment) => assignment.id === patch.assignmentId);
-    if (!existing) return { ok: false, error: "Assignment does not exist." };
-    if (existing.locked) return { ok: false, error: "This assignment is locked." };
-    const proposed = applyAssignmentChanges(currentAssignments, patch.assignmentId, patch.changes);
-    const preview = state ? validateSchedule(state, proposed) : emptyValidation();
-    if (validation.hardViolations === 0 && preview.hardViolations > 0) {
-      return { ok: false, error: "The proposed move creates a detected HARD violation.", validation: preview };
-    }
-    if (validation.hardViolations > 0 && preview.hardViolations >= validation.hardViolations) {
-      return { ok: false, error: `Repair mode: this schedule currently has ${validation.hardViolations} HARD violation(s). A move must strictly reduce that count.`, validation: preview };
-    }
-    const changes = {
-      day: patch.changes.day ?? existing.day,
-      startTime: patch.changes.startTime ?? existing.startTime,
-      teacherId: patch.changes.teacherId ?? existing.teacherId,
-      roomId: patch.changes.roomId ?? existing.roomId,
-      status: patch.changes.status ?? existing.status ?? "NORMAL",
-    };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("apply_schedule_command_v25", {
-        p_operation: "MOVE",
-        p_assignment_id: patch.assignmentId,
-        p_session_id: existing.sessionId,
-        p_changes: changes,
-        p_reason: patch.reason,
-        p_expected_schedule_version: currentScheduleVersion,
-        p_expected_rulebook_version: currentRulebookVersion,
-        p_expected_enforcement_version: currentEnforcementVersion,
-        p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-        p_ai_proposed: patch.proposedBy === "AI",
+      const response = await fetch("/api/schedule/move", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ studioId: state.studioId, patch }),
       });
-      if (rpcError) throw rpcError;
-      const details = object(data); await load();
-      return { ok: true, validation: details.validation as unknown as ValidationResult, version: Number(details.scheduleVersion || 0), details };
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: String(payload.error || "The authoritative server MOVE gate rejected this change."),
+          validation: (payload.legacyValidation || payload.validation) as ValidationResult | undefined,
+          details: payload,
+        };
+      }
+      await load();
+      return {
+        ok: true,
+        version: Number(payload.scheduleVersion || 0),
+        validation: payload.validation as ValidationResult | undefined,
+        details: payload,
+      };
     } catch (caught) { return fail(caught); }
   }
 

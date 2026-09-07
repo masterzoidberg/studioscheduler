@@ -1275,6 +1275,151 @@ $block$;
 select 'T09 PASS: assignment OR session lock precedence survives reviewed adoption; assignment-only lock persists and movement rejects atomically' as result;
 `;
 
+const authoritativeManualMoveSql = String.raw`
+set search_path=public,extensions;
+
+-- T09 intentionally leaves the current assignment locked. T10 starts from a
+-- legal unlocked current placement so its own transaction can exercise MOVE.
+update public.assignments a
+set locked=false
+from public.schedule_versions sv
+where sv.id=a.schedule_version_id
+  and sv.studio_id='11111111-1111-4111-8111-111111111111'
+  and sv.is_current
+  and a.session_id='t04-session';
+
+-- Give the same actor a second lower-priority membership. T10 must reject that
+-- selected tenant instead of allowing V2.5 to silently choose the owner's first
+-- legacy membership.
+insert into public.studios(id,slug,name)
+values ('22222222-2222-4222-8222-222222222222','t10-other-studio','T10 Other Studio')
+on conflict(id) do nothing;
+insert into public.studio_members(studio_id,user_id,role)
+values ('22222222-2222-4222-8222-222222222222','10000000-0000-4000-8000-000000000001','EDITOR')
+on conflict(studio_id,user_id) do update set role=excluded.role;
+
+create or replace function public.t10_test_solver_context(p_studio_id uuid)
+returns jsonb
+language sql
+security definer
+set search_path=''
+as $$ select private.build_solver_context_token_v43(p_studio_id) $$;
+revoke all on function public.t10_test_solver_context(uuid) from public,anon,authenticated;
+grant execute on function public.t10_test_solver_context(uuid) to service_role;
+
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_other uuid := '22222222-2222-4222-8222-222222222222';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_assignment_id text;
+  v_context jsonb;
+  v_result jsonb;
+  v_before_count integer;
+  v_after_count integer;
+  v_stale_rejected boolean := false;
+  v_workspace_rejected boolean := false;
+  v_locked_rejected boolean := false;
+begin
+  select a.id into v_assignment_id
+  from public.assignments a
+  join public.schedule_versions sv on sv.id=a.schedule_version_id
+  where sv.studio_id=v_studio and sv.is_current and a.session_id='t04-session';
+  if v_assignment_id is null then raise exception 'T10 current assignment for stable session t04-session is missing'; end if;
+  v_context:=public.t10_test_solver_context(v_studio);
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+
+  v_result:=public.apply_authoritative_move_v46(
+    v_studio,v_owner,v_assignment_id,
+    '{"day":"Monday","startTime":"17:15","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
+    'T10 valid authoritative manual move',v_context,
+    '{"valid":true,"hardViolations":0,"unsupportedConstraintIds":[]}'::jsonb,false
+  );
+  if (v_result->>'scheduleVersion')::integer<>(v_context->>'scheduleVersion')::integer+1 then
+    raise exception 'T10 valid move did not advance exactly one ScheduleVersion';
+  end if;
+  if v_result->>'authority' is distinct from 'SERVER_CONSTRAINT_IR_V46' then
+    raise exception 'T10 result did not identify authoritative IR boundary';
+  end if;
+  if not exists (
+    select 1 from public.assignments a
+    join public.schedule_versions sv on sv.id=a.schedule_version_id
+    where sv.studio_id=v_studio and sv.is_current and a.id=v_assignment_id
+      and a.start_time='17:15'::time and a.end_time='18:45'::time
+  ) then
+    raise exception 'T10 valid move did not derive/persist the canonical 90-minute interval';
+  end if;
+  if not exists (
+    select 1 from public.schedule_versions sv
+    where sv.studio_id=v_studio and sv.is_current
+      and sv.constraint_model_version=(v_context->>'constraintModelVersion')::integer
+  ) then
+    raise exception 'T10 move lost the pinned ConstraintModelVersion link';
+  end if;
+  if not exists (
+    select 1 from public.audit_events e
+    where e.studio_id=v_studio and e.action='SCHEDULE_COMMAND' and e.entity_id=v_assignment_id
+      and e.payload->>'authority'='SERVER_CONSTRAINT_IR_V46'
+      and (e.payload->>'authoritativeConstraintIr')::boolean=true
+      and e.payload->>'legacyWriteBypassRetirementTask'='T13'
+  ) then
+    raise exception 'T10 authoritative audit evidence was not recorded';
+  end if;
+
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.apply_authoritative_move_v46(
+      v_studio,v_owner,v_assignment_id,
+      '{"day":"Monday","startTime":"17:30","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
+      'T10 stale-context rejection',v_context,
+      '{"valid":true,"hardViolations":0,"unsupportedConstraintIds":[]}'::jsonb,false
+    );
+  exception when others then
+    if position('STALE_MANUAL_MOVE_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_stale_rejected:=true;
+  end;
+  if not v_stale_rejected then raise exception 'T10 stale reviewed context was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T10 stale-context rejection was not atomic'; end if;
+
+  begin
+    perform public.apply_authoritative_move_v46(
+      v_other,v_owner,'anything','{}'::jsonb,'T10 wrong selected workspace','{}'::jsonb,'{}'::jsonb,false
+    );
+  exception when others then
+    if position('WORKSPACE_SELECTION_MISMATCH' in sqlerrm)=0 then raise; end if;
+    v_workspace_rejected:=true;
+  end;
+  if not v_workspace_rejected then raise exception 'T10 wrong selected workspace was silently accepted'; end if;
+
+  update public.assignments a set locked=true
+  from public.schedule_versions sv
+  where sv.id=a.schedule_version_id and sv.studio_id=v_studio and sv.is_current and a.id=v_assignment_id;
+  v_context:=public.t10_test_solver_context(v_studio);
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.apply_authoritative_move_v46(
+      v_studio,v_owner,v_assignment_id,
+      '{"day":"Monday","startTime":"17:30","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
+      'T10 locked rejection',v_context,
+      '{"valid":true,"hardViolations":0,"unsupportedConstraintIds":[]}'::jsonb,false
+    );
+  exception when others then
+    if position('LOCKED_ASSIGNMENT' in sqlerrm)=0 then raise; end if;
+    v_locked_rejected:=true;
+  end;
+  if not v_locked_rejected then raise exception 'T10 locked assignment move was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T10 locked rejection was not atomic'; end if;
+end
+$block$;
+reset role;
+drop function public.t10_test_solver_context(uuid);
+
+select 'T10 PASS: explicit tenant/context guard, duration-derived MOVE, pinned model linkage, audit evidence, and atomic stale/lock rejection' as result;
+`;
+
 function psql(container, user, sql, label) {
   const result = runProcess(
     'docker',
@@ -1362,6 +1507,8 @@ async function runHarness() {
     process.stdout.write(candidateStaleOutput);
     const sessionLockOutput = psql(container, 'postgres', sessionSpecificLockAdoptionSql, 'T09 session-specific lock adoption integration tests');
     process.stdout.write(sessionLockOutput);
+    const manualMoveOutput = psql(container, 'postgres', authoritativeManualMoveSql, 'T10 authoritative manual MOVE integration tests');
+    process.stdout.write(manualMoveOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);
