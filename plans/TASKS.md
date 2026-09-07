@@ -18,8 +18,8 @@ Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [execution rules](C
 | [T08](#t08) | Candidate stale-schedule binding | DONE | A | P0 | T07 | M |
 | [T09](#t09) | Session-specific solver locks | DONE | A | P0 | T07, T08 | M |
 | [T10](#t10) | Manual MOVE through authoritative IR | DONE | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
-| [T11](#t11) | ASSIGN/UNASSIGN canonical authority | READY | A | P0 | T10 | M |
-| [T12](#t12) | Rebase/undo canonical authority | NOT_STARTED | A | P0 | T10, T11 | M |
+| [T11](#t11) | ASSIGN/UNASSIGN canonical authority | DONE | A | P0 | T10 | M |
+| [T12](#t12) | Rebase/undo canonical authority | READY | A | P0 | T10, T11 | M |
 | [T13](#t13) | Close legacy write bypasses | NOT_STARTED | A | P0 | T10, T11, T12 | S |
 | [T14](#t14) | Representative full DWDE acceptance fixture/solve | NOT_STARTED | A | P0 | T05, T06, T07, T08, T09, T10, T11, T12, T13 | M |
 | [T15](#t15) | Bounded and understandable solve failures | NOT_STARTED | A | P0 | T14 | M |
@@ -1157,7 +1157,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T11 |
-| Status | READY |
+| Status | DONE |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T10 |
@@ -1186,10 +1186,10 @@ Paths above exist at the planning baseline. New routes, fixtures, forward migrat
 
 ### Acceptance criteria
 
-- [ ] ASSIGN/UNASSIGN use the server candidate/validation/transaction boundary established by T10.
-- [ ] Unknown or duplicate sessions, archived targets, and lock violations reject atomically.
-- [ ] Partial schedules can be built and remain visibly incomplete; final completeness is evaluated separately.
-- [ ] No new placement violation can be hidden by removing another assignment or comparing only aggregate counts.
+- [x] ASSIGN/UNASSIGN use the server candidate/validation/transaction boundary established by T10.
+- [x] Unknown or duplicate sessions, archived targets, and lock violations reject atomically.
+- [x] Partial schedules can be built and remain visibly incomplete; final completeness is evaluated separately.
+- [x] No new placement violation can be hidden by removing another assignment or comparing only aggregate counts.
 
 ### Required tests
 
@@ -1216,11 +1216,27 @@ Do not introduce a drag-and-drop redesign or universal repair search.
 
 ### Completion evidence
 
-Not yet verified. Record commit SHA, exact commands/exit codes, environment, regression cases, artifact links, manager acceptance where required, and remaining limitations. No implementation task was marked DONE during plan creation.
+Task/child: T11
+
+Starting HEAD: `9aea0eed24e9ef79fd50b58beaa6d7ba9d9cc6be`.
+
+Implemented files: `app/api/schedule/incremental/route.ts`, `lib/constraint-gate-equivalence.ts`, `lib/manual-move-command.ts`, `lib/constraint-engine.ts`, `components/workspace-provider.tsx`, `components/schedule/schedule-builder-panel.tsx`, forward migration `supabase/migrations/20260907150000_authoritative_incremental_commands_v47.sql`, `tests/incremental-schedule-command.test.ts`, `tests/incremental-route-contract.test.ts`, `tests/incremental-migration.test.ts`, and `scripts/test-db.mjs`. Historical migrations and production-ledger bytes were not edited.
+
+Acceptance evidence: ASSIGN/UNASSIGN now POST through the authenticated explicit-studio server boundary, reconstruct the T07 coherent snapshot, require exact current schedule links, recompile and compare the deterministic published ConstraintModelVersion, construct the canonical candidate/duration, evaluate IR plus the legacy safety floor, recheck the context token, and commit only through service-role V4.7. The schedule-builder no longer calls V2.5 directly or treats browser aggregate validation as authority. V4.7 rechecks tenant/context under advisory locks, filters archived session/class/teacher/room targets, rejects duplicate session/assignment identities and locks before creating a version, derives duration transactionally, preserves the pinned ConstraintModelVersion, and records authoritative audit evidence.
+
+Incremental legality now uses stable violation identities. A regression proves a new room-capacity violation is rejected even when assigning the missing fixed anchor removes an equal-count completeness finding, closing the aggregate-count swap hole. Legacy CLASS_FREQUENCY and missing FIXED_ASSIGNMENT/DIRECTLY_AFTER counterparts remain visible completeness obligations rather than placement blockers. UNASSIGN can therefore make a draft incomplete without falsely claiming publishability.
+
+Disposable PostgreSQL lifecycle: valid UNASSIGN creates exactly one new incomplete ScheduleVersion; replay with the reviewed old context rejects atomically; an archived room rejects before version creation; valid ASSIGN persists the canonical 90-minute interval and pinned model/audit evidence; duplicate and unknown sessions reject atomically; and a locked assignment cannot be unassigned. The fixture uses only the disposable T02 database and synthetic T04 identities.
+
+Verification: GitHub Actions T11 run on Ubuntu 24.04 and Windows with Node 22/npm 11.6.0. Ubuntu executed `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `npm run test:db`; Windows executed lint/typecheck/test/build with the Docker database gate intentionally Linux-only. All required gates passed before the implementation/handoff commit. Lint retained only the pre-existing warnings.
+
+Remaining limitation / T13 bypass register: authenticated callers can still invoke historical `apply_schedule_command_v25` directly until T12 migrates recovery and T13 revokes/delegates superseded entry points. T11 removes the active browser ASSIGN/UNASSIGN callers but does not claim the canonical server authority is yet unavoidable.
+
+Resulting task status: DONE. Newly READY task: T12.
 
 ### Notes/blockers
 
-Dependency T10 is verified DONE. T11 is READY and is now the first executable unfinished task.
+Dependency T10 is verified DONE. T11 is DONE. T12 is READY and is now the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
@@ -1235,7 +1251,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T12 |
-| Status | NOT_STARTED |
+| Status | READY |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T10, T11 |
@@ -1297,7 +1313,7 @@ Not yet verified. Record commit SHA, exact commands/exit codes, environment, reg
 
 ### Notes/blockers
 
-Waiting for dependency acceptance: T10, T11. This is normal sequencing, not a BLOCKED status.
+Dependencies T10 and T11 are verified DONE. T12 is READY and is now the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 

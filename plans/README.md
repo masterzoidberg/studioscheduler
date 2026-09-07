@@ -4,12 +4,12 @@ These files are the **canonical active development plan** for DWDE production re
 
 **Project objective:** finish a trustworthy DWDE scheduling workflow, then onboard unrelated recurring class/activity organizations without bespoke application, compiler, or solver code. DWDE remains prepopulated and becomes one configured tenant.
 
-- Current phase: Correctness — T03–T10.
+- Current phase: DWDE completion — T11–T16.
 - Current milestone: A — DWDE Operational.
-- Current task: **T11 — ASSIGN/UNASSIGN canonical authority**.
-- Next task: T12 after T11 acceptance.
+- Current task: **T12 — rebase/undo canonical authority**.
+- Next task: T13 after T12 acceptance.
 - Planning baseline: HEAD `17b3a60`, inspected 2026-09-06.
-- Implementation progress: T01 through T10 have verified DONE evidence. T10 routes desktop/mobile MOVE through an authenticated explicit-workspace server gate, one coherent pinned context, deterministic/published Constraint IR equality, canonical duration derivation, legacy safety floor, and a service-role-only V4.6 transaction with exact context recheck. Partial drafts remain movable but never claim publishable completeness. T11 is READY; T12 remains NOT_STARTED pending T11.
+- Implementation progress: T01 through T11 have verified DONE evidence. T11 moves ASSIGN/UNASSIGN off direct browser V2.5 writes and onto the coherent pinned server Constraint IR boundary plus service-role V4.7 transaction. Incremental legality now compares violation identity rather than aggregate HARD counts; CLASS_FREQUENCY and missing fixed/direct-after counterparts are explicit completeness obligations, so partial drafts remain editable but non-publishable. T12 is READY; T13 remains NOT_STARTED pending T12.
 
 ## Navigation
 
@@ -68,7 +68,7 @@ For L-sized parents, record bounded traceable children before implementation. Do
 Record BLK-NNN under the affected task: observation/date, evidence/path, affected criteria, impact, owner or needed action, and an objective unblock condition. Cross-task blockers are linked here. Record an architectural deviation as DEC-NNN with reason and affected tasks.
 
 T01 through T08 are accepted. T02's initial Docker blocker was resolved and recorded as historical evidence in [TASKS](TASKS.md). Upcoming prerequisites requiring verification:
-- T10: manual MOVE through authoritative IR.
+- T12: rebase/undo through canonical authority.
 - T14/T16: complete DWDE data and a named manager's acceptance; do not invent missing studio facts.
 - T16: authorized deployment/restore evidence; tests never target production.
 - T27/T29: independent studio/pilot participation; do not fabricate customer outcomes.
