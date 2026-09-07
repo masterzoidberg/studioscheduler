@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Cpu, Loader2, Play, ShieldCheck } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
+import type { ReviewedSolverCandidateContextV1 } from "@/lib/solver-candidate-context";
 
 type GatewayBlocker = { code: string; message: string; ruleIds?: string[]; entityIds?: string[] };
 type SolveContext = {
@@ -37,6 +38,7 @@ type SolveResult = {
   code?: string;
   blockers?: GatewayBlocker[];
   context?: SolveContext;
+  candidateContext?: ReviewedSolverCandidateContextV1;
   candidate?: {
     assignments?: SolverAssignment[];
     validation?: { hardViolations?: number; unsupportedConstraintIds?: string[] };
@@ -81,6 +83,7 @@ export function SolverFeasibilityCard() {
   const [running, setRunning] = useState(false);
   const [adopting, setAdopting] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const [reviewStale, setReviewStale] = useState(false);
   const [notice, setNotice] = useState("");
   const [adoptionSuccess, setAdoptionSuccess] = useState("");
   const [result, setResult] = useState<SolveResult | null>(null);
@@ -163,6 +166,7 @@ export function SolverFeasibilityCard() {
     setRunning(true);
     setResult(null);
     setReviewAcknowledged(false);
+    setReviewStale(false);
     setAdoptionSuccess("");
     setNotice("");
     try {
@@ -186,11 +190,12 @@ export function SolverFeasibilityCard() {
   async function adoptCandidate() {
     const headers = authHeaders();
     const assignments = result?.candidate?.assignments;
-    const context = result?.context;
-    if (!headers || !assignments?.length || !context || !canEdit || !status?.adoptionConfigured || !reviewAcknowledged || adopting) return;
+    const candidateContext = result?.candidateContext;
+    const reviewedScheduleVersion = candidateContext?.solverContextToken.scheduleVersion;
+    if (!headers || !assignments?.length || !candidateContext || !canEdit || !status?.adoptionConfigured || !reviewAcknowledged || reviewStale || adopting) return;
 
     const confirmed = window.confirm(
-      `Adopt this reviewed ${assignments.length}-assignment candidate as a new immutable schedule version? The server will reload canonical data and independently validate it again before replacing the current schedule.`,
+      `Adopt this reviewed ${assignments.length}-assignment candidate from Schedule v${reviewedScheduleVersion ?? "?"} as a new immutable schedule version? Any intervening schedule or lock change will reject adoption and require a fresh review.`,
     );
     if (!confirmed) return;
 
@@ -202,7 +207,7 @@ export function SolverFeasibilityCard() {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
-          context,
+          candidateContext,
           assignments,
           reason: "Adopt reviewed CP-SAT candidate from solver feasibility review",
         }),
@@ -210,6 +215,12 @@ export function SolverFeasibilityCard() {
       });
       const payload = await response.json() as AdoptionResult;
       if (!response.ok || payload.status !== "ADOPTED") {
+        if (payload.code === "SOLVER_ADOPTION_REVIEW_CONTEXT_STALE") {
+          setReviewAcknowledged(false);
+          setReviewStale(true);
+          setNotice(payload.error || "This reviewed candidate is stale. Generate a fresh candidate and review it again.");
+          return;
+        }
         setNotice(payload.error || `Solver adoption returned HTTP ${response.status}.`);
         return;
       }
@@ -223,6 +234,7 @@ export function SolverFeasibilityCard() {
       );
       setResult(null);
       setReviewAcknowledged(false);
+      setReviewStale(false);
       await refresh();
       await refreshStatus();
     } catch (error) {
@@ -237,6 +249,8 @@ export function SolverFeasibilityCard() {
   const ready = Boolean(status?.readyToRun && canEdit);
   const feasible = result?.status === "FEASIBLE" && Boolean(result.candidate);
   const infeasible = result?.status === "INFEASIBLE";
+  const reviewedScheduleVersion = result?.candidateContext?.solverContextToken.scheduleVersion ?? null;
+  const reviewedScheduleFingerprint = result?.candidateContext?.solverContextToken.scheduleAssignmentsHash?.slice(0, 12) || "";
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -315,7 +329,7 @@ export function SolverFeasibilityCard() {
           </p>
           {result.context ? (
             <p className="mt-2 text-xs leading-5 text-emerald-800">
-              Solved against Rulebook v{result.context.rulebookVersion}, Planning Dataset v{result.context.planningDatasetVersion}, and {result.context.compilerVersion}.
+              Solved against Rulebook v{result.context.rulebookVersion}, Planning Dataset v{result.context.planningDatasetVersion}, and {result.context.compilerVersion}. Review is bound to Schedule v{reviewedScheduleVersion ?? "?"} and schedule/lock fingerprint {reviewedScheduleFingerprint || "unavailable"}.
             </p>
           ) : null}
 
@@ -346,6 +360,12 @@ export function SolverFeasibilityCard() {
             </table>
           </div>
 
+          {reviewStale ? (
+            <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+              This reviewed candidate is stale. It remains visible for comparison, but the current schedule or lock context changed after it was generated. Generate a fresh candidate and review it again before adoption.
+            </div>
+          ) : null}
+
           {!status?.adoptionConfigured ? (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
               This candidate can be reviewed, but governed adoption is disabled until the server-only Supabase service-role credential is configured on the application backend.
@@ -356,20 +376,20 @@ export function SolverFeasibilityCard() {
             <input
               type="checkbox"
               checked={reviewAcknowledged}
-              disabled={!status?.adoptionConfigured}
+              disabled={!status?.adoptionConfigured || reviewStale}
               onChange={(event) => setReviewAcknowledged(event.target.checked)}
               className="mt-0.5 size-4"
             />
-            <span>I reviewed every assignment above and want this candidate to replace the current schedule with a new immutable ScheduleVersion.</span>
+            <span>I reviewed every assignment above in the displayed Schedule v{reviewedScheduleVersion ?? "?"} / lock context and want this candidate to replace that exact reviewed base with a new immutable ScheduleVersion.</span>
           </label>
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-2xl text-xs leading-5 text-emerald-800">
-              Adoption reloads canonical state, verifies the exact version context, independently validates the candidate again, preserves locks, runs the legacy HARD validator, and only then commits atomically.
+              Adoption verifies the exact reviewed base ScheduleVersion and schedule/lock fingerprint, independently validates the candidate again, preserves locks, runs the legacy HARD validator, and only then commits atomically. Any intervening change requires regeneration and re-review.
             </p>
             <button
               type="button"
-              disabled={!status?.adoptionConfigured || !reviewAcknowledged || adopting || !canEdit}
+              disabled={!status?.adoptionConfigured || !reviewAcknowledged || reviewStale || adopting || !canEdit}
               onClick={() => void adoptCandidate()}
               className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >

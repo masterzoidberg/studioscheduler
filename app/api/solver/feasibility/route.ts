@@ -8,6 +8,7 @@ import {
   type CanonicalSolverSnapshot,
 } from "@/lib/server-studio-state";
 import { prepareFeasibilitySolve, type FeasibilitySolverProblem } from "@/lib/solver-problem";
+import { buildReviewedSolverCandidateContext } from "@/lib/solver-candidate-context";
 import { constraintModelDefinition } from "@/lib/constraint-model-version";
 import { legacySafetyBridgeReport } from "@/lib/legacy-safety-bridge";
 import {
@@ -301,6 +302,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       status: "FEASIBLE",
       context: problem.context,
+      candidateContext: buildReviewedSolverCandidateContext(problem, gateway.snapshot.contextToken),
       serviceVersion: payload.serviceVersion || null,
       candidate: {
         assignments: candidate.assignments,

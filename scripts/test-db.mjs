@@ -1065,6 +1065,128 @@ reset role;
 select 'T07 PASS: one coherent snapshot uses pinned planning facts/current assignments only; policy and lock/schedule drift invalidate the context token' as result;
 `;
 
+
+const candidateStaleBindingSql = String.raw`
+set search_path=public,extensions;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+select set_config(
+  't08.reviewed_context',
+  private.build_solver_candidate_context_v44('11111111-1111-4111-8111-111111111111')::text,
+  false
+);
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_editor uuid := '10000000-0000-4000-8000-000000000002';
+  v_reviewed jsonb;
+  v_current jsonb;
+  v_candidate jsonb := jsonb_build_array(jsonb_build_object(
+    'sessionId','t04-session','day','Monday','startTime','17:00','endTime','18:30',
+    'teacherId','t04-teacher','roomId','t04-room'
+  ));
+  v_assignment_id text;
+  v_result jsonb;
+  v_before_count integer;
+  v_after_count integer;
+  v_lock_rejected boolean := false;
+  v_editor_rejected boolean := false;
+  v_double_rejected boolean := false;
+begin
+  v_reviewed:=current_setting('t08.reviewed_context')::jsonb;
+  if v_reviewed->>'schemaVersion'<>'1.0'
+     or coalesce(v_reviewed->'solverContextToken'->>'scheduleId','')=''
+     or coalesce(v_reviewed->'solverContextToken'->>'scheduleAssignmentsHash','')='' then
+    raise exception 'T08 reviewed context did not bind base ScheduleVersion/lock identity';
+  end if;
+
+  select a.id into v_assignment_id
+  from public.assignments a
+  join public.schedule_versions sv on sv.id=a.schedule_version_id
+  where sv.studio_id=v_studio and sv.is_current
+  order by a.id limit 1;
+  if v_assignment_id is null then raise exception 'T08 fixture has no current assignment'; end if;
+
+  -- Same ScheduleVersion, same Rulebook/Planning versions, different lock bit.
+  update public.assignments set locked=not locked where studio_id=v_studio and id=v_assignment_id;
+  begin
+    perform public.adopt_solver_candidate_v44(
+      v_studio,v_owner,'T08 owner','Reject stale candidate after lock drift',
+      v_reviewed,v_candidate,'{"valid":true,"hardViolations":0}'::jsonb
+    );
+  exception when others then
+    if position('STALE_SOLVER_CANDIDATE_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_lock_rejected:=true;
+  end;
+  if not v_lock_rejected then raise exception 'T08 lock drift was accepted'; end if;
+  update public.assignments set locked=not locked where studio_id=v_studio and id=v_assignment_id;
+  v_current:=jsonb_build_object(
+    'schemaVersion','1.0',
+    'compilerVersion',v_reviewed->>'compilerVersion',
+    'solverContextToken',public.get_solver_context_token_v43(v_studio)
+  );
+  if v_current is distinct from v_reviewed then
+    raise exception 'T08 lock drift fixture did not restore the reviewed context';
+  end if;
+
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  v_result:=public.adopt_solver_candidate_v44(
+    v_studio,v_owner,'T08 owner','Adopt exact reviewed base once',
+    v_reviewed,v_candidate,'{"valid":true,"hardViolations":0}'::jsonb
+  );
+  if (v_result->>'scheduleVersion')::integer<>(v_reviewed->'solverContextToken'->>'scheduleVersion')::integer+1 then
+    raise exception 'T08 exact reviewed context did not adopt the next schedule version';
+  end if;
+
+  -- A second editor may have reviewed the same candidate concurrently. The first
+  -- commit changes only the schedule pointer; Rulebook/Planning can remain equal.
+  begin
+    perform public.adopt_solver_candidate_v44(
+      v_studio,v_editor,'T08 concurrent editor','Reject concurrent editor stale review',
+      v_reviewed,v_candidate,'{"valid":true,"hardViolations":0}'::jsonb
+    );
+  exception when others then
+    if position('STALE_SOLVER_CANDIDATE_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_editor_rejected:=true;
+  end;
+  if not v_editor_rejected then raise exception 'T08 concurrent editor stale review was accepted'; end if;
+
+  -- Repeated/double adoption of the same reviewed artifact must also fail.
+  begin
+    perform public.adopt_solver_candidate_v44(
+      v_studio,v_owner,'T08 owner','Reject double adoption',
+      v_reviewed,v_candidate,'{"valid":true,"hardViolations":0}'::jsonb
+    );
+  exception when others then
+    if position('STALE_SOLVER_CANDIDATE_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_double_rejected:=true;
+  end;
+  if not v_double_rejected then raise exception 'T08 double adoption was accepted'; end if;
+
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count+1 then
+    raise exception 'T08 stale/repeated rejection was not atomic';
+  end if;
+  v_current:=jsonb_build_object(
+    'schemaVersion','1.0',
+    'compilerVersion',v_reviewed->>'compilerVersion',
+    'solverContextToken',public.get_solver_context_token_v43(v_studio)
+  );
+  if v_current->'solverContextToken'->>'rulebookVersion' is distinct from v_reviewed->'solverContextToken'->>'rulebookVersion'
+     or v_current->'solverContextToken'->>'planningDatasetVersion' is distinct from v_reviewed->'solverContextToken'->>'planningDatasetVersion' then
+    raise exception 'T08 fixture unexpectedly changed Rulebook/Planning while testing schedule staleness';
+  end if;
+  if v_current->'solverContextToken'->>'scheduleVersion' = v_reviewed->'solverContextToken'->>'scheduleVersion' then
+    raise exception 'T08 successful adoption did not advance ScheduleVersion';
+  end if;
+end
+$block$;
+reset role;
+
+select 'T08 PASS: exact reviewed context adopts once; same-version lock drift, concurrent editor stale review, and double adoption reject atomically without fresh-version substitution' as result;
+`;
+
 function psql(container, user, sql, label) {
   const result = runProcess(
     'docker',
@@ -1148,6 +1270,8 @@ async function runHarness() {
     process.stdout.write(archiveAwareOutput);
     const coherentSnapshotOutput = psql(container, 'postgres', coherentSolverSnapshotSql, 'T07 coherent solver snapshot integration tests');
     process.stdout.write(coherentSnapshotOutput);
+    const candidateStaleOutput = psql(container, 'postgres', candidateStaleBindingSql, 'T08 candidate stale-schedule binding integration tests');
+    process.stdout.write(candidateStaleOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);
