@@ -12,7 +12,7 @@ Release status: NOT_STARTED. Implementation task status is in [TASKS](TASKS.md).
 | A02 | All active HARD policy is supported, bound, and deterministically enforced; unsupported semantic edits fail closed | T05, T14 | Policy-edit regressions, exact model/version, coverage and delegated proofs |
 | A03 | Equivalent Constraint Models survive canonical comparison and database round trip | T03 | Nested reorder and semantic-difference tests; JSONB result |
 | A04 | Validated assignment intervals exactly match persistence | T04 | Verified in the T04 ledger: shortened interval rejection, duration override tests, exact persisted diff; overall release gate remains open until the remaining A-gates pass |
-| A05 | Solver input is coherent and reviewed candidates bind base schedule/locks | T07, T08 | Concurrent-edit tests and context manifest |
+| A05 | Solver input is coherent and reviewed candidates bind base schedule/locks | T07, T08 | T07 coherent-snapshot and in-solve drift tests are verified; gate remains open for T08 reviewed-candidate/base-schedule binding |
 | A06 | Every active required session appears once; archived sessions excluded; history preserved | T06, T11, T12 | T06 archive/restore and exact-session-set transaction tests are verified; gate remains open for T11/T12 incremental/recovery authority |
 | A07 | Individual multi-session meetings can be locked; locks survive all workflows | T09 | Shared lock fixtures, impossible-lock result, adoption evidence |
 | A08 | MOVE/ASSIGN/UNASSIGN/rebase/undo/adoption/revalidation use shared scheduling semantics | T10–T13 | Executed command matrix; direct legacy calls denied |

@@ -14,8 +14,8 @@ Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [execution rules](C
 | [T04](#t04) | Canonical candidate intervals | DONE | A | P0 | T02, T03 | M |
 | [T05](#t05) | Unsupported DWDE policy guard | DONE | A | P0 | T01, T03 | M |
 | [T06](#t06) | Archive-aware adoption | DONE | A | P0 | T02, T04 | M |
-| [T07](#t07) | Coherent solver snapshots | READY | A | P0 | T02, T03, T05, T06 | M |
-| [T08](#t08) | Candidate stale-schedule binding | NOT_STARTED | A | P0 | T07 | M |
+| [T07](#t07) | Coherent solver snapshots | DONE | A | P0 | T02, T03, T05, T06 | M |
+| [T08](#t08) | Candidate stale-schedule binding | READY | A | P0 | T07 | M |
 | [T09](#t09) | Session-specific solver locks | NOT_STARTED | A | P0 | T07, T08 | M |
 | [T10](#t10) | Manual MOVE through authoritative IR | NOT_STARTED | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
 | [T11](#t11) | ASSIGN/UNASSIGN canonical authority | NOT_STARTED | A | P0 | T10 | M |
@@ -719,7 +719,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T07 |
-| Status | READY |
+| Status | DONE |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T02, T03, T05, T06 |
@@ -748,10 +748,10 @@ Paths above exist at the planning baseline. New routes, fixtures, forward migrat
 
 ### Acceptance criteria
 
-- [ ] Scheduling facts come from the pinned immutable planning snapshot, with compatible historical schema handling.
-- [ ] Rulebook/model/current schedule and lock references belong to a coherent context; pointer changes cause retry or rejection.
-- [ ] Concurrent planning/policy changes cannot submit a mixed-version request.
-- [ ] The request excludes unrelated tenant data and unnecessary historical assignments.
+- [x] Scheduling facts come from the pinned immutable planning snapshot, with compatible historical schema handling.
+- [x] Rulebook/model/current schedule and lock references belong to a coherent context; pointer changes cause retry or rejection.
+- [x] Concurrent planning/policy changes cannot submit a mixed-version request.
+- [x] The request excludes unrelated tenant data and unnecessary historical assignments.
 
 ### Required tests
 
@@ -778,11 +778,49 @@ Do not add caching, queues, or event sourcing merely to solve consistency.
 
 ### Completion evidence
 
-Not yet verified. Record commit SHA, exact commands/exit codes, environment, regression cases, artifact links, manager acceptance where required, and remaining limitations. No implementation task was marked DONE during plan creation.
+Task/child: T07
+
+Starting HEAD: `ac22a8ee775d62d6b844c21573b4b3fee10308c1` on `feat/pre-cami-hardening` (T01–T06 accepted).
+
+Implemented files:
+- [supabase/migrations/20260907050000_coherent_solver_snapshot_v43.sql](../supabase/migrations/20260907050000_coherent_solver_snapshot_v43.sql)
+- [lib/server-studio-state.ts](../lib/server-studio-state.ts)
+- [app/api/solver/feasibility/route.ts](../app/api/solver/feasibility/route.ts)
+- [tests/coherent-solver-snapshot.test.ts](../tests/coherent-solver-snapshot.test.ts)
+- [tests/planning-inventory-lifecycle.test.ts](../tests/planning-inventory-lifecycle.test.ts)
+- [tests/archive-aware-adoption.test.ts](../tests/archive-aware-adoption.test.ts)
+- [scripts/test-db.mjs](../scripts/test-db.mjs)
+
+Acceptance criterion → evidence:
+- Pinned immutable planning facts: V4.3 adds member-authorized `get_solver_snapshot_v43`, and server solver state reconstructs teachers/rooms/students/cohorts/classes/sessions from the current `PlanningDatasetVersion.snapshot` rather than independently querying mutable planning tables. Stored Planning Dataset and Constraint Model hashes are verified. Snapshot schemas 1.0–1.3 are recognized; when an older snapshot lacks immutable names required by the current name-bound DWDE compiler, preparation fails closed with `SOLVER_PLANNING_SNAPSHOT_SCHEMA_UNSUPPORTED` rather than borrowing names from today's mutable rows.
+- Coherent policy/model/schedule/locks: the V4.3 context token binds current Rulebook identity/hash, live reviewed-policy content hash, Planning Dataset identity/hash/confirmation, EnforcementVersion, ConstraintModelVersion/hash, current ScheduleVersion and its pinned versions, plus the current-assignment/lock hash. Any difference makes the context stale.
+- Concurrent mutation safety: feasibility reloads the whole coherent snapshot after any deterministic model publication and compares the original token with a fresh token immediately before and after the external solver call. Drift returns `SOLVER_CONTEXT_CHANGED_RETRY` instead of submitting/accepting a mixed-context result. The disposable DB test proves both a live policy mutation and a current assignment/lock mutation change the token.
+- Tenant/history minimization: the RPC is explicitly studio-scoped and member-authorized. It returns only assignments belonging to the current ScheduleVersion; the disposable fixture contains historical assignments and proves they are excluded. Planning facts are carried by the pinned tenant Planning Dataset snapshot rather than a fan-out over mutable cross-version tables.
+
+Verification evidence: GitHub Actions run `34085179827` completed successfully on Ubuntu and Windows. Ubuntu 24.04 used Node `v22.23.2` with npm pinned to `11.6.0`; the disposable DB harness used the existing pinned PostgreSQL 17.6 image.
+- `npm run lint` — 0 on Ubuntu and Windows; two pre-existing warnings remain.
+- `npm run typecheck` — 0 on Ubuntu and Windows.
+- `npm test` — 0; Ubuntu reported 48 files / 290 tests passed, including 6 dedicated T07 coherent-snapshot tests.
+- `npm run build` — 0 on Ubuntu and Windows; Next.js 16.3.3 production build passed.
+- `npm run test:db` — 0 on Ubuntu; migrations reconstructed through V4.3 and emitted `T07 PASS: one coherent snapshot uses pinned planning facts/current assignments only; policy and lock/schedule drift invalidate the context token`.
+
+Implementation commit: `5937349f0ad6a8677c5708af1ab1cc8569a39ba5` (`feat: make solver snapshots coherent`). The verification process first exposed test-fixture typing, then two stale T06 structural assertions that expected the retired mutable server loader, and finally a disposable-harness role issue for synthetic drift mutation. Each was corrected without weakening the T07 contract; the final full matrix and database run passed.
+
+Risks/limitations: no production or staging database was read or mutated, and V4.3 remains a forward migration pending separately authorized deployment. T07 prevents mixed context during preparation and the external solve; T08 still owns binding the resulting reviewed candidate to its exact base ScheduleVersion/lock context through later adoption. Historical snapshots that predate immutable names intentionally fail closed while the current static DWDE compiler remains name-bound; T20/T21 later remove that coupling.
+
+Decision deviations: none. No event store, queue, cache, or new infrastructure tier was introduced.
+
+New blockers and unblock condition: none.
+
+Resulting task status: DONE.
+
+Newly READY tasks: T08. T09 remains NOT_STARTED pending T08.
+
+Updated plan files: `plans/README.md`, `plans/TASKS.md`, `plans/NEXT.md`, and `plans/DWDE_RELEASE_PLAN.md` (A05 partial evidence).
 
 ### Notes/blockers
 
-Dependencies T02, T03, T05, and T06 are verified DONE. T07 is READY and is the first executable unfinished task.
+Dependencies T02, T03, T05, and T06 are verified DONE. T07 is accepted with no remaining task-specific blocker. T08 is READY and is now first in the numeric execution spine.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
@@ -797,7 +835,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T08 |
-| Status | NOT_STARTED |
+| Status | READY |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T07 |
@@ -860,7 +898,7 @@ Not yet verified. Record commit SHA, exact commands/exit codes, environment, reg
 
 ### Notes/blockers
 
-Waiting for dependency acceptance: T07. This is normal sequencing, not a BLOCKED status.
+T07 is verified DONE. T08 is READY and is the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 

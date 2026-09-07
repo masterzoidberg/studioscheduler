@@ -1,10 +1,10 @@
 # Current Execution Queue
 
 Current Milestone: DWDE Operational
-Current Task: T07
-Next Task: T08
+Current Task: T08
+Next Task: T09
 
-Baseline: `17b3a60`. T06 is DONE. T07 is the next executable task; T08 remains pending T07. Status authority: [TASKS.md](TASKS.md). Recompute this view after each accepted task. Later tasks remain in the ledger.
+Baseline: `17b3a60`. T07 is DONE. T08 is the next executable task; T09 remains pending T08. Status authority: [TASKS.md](TASKS.md). Recompute this view after each accepted task. Later tasks remain in the ledger.
 
 Exact verification commands below include the T02 `npm run test:db` harness. See [TEST_STRATEGY](TEST_STRATEGY.md) and [database harness documentation](../docs/testing/database-integration.md) for setup. Missing tools/data are recorded blockers, never implicit passes.
 
@@ -286,18 +286,20 @@ Add/run the task's regression tests and capture criterion-specific evidence; see
 
 ## T07 — Coherent solver snapshots
 
-**Current status:** READY
+**Current status:** DONE
 
-**Dependency check:** Satisfied: T02, T03, T05, and T06 are verified DONE. T07 is now the first executable unfinished task.
+**Dependency check:** Satisfied and accepted: T02, T03, T05, and T06 are DONE; all T07 acceptance criteria are verified.
 
 **Objective:** Build solver requests from coherent immutable planning and policy context.
 
 ### Exact acceptance criteria
 
-- [ ] Scheduling facts come from the pinned immutable planning snapshot, with compatible historical schema handling.
-- [ ] Rulebook/model/current schedule and lock references belong to a coherent context; pointer changes cause retry or rejection.
-- [ ] Concurrent planning/policy changes cannot submit a mixed-version request.
-- [ ] The request excludes unrelated tenant data and unnecessary historical assignments.
+- [x] Scheduling facts come from the pinned immutable planning snapshot, with compatible historical schema handling.
+- [x] Rulebook/model/current schedule and lock references belong to a coherent context; pointer changes cause retry or rejection.
+- [x] Concurrent planning/policy changes cannot submit a mixed-version request.
+- [x] The request excludes unrelated tenant data and unnecessary historical assignments.
+
+**Verified run:** GitHub Actions run `34085179827` passed Ubuntu and Windows quality gates; Ubuntu also passed the disposable PostgreSQL snapshot/drift integration lifecycle.
 
 ### Exact verification commands
 
@@ -331,9 +333,9 @@ Add/run the task's regression tests and capture criterion-specific evidence; see
 
 ## T08 — Candidate stale-schedule binding
 
-**Current status:** NOT_STARTED
+**Current status:** READY
 
-**Dependency check:** Not satisfied; waiting for verified DONE: T07.
+**Dependency check:** Satisfied: T07 is verified DONE. T08 is now the first executable unfinished task.
 
 **Objective:** Bind reviewed candidates to the base schedule and lock state.
 
