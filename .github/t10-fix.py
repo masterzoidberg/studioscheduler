@@ -28,10 +28,10 @@ db = db.replace(old, new, 1)
 # SECURITY DEFINER witness captures the same context through the database owner,
 # while the actual transaction is still invoked as service_role. It is dropped
 # before the harness completes.
-role_marker = "set role service_role;\ndo $block$"
-context_helper = """create or replace function public.t10_test_solver_context(p_studio_id uuid)\nreturns jsonb\nlanguage sql\nsecurity definer\nset search_path=''\nas $$ select private.build_solver_context_token_v43(p_studio_id) $$;\nrevoke all on function public.t10_test_solver_context(uuid) from public,anon,authenticated;\ngrant execute on function public.t10_test_solver_context(uuid) to service_role;\n\nset role service_role;\ndo $block$"""
+role_marker = """insert into public.studio_members(studio_id,user_id,role)\nvalues ('22222222-2222-4222-8222-222222222222','10000000-0000-4000-8000-000000000001','EDITOR')\non conflict(studio_id,user_id) do update set role=excluded.role;\n\nset role service_role;\ndo $block$"""
+context_helper = """insert into public.studio_members(studio_id,user_id,role)\nvalues ('22222222-2222-4222-8222-222222222222','10000000-0000-4000-8000-000000000001','EDITOR')\non conflict(studio_id,user_id) do update set role=excluded.role;\n\ncreate or replace function public.t10_test_solver_context(p_studio_id uuid)\nreturns jsonb\nlanguage sql\nsecurity definer\nset search_path=''\nas $$ select private.build_solver_context_token_v43(p_studio_id) $$;\nrevoke all on function public.t10_test_solver_context(uuid) from public,anon,authenticated;\ngrant execute on function public.t10_test_solver_context(uuid) to service_role;\n\nset role service_role;\ndo $block$"""
 if db.count(role_marker) != 1:
-    raise SystemExit(f"expected one T10 service-role marker, found {db.count(role_marker)}")
+    raise SystemExit(f"expected one scoped T10 service-role marker, found {db.count(role_marker)}")
 db = db.replace(role_marker, context_helper, 1)
 
 private_call = "v_context:=private.build_solver_context_token_v43(v_studio);"
