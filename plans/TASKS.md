@@ -17,8 +17,8 @@ Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [execution rules](C
 | [T07](#t07) | Coherent solver snapshots | DONE | A | P0 | T02, T03, T05, T06 | M |
 | [T08](#t08) | Candidate stale-schedule binding | DONE | A | P0 | T07 | M |
 | [T09](#t09) | Session-specific solver locks | DONE | A | P0 | T07, T08 | M |
-| [T10](#t10) | Manual MOVE through authoritative IR | READY | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
-| [T11](#t11) | ASSIGN/UNASSIGN canonical authority | NOT_STARTED | A | P0 | T10 | M |
+| [T10](#t10) | Manual MOVE through authoritative IR | DONE | A | P0 | T03, T04, T05, T06, T07, T08, T09 | M |
+| [T11](#t11) | ASSIGN/UNASSIGN canonical authority | READY | A | P0 | T10 | M |
 | [T12](#t12) | Rebase/undo canonical authority | NOT_STARTED | A | P0 | T10, T11 | M |
 | [T13](#t13) | Close legacy write bypasses | NOT_STARTED | A | P0 | T10, T11, T12 | S |
 | [T14](#t14) | Representative full DWDE acceptance fixture/solve | NOT_STARTED | A | P0 | T05, T06, T07, T08, T09, T10, T11, T12, T13 | M |
@@ -1065,7 +1065,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T10 |
-| Status | READY |
+| Status | DONE |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T03, T04, T05, T06, T07, T08, T09 |
@@ -1095,10 +1095,10 @@ Paths above exist at the planning baseline. New routes, fixtures, forward migrat
 
 ### Acceptance criteria
 
-- [ ] Server authenticates and authorizes the explicit workspace, reconstructs pinned context, derives duration, and evaluates IR before MOVE commits.
-- [ ] An IR-only illegal move is rejected without a new canonical version.
-- [ ] Valid desktop/mobile moves persist with version checks and audit evidence.
-- [ ] Draft completeness and repair behavior are explicit; moving within a partial schedule remains possible without a false publishable claim.
+- [x] Server authenticates and authorizes the explicit workspace, reconstructs pinned context, derives duration, and evaluates IR before MOVE commits.
+- [x] An IR-only illegal move is rejected without a new canonical version.
+- [x] Valid desktop/mobile moves persist with version checks and audit evidence.
+- [x] Draft completeness and repair behavior are explicit; moving within a partial schedule remains possible without a false publishable claim.
 
 ### Required tests
 
@@ -1126,11 +1126,23 @@ Do not migrate unrelated commands or delete legacy authority before T11–T13.
 
 ### Completion evidence
 
-Not yet verified. Record commit SHA, exact commands/exit codes, environment, regression cases, artifact links, manager acceptance where required, and remaining limitations. No implementation task was marked DONE during plan creation.
+Task/child: T10
+
+Implemented files: `app/api/schedule/move/route.ts`, `lib/manual-move-command.ts`, `components/workspace-provider.tsx`, forward migration `supabase/migrations/20260907110000_authoritative_manual_move_v46.sql`, `tests/manual-move-command.test.ts`, `tests/manual-move-route-contract.test.ts`, `tests/manual-move-migration.test.ts`, and `scripts/test-db.mjs`. Historical migrations and production-ledger bytes were not edited.
+
+Verified behavior: desktop and mobile MOVE continue to share `WorkspaceProvider`, which now POSTs to one server route instead of calling V2.5 directly. The server authenticates the bearer token against the explicitly supplied studio, rejects VIEWER access, reconstructs the T07 coherent snapshot, requires current ScheduleVersion links, recompiles the deterministic Constraint IR, proves exact semantic equality with the pinned published ConstraintModelVersion, derives the candidate interval from session/class duration, evaluates IR plus the temporary legacy safety floor, and rechecks the context token before commit. V4.6 is service-role-only, rechecks the exact context under advisory locks, rejects a selected tenant that differs from the legacy active membership, delegates only canonical MOVE fields to V2.5, preserves the pinned ConstraintModelVersion on the new schedule, and appends authoritative IR validation/context evidence to the audit event.
+
+Regression evidence: the TypeScript suite proves an IR-only room-capacity violation is rejected even while the legacy gate accepts it; a legal move ignores a caller-supplied shortened end time and derives the canonical end; partial schedules remain movable with `scheduleComplete=false` and `publishable=false`; repair mode is explicit; and assignment locks fail structurally. The disposable PostgreSQL lifecycle proves a valid duration-derived MOVE advances one version, preserves the model link, writes authoritative audit evidence, rejects stale context atomically, rejects the wrong selected tenant, and rejects a locked assignment atomically.
+
+Verification run: GitHub Actions T10 implementation run on Ubuntu 24.04 and Windows. Ubuntu executed `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `npm run test:db`; Windows executed lint/typecheck/test/build, with the Docker database gate intentionally Ubuntu-only. All required gates passed before the implementation/handoff commit.
+
+Remaining limitation / T13 bypass register: `apply_schedule_command_v25` remains executable by authenticated callers for compatibility until T11/T12 migrate the remaining command/recovery paths and T13 revokes/delegates superseded write entry points. Therefore the interim release remains blocked against claiming the shared server authority is unavoidable.
+
+Resulting task status: DONE. Newly READY task: T11.
 
 ### Notes/blockers
 
-Dependencies T03 through T09 are verified DONE. T10 is READY and is now the first executable unfinished task.
+T10 acceptance is verified. T11 is now READY and is the first executable unfinished task. Direct authenticated V2.5 access remains intentionally tracked for T13; no claim of unavoidable server authority is made yet.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 
@@ -1145,7 +1157,7 @@ Record discovered blockers as BLK-NNN in this section with evidence, impact, own
 | Field | Value |
 |---|---|
 | Task ID | T11 |
-| Status | NOT_STARTED |
+| Status | READY |
 | Milestone | A |
 | Priority | P0 |
 | Dependencies | T10 |
@@ -1208,7 +1220,7 @@ Not yet verified. Record commit SHA, exact commands/exit codes, environment, reg
 
 ### Notes/blockers
 
-Waiting for dependency acceptance: T10. This is normal sequencing, not a BLOCKED status.
+Dependency T10 is verified DONE. T11 is READY and is now the first executable unfinished task.
 
 Record discovered blockers as BLK-NNN in this section with evidence, impact, owner/action, and unblock criterion; link cross-task blockers from README.md. Record plan changes in DECISIONS.md.
 

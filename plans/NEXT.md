@@ -1,10 +1,10 @@
 # Current Execution Queue
 
 Current Milestone: DWDE Operational
-Current Task: T10
-Next Task: T11
+Current Task: T11
+Next Task: T12
 
-Baseline: `17b3a60`. T09 is DONE. T10 is the next executable task; T11 remains pending T10. Status authority: [TASKS.md](TASKS.md). Recompute this view after each accepted task. Later tasks remain in the ledger.
+Baseline: `17b3a60`. T10 is DONE. T11 is the next executable task; T12 remains pending T11. Status authority: [TASKS.md](TASKS.md). Recompute this view after each accepted task. Later tasks remain in the ledger.
 
 Exact verification commands below include the T02 `npm run test:db` harness. See [TEST_STRATEGY](TEST_STRATEGY.md) and [database harness documentation](../docs/testing/database-integration.md) for setup. Missing tools/data are recorded blockers, never implicit passes.
 

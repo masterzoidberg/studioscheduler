@@ -6,10 +6,10 @@ These files are the **canonical active development plan** for DWDE production re
 
 - Current phase: Correctness — T03–T10.
 - Current milestone: A — DWDE Operational.
-- Current task: **T10 — manual MOVE through authoritative IR**.
-- Next task: T11 after T10 acceptance.
+- Current task: **T11 — ASSIGN/UNASSIGN canonical authority**.
+- Next task: T12 after T11 acceptance.
 - Planning baseline: HEAD `17b3a60`, inspected 2026-09-06.
-- Implementation progress: T01 through T09 have verified DONE evidence. T09 now binds runtime locks directly to stable session IDs, supports one locked meeting inside a multi-session class, uses SESSION OR ASSIGNMENT lock precedence through solve/validation/adoption, and returns deterministic runtime-lock conflict IDs. T10 is READY; T11 remains NOT_STARTED pending T10.
+- Implementation progress: T01 through T10 have verified DONE evidence. T10 routes desktop/mobile MOVE through an authenticated explicit-workspace server gate, one coherent pinned context, deterministic/published Constraint IR equality, canonical duration derivation, legacy safety floor, and a service-role-only V4.6 transaction with exact context recheck. Partial drafts remain movable but never claim publishable completeness. T11 is READY; T12 remains NOT_STARTED pending T11.
 
 ## Navigation
 
