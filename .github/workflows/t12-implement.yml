@@ -6,6 +6,7 @@ on:
       - feat/pre-cami-hardening
     paths:
       - .github/t12-apply.py
+      - .github/t12-fix.py
       - .github/workflows/t12-implement.yml
 
 permissions:
@@ -29,7 +30,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Apply T12 patch
-        run: python .github/t12-apply.py
+        run: |
+          python .github/t12-apply.py
+          python .github/t12-fix.py
       - name: Pin npm
         run: npm install --global npm@11.6.0 --no-audit --no-fund
       - name: Install dependencies
@@ -58,7 +61,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Apply accepted T12 patch
-        run: python .github/t12-apply.py
+        run: |
+          python .github/t12-apply.py
+          python .github/t12-fix.py
       - name: Commit implementation
         id: implementation
         shell: bash
@@ -73,7 +78,7 @@ jobs:
       - name: Remove one-time helpers and commit handoff
         shell: bash
         run: |
-          git rm .github/t12-apply.py .github/workflows/t12-implement.yml
+          git rm .github/t12-apply.py .github/t12-fix.py .github/workflows/t12-implement.yml
           git add plans
           git commit -m 'docs: accept T12 and queue T13'
           git push origin HEAD:feat/pre-cami-hardening
