@@ -6,6 +6,7 @@ on:
       - feat/pre-cami-hardening
     paths:
       - .github/t08-apply.py
+      - .github/t08-fix.py
       - .github/workflows/t08-implement.yml
 
 permissions:
@@ -26,7 +27,9 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Apply T08 patch
-        run: python .github/t08-apply.py
+        run: |
+          python .github/t08-apply.py
+          python .github/t08-fix.py
       - name: Pin npm
         run: npm install --global npm@11.6.0 --no-audit --no-fund
       - name: Install dependencies
@@ -52,9 +55,11 @@ jobs:
         with:
           ref: feat/pre-cami-hardening
       - name: Apply accepted T08 patch
-        run: python .github/t08-apply.py
+        run: |
+          python .github/t08-apply.py
+          python .github/t08-fix.py
       - name: Remove one-time implementation helpers
-        run: rm .github/t08-apply.py .github/workflows/t08-implement.yml
+        run: rm .github/t08-apply.py .github/t08-fix.py .github/workflows/t08-implement.yml
       - name: Validate diff
         run: git diff --check
       - name: Commit T08
