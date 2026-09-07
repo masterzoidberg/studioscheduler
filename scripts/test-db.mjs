@@ -734,6 +734,261 @@ $block$;
 select 'T04 PASS: exact duration-derived interval persisted, shortened candidate rejected, and rejected adoption rolled back atomically' as result;
 `;
 
+const archiveAwareAdoptionSql = String.raw`
+set search_path=public,extensions;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+
+-- Archive the complete T04 planning unit through the governed editor boundary.
+set role authenticated;
+select public.set_planning_entity_archive_v40(
+  'CLASS','t04-class',true,'T06 archive class lifecycle',
+  (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+);
+select public.set_planning_entity_archive_v40(
+  'TEACHER','t04-teacher',true,'T06 archive teacher lifecycle',
+  (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+);
+select public.set_planning_entity_archive_v40(
+  'ROOM','t04-room',true,'T06 archive room lifecycle',
+  (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+);
+select public.confirm_current_planning_dataset_v39(
+  version,snapshot_hash,'T06 confirmed archived active inventory',
+  '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
+)
+from public.planning_dataset_versions
+where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT';
+reset role;
+
+do $block$
+begin
+  if not exists(select 1 from public.class_definitions where id='t04-class' and archived_at is not null) then
+    raise exception 'T06 class archive did not persist';
+  end if;
+  if not exists(select 1 from public.class_sessions where id='t04-session' and archived_at is not null) then
+    raise exception 'T06 class archive did not archive its weekly session';
+  end if;
+  if not exists(select 1 from public.teachers where id='t04-teacher' and archived_at is not null) then
+    raise exception 'T06 teacher archive did not persist';
+  end if;
+  if not exists(select 1 from public.rooms where id='t04-room' and archived_at is not null) then
+    raise exception 'T06 room archive did not persist';
+  end if;
+  if not exists (
+    select 1
+    from public.schedule_versions sv
+    join public.assignments a on a.schedule_version_id=sv.id and a.session_id='t04-session'
+    join public.class_sessions s on s.id=a.session_id
+    join public.class_definitions c on c.id=s.class_id
+    join public.teachers t on t.id=a.teacher_id
+    join public.rooms r on r.id=a.room_id
+    where sv.studio_id='11111111-1111-4111-8111-111111111111'
+      and s.archived_at is not null
+      and c.archived_at is not null
+      and t.archived_at is not null
+      and r.archived_at is not null
+  ) then
+    raise exception 'T06 archived identities no longer resolve through historical schedule assignments';
+  end if;
+end
+$block$;
+
+-- With the only class/session archived, an empty candidate is complete. Trying to
+-- reintroduce that archived session must reject atomically.
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_schedule public.schedule_versions%rowtype;
+  v_rulebook integer;
+  v_enforcement integer;
+  v_planning integer;
+  v_constraint integer;
+  v_result jsonb;
+  v_before_count integer;
+  v_after_count integer;
+  v_rejected boolean := false;
+begin
+  select * into v_schedule from public.schedule_versions where studio_id=v_studio and is_current;
+  select version into v_rulebook from public.rulebook_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_enforcement from public.rule_enforcement_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_planning from public.planning_dataset_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_constraint from public.constraint_model_versions where studio_id=v_studio and status='CURRENT' and complete_hard_constraint_compilation=true;
+
+  v_result := public.adopt_solver_candidate_v33(
+    v_studio,v_owner,'T06 integration actor','Adopt empty active inventory after archive',
+    v_schedule.version,v_rulebook,v_enforcement,v_planning,v_constraint,
+    '[]'::jsonb,'{"valid":true,"hardViolations":0}'::jsonb
+  );
+  if (v_result->>'assignmentCount')::integer <> 0 then
+    raise exception 'T06 archived session was still counted as active completeness';
+  end if;
+  if exists (
+    select 1 from public.assignments a
+    join public.schedule_versions sv on sv.id=a.schedule_version_id
+    where sv.studio_id=v_studio and sv.is_current
+  ) then
+    raise exception 'T06 empty active candidate persisted an archived assignment';
+  end if;
+
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.adopt_solver_candidate_v33(
+      v_studio,v_owner,'T06 integration actor','Reject archived session reintroduction',
+      (v_result->>'scheduleVersion')::integer,v_rulebook,v_enforcement,v_planning,v_constraint,
+      jsonb_build_array(jsonb_build_object(
+        'sessionId','t04-session','day','Monday','startTime','17:00','endTime','18:30',
+        'teacherId','t04-teacher','roomId','t04-room'
+      )),
+      '{"valid":true,"hardViolations":0}'::jsonb
+    );
+  exception when others then
+    if position('CANDIDATE_SESSION_SET_MISMATCH' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T06 archived session candidate was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T06 archived-session rejection was not atomic'; end if;
+end
+$block$;
+reset role;
+
+-- Restore the class/session first, leaving teacher and room archived. This makes
+-- the session an active completeness obligation while proving archived resources
+-- cannot be used to satisfy it.
+set role authenticated;
+select public.set_planning_entity_archive_v40(
+  'CLASS','t04-class',false,'T06 restore class lifecycle',
+  (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+);
+select public.confirm_current_planning_dataset_v39(
+  version,snapshot_hash,'T06 confirmed class restore with resources still archived',
+  '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
+)
+from public.planning_dataset_versions
+where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT';
+reset role;
+
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_schedule public.schedule_versions%rowtype;
+  v_rulebook integer;
+  v_enforcement integer;
+  v_planning integer;
+  v_constraint integer;
+  v_before_count integer;
+  v_after_count integer;
+  v_rejected boolean := false;
+begin
+  select * into v_schedule from public.schedule_versions where studio_id=v_studio and is_current;
+  select version into v_rulebook from public.rulebook_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_enforcement from public.rule_enforcement_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_planning from public.planning_dataset_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_constraint from public.constraint_model_versions where studio_id=v_studio and status='CURRENT' and complete_hard_constraint_compilation=true;
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+
+  begin
+    perform public.adopt_solver_candidate_v33(
+      v_studio,v_owner,'T06 integration actor','Reject archived teacher and room',
+      v_schedule.version,v_rulebook,v_enforcement,v_planning,v_constraint,
+      jsonb_build_array(jsonb_build_object(
+        'sessionId','t04-session','day','Monday','startTime','17:00','endTime','18:30',
+        'teacherId','t04-teacher','roomId','t04-room'
+      )),
+      '{"valid":true,"hardViolations":0}'::jsonb
+    );
+  exception when others then
+    if position('CANDIDATE_INVALID_ASSIGNMENTS' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T06 archived teacher/room candidate was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T06 archived resource rejection was not atomic'; end if;
+end
+$block$;
+reset role;
+
+-- Complete the restore, reconfirm that exact Planning Dataset, and prove the same
+-- session can be adopted exactly once again.
+set role authenticated;
+select public.set_planning_entity_archive_v40(
+  'TEACHER','t04-teacher',false,'T06 restore teacher lifecycle',
+  (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+);
+select public.set_planning_entity_archive_v40(
+  'ROOM','t04-room',false,'T06 restore room lifecycle',
+  (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+);
+select public.confirm_current_planning_dataset_v39(
+  version,snapshot_hash,'T06 reconfirmed fully restored active inventory',
+  '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
+)
+from public.planning_dataset_versions
+where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT';
+reset role;
+
+set role service_role;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_schedule public.schedule_versions%rowtype;
+  v_rulebook integer;
+  v_enforcement integer;
+  v_planning integer;
+  v_constraint integer;
+  v_result jsonb;
+  v_before_count integer;
+  v_after_count integer;
+  v_rejected boolean := false;
+  v_candidate jsonb := jsonb_build_array(jsonb_build_object(
+    'sessionId','t04-session','day','Monday','startTime','17:00','endTime','18:30',
+    'teacherId','t04-teacher','roomId','t04-room'
+  ));
+begin
+  select * into v_schedule from public.schedule_versions where studio_id=v_studio and is_current;
+  select version into v_rulebook from public.rulebook_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_enforcement from public.rule_enforcement_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_planning from public.planning_dataset_versions where studio_id=v_studio and status='CURRENT';
+  select version into v_constraint from public.constraint_model_versions where studio_id=v_studio and status='CURRENT' and complete_hard_constraint_compilation=true;
+
+  v_result := public.adopt_solver_candidate_v33(
+    v_studio,v_owner,'T06 integration actor','Adopt restored active inventory',
+    v_schedule.version,v_rulebook,v_enforcement,v_planning,v_constraint,
+    v_candidate,'{"valid":true,"hardViolations":0}'::jsonb
+  );
+  if (v_result->>'assignmentCount')::integer <> 1 then
+    raise exception 'T06 restored active session was not required exactly once';
+  end if;
+  if (select count(*) from public.assignments a join public.schedule_versions sv on sv.id=a.schedule_version_id where sv.studio_id=v_studio and sv.is_current and a.session_id='t04-session')<>1 then
+    raise exception 'T06 restored active session was not persisted exactly once';
+  end if;
+
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  begin
+    perform public.adopt_solver_candidate_v33(
+      v_studio,v_owner,'T06 integration actor','Reject duplicate active session',
+      (v_result->>'scheduleVersion')::integer,v_rulebook,v_enforcement,v_planning,v_constraint,
+      v_candidate || v_candidate,'{"valid":true,"hardViolations":0}'::jsonb
+    );
+  exception when others then
+    if position('CANDIDATE_SESSION_SET_MISMATCH' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'T06 duplicate session candidate was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'T06 duplicate rejection was not atomic'; end if;
+end
+$block$;
+reset role;
+
+select 'T06 PASS: archive -> confirm -> adopt excludes archived inventory; archived resources reject; historical identities resolve; restore -> reconfirm -> adopt requires each active session exactly once' as result;
+`;
+
 function psql(container, user, sql, label) {
   const result = runProcess(
     'docker',
@@ -813,6 +1068,8 @@ async function runHarness() {
     psql(container, 'authenticated', planningConfirmationSql, 'T04 planning confirmation');
     const candidateIntervalOutput = psql(container, 'postgres', candidateIntervalAdoptionSql, 'T04 candidate interval adoption integration tests');
     process.stdout.write(candidateIntervalOutput);
+    const archiveAwareOutput = psql(container, 'postgres', archiveAwareAdoptionSql, 'T06 archive-aware adoption integration tests');
+    process.stdout.write(archiveAwareOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);

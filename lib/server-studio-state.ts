@@ -155,6 +155,28 @@ export async function loadCanonicalSolverStudioState(
     assignmentsBySchedule.set(scheduleId, items);
   }
 
+  const classes = (classesQ.data || []).map((row) => ({
+    id: String(row.id),
+    name: String(row.name),
+    subject: String(row.subject || ""),
+    level: String(row.level || ""),
+    durationMinutes: Number(row.duration_minutes || 0),
+    weeklyFrequency: Number(row.weekly_frequency || 0),
+    rosterStudentIds: row.roster_student_ids || [],
+    eligibleTeacherIds: row.eligible_teacher_ids || [],
+    companyOnly: Boolean(row.company_only),
+  }));
+  const activeClassIds = new Set(classes.map((klass) => klass.id));
+  const sessions = (sessionsQ.data || [])
+    .filter((row) => activeClassIds.has(String(row.class_id)))
+    .map((row) => ({
+      id: String(row.id),
+      classId: String(row.class_id),
+      ordinal: Number(row.ordinal),
+      durationMinutes: row.duration_minutes == null ? undefined : Number(row.duration_minutes),
+      locked: Boolean(row.locked),
+    }));
+
   return {
     studioId,
     studioName: String(studioQ.data?.name || "DWDE Studio"),
@@ -182,24 +204,8 @@ export async function loadCanonicalSolverStudioState(
       name: String(row.name),
       studentIds: row.student_ids || [],
     })),
-    classes: (classesQ.data || []).map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      subject: String(row.subject || ""),
-      level: String(row.level || ""),
-      durationMinutes: Number(row.duration_minutes || 0),
-      weeklyFrequency: Number(row.weekly_frequency || 0),
-      rosterStudentIds: row.roster_student_ids || [],
-      eligibleTeacherIds: row.eligible_teacher_ids || [],
-      companyOnly: Boolean(row.company_only),
-    })),
-    sessions: (sessionsQ.data || []).map((row) => ({
-      id: String(row.id),
-      classId: String(row.class_id),
-      ordinal: Number(row.ordinal),
-      durationMinutes: row.duration_minutes == null ? undefined : Number(row.duration_minutes),
-      locked: Boolean(row.locked),
-    })),
+    classes,
+    sessions,
     rules: (rulesQ.data || []).map((row) => mapRule(row as Record<string, unknown>)),
     rulebookVersions: (rulebookQ.data || []).map((row) => mapRulebook(row as Record<string, unknown>)),
     enforcementVersions: (enforcementQ.data || []).map((row) => mapEnforcement(row as Record<string, unknown>)),
