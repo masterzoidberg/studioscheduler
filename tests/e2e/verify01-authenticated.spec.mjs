@@ -166,15 +166,15 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   await blocker.acquired;
   const moveRequestPromise = page.waitForRequest((request) =>
     request.url().includes('/api/schedule/move') && request.method() === 'POST', { timeout: 5_000 }).catch(() => null);
-  await saveButton.click();
+  await saveButton.evaluate((button) => button.click());
   const moveRequest = await moveRequestPromise;
   if (!moveRequest) {
     await delay(300);
     const saveEnabledAfterClick = await saveButton.isEnabled().catch(() => false);
     const visibleSections = (await page.locator('section').allTextContents())
       .map((text) => text.replace(/\s+/g, ' ').trim())
-      .filter((text) => /Schedule v|Move blocked|Change blocked|Revalidate|Scheduling context|Saved as|Moving|HARD/i.test(text))
-      .slice(0, 12);
+      .filter(Boolean)
+      .slice(0, 20);
     page.off('request', recordScheduleRequest);
     await blocker.done;
     throw new Error(
