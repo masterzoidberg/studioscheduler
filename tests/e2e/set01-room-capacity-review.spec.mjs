@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { expect, test } from '@playwright/test';
+import { registerSet02SetupDashboardTest } from './set02-setup-dashboard.spec.mjs';
 
 const appUrl = process.env.E2E_APP_URL;
 const supabaseUrl = process.env.E2E_SUPABASE_URL;
@@ -97,4 +98,6 @@ export function registerSet01RoomCapacityReviewTest() {
     expect(ownerUser).toBeTruthy();
     expect(persisted.data[0].reviewer_user_id).toBe(ownerUser.id);
   });
+
+  registerSet02SetupDashboardTest();
 }
