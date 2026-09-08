@@ -4,7 +4,7 @@ Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **POL-01*
 
 ## Status and execution contract
 
-READY = dependencies accepted and implementation may begin; NOT_STARTED = dependency waiting; IN_PROGRESS = active work; BLOCKED = concrete impediment to acceptance recorded; DONE = every criterion verified; DEFERRED = intentionally outside release. Missing local verification infrastructure must be reported and prevents DONE when no equivalent required evidence exists; it does not prohibit independent implementation. External acceptance needs are recorded now, but tasks become BLOCKED only when they are otherwise executable and that input prevents completion.
+READY = the one selected dependency-satisfied task that may begin implementation now; NOT_STARTED = queued work that is not selected yet, whether dependency-waiting or already dependency-satisfied; IN_PROGRESS = active work; BLOCKED = concrete impediment to acceptance recorded; DONE = every criterion verified; DEFERRED = intentionally outside release. Missing local verification infrastructure must be reported and prevents DONE when no equivalent required evidence exists; it does not prohibit independent implementation. External acceptance needs are recorded now, but tasks become BLOCKED only when they are otherwise executable and that input prevents completion.
 
 Use ledger order among dependency-satisfied unfinished tasks, with NEXT selecting exactly one. Do not stop the project merely because one later acceptance gate is unavailable. A/B/C/D milestone criteria live only in MASTER_PLAN. Full scope, tests, UX and escalation are in the linked prompt. Each task is a coherent slice; sequential implementation checkpoints under its ID are allowed without architectural rediscovery.
 
@@ -17,7 +17,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | [VERIFY-01](prompts/archive/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | DONE | A | SAFE-02 | STANDARD IMPLEMENTATION |
 | [SET-01](prompts/archive/SET-01.md) | Add targeted setup review with room-capacity vertical slice | DONE | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
 | [POL-01](prompts/POL-01.md) | Introduce bounded typed policy authoring authority | READY | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
-| [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | READY | A | SET-01 | STANDARD IMPLEMENTATION |
+| [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | NOT_STARTED | A | SET-01 | STANDARD IMPLEMENTATION |
 | [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | NOT_STARTED | A | POL-01 | STANDARD IMPLEMENTATION |
 | [SET-03](prompts/SET-03.md) | Manage studio hours and rooms through Setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | NOT_STARTED | A | SET-03 | STANDARD IMPLEMENTATION |
