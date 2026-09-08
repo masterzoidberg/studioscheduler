@@ -3,8 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, BookOpenCheck, CalendarDays, Home, LogOut, Menu, MoreHorizontal, RefreshCw, Sparkles, UsersRound, X } from "lucide-react";
-import { CopilotPanel } from "@/components/copilot-panel";
+import { AlertTriangle, BookOpenCheck, CalendarDays, Home, LogOut, Menu, MoreHorizontal, RefreshCw, UsersRound, X } from "lucide-react";
 import { LoginScreen } from "@/components/login-screen";
 import { MobileScheduleView } from "@/components/schedule/mobile-schedule-view";
 import { ScheduleBuilderPanel } from "@/components/schedule/schedule-builder-panel";
@@ -19,9 +18,9 @@ const titles: Record<string, { eyebrow: string; title: string }> = {
   "/schedule": { eyebrow: "Canonical assignments", title: "Weekly schedule" },
   "/people": { eyebrow: "Teachers + dancers", title: "People" },
   "/classes": { eyebrow: "Program catalog", title: "Classes" },
-  "/scenarios": { eyebrow: "Isolated what-if workspace", title: "Scenarios" },
+  "/scenarios": { eyebrow: "Advanced historical records", title: "Legacy scenarios" },
   "/versions": { eyebrow: "Auditable history", title: "Versions" },
-  "/settings": { eyebrow: "Export, AI + access", title: "Settings" },
+  "/settings": { eyebrow: "Export, access + advanced", title: "Settings" },
 };
 
 function Brand() {
@@ -41,7 +40,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     currentScheduleRulebookVersion,currentScheduleEnforcementVersion,scheduleIsStale,validation,refresh,signOut,
   } = useWorkspace();
   const [mobileNavOpen,setMobileNavOpen]=useState(false);
-  const [mobileCopilotOpen,setMobileCopilotOpen]=useState(false);
   const heading=titles[pathname]??titles["/"];
 
   if (loading && !state) return <div className="grid min-h-screen place-items-center bg-slate-950 text-white"><div className="flex items-center gap-3 text-sm"><RefreshCw className="size-5 animate-spin"/>Opening DWDE workspace…</div></div>;
@@ -57,7 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         : { label:"PARTIALLY VALIDATED", tone:"border-blue-200 bg-blue-50 text-blue-900", dot:"bg-blue-500" };
 
   return <div className="min-h-screen bg-[#f5f7f9] text-slate-950">
-    <div className="mx-auto grid min-h-screen max-w-[1920px] lg:grid-cols-[236px_minmax(0,1fr)] 2xl:grid-cols-[236px_minmax(0,1fr)_350px]">
+    <div className="mx-auto grid min-h-screen max-w-[1920px] lg:grid-cols-[236px_minmax(0,1fr)]">
       <aside className="hidden border-r border-slate-200 bg-white px-4 py-5 lg:flex lg:flex-col">
         <div className="px-2"><Brand/></div><div className="mt-8 flex-1"><SidebarNav/></div>
         <div className={`rounded-2xl border p-3.5 ${health.tone}`}><div className="flex items-center gap-2 text-xs font-semibold"><span className={`size-2 rounded-full ${health.dot}`}/>Schedule health</div><p className="mt-2 text-base font-semibold">{health.label}</p><p className="mt-1 text-xs leading-5 opacity-80">{validation.hardViolations} detected HARD · {validation.coverage.implementedHardRules}/{validation.coverage.applicableHardRules} HARD rules enforced</p></div>
@@ -65,14 +63,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="min-w-0 pb-20 lg:pb-0">
-        <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur"><div className="flex min-h-[68px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8"><div className="flex min-w-0 items-center gap-3"><button className="hidden size-10 place-items-center rounded-xl border border-slate-200 text-slate-600 lg:grid 2xl:hidden" onClick={()=>setMobileNavOpen(true)} aria-label="Open navigation"><Menu className="size-5"/></button><div className="min-w-0"><p className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 sm:text-[11px]">{heading.eyebrow}</p><h1 className="truncate text-lg font-semibold sm:text-xl">{heading.title}</h1></div></div><div className="flex items-center gap-2"><button onClick={()=>void refresh()} className="grid size-10 place-items-center rounded-xl border border-slate-200 text-slate-500" aria-label="Refresh workspace"><RefreshCw className={`size-4 ${loading?"animate-spin":""}`}/></button><div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:block">{session?.user.email||"Studio user"} · {role}</div><button onClick={()=>setMobileCopilotOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-950 px-3 text-sm font-medium text-white 2xl:hidden"><Sparkles className="size-4"/><span className="hidden sm:inline">Copilot</span></button></div></div>{error?<div className="border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800 sm:px-6 lg:px-8">Workspace error: {error}</div>:null}</header>
+        <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur"><div className="flex min-h-[68px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8"><div className="flex min-w-0 items-center gap-3"><button className="hidden size-10 place-items-center rounded-xl border border-slate-200 text-slate-600 lg:grid xl:hidden" onClick={()=>setMobileNavOpen(true)} aria-label="Open navigation"><Menu className="size-5"/></button><div className="min-w-0"><p className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 sm:text-[11px]">{heading.eyebrow}</p><h1 className="truncate text-lg font-semibold sm:text-xl">{heading.title}</h1></div></div><div className="flex items-center gap-2"><button onClick={()=>void refresh()} className="grid size-10 place-items-center rounded-xl border border-slate-200 text-slate-500" aria-label="Refresh workspace"><RefreshCw className={`size-4 ${loading?"animate-spin":""}`}/></button><div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:block">{session?.user.email||"Studio user"} · {role}</div></div></div>{error?<div className="border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800 sm:px-6 lg:px-8">Workspace error: {error}</div>:null}</header>
         <main className="px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">{pathname === "/schedule" ? <ScheduleEditModeProvider><div className="space-y-5"><ScheduleEditControls/><ScheduleBuilderPanel/><div className="md:hidden"><MobileScheduleView/></div><div className="hidden md:block">{children}</div></div></ScheduleEditModeProvider> : children}</main>
       </div>
-      <div className="sticky top-0 hidden h-screen 2xl:block"><CopilotPanel/></div>
     </div>
 
     <BottomNav openMore={()=>setMobileNavOpen(true)}/>
     {mobileNavOpen?<div className="fixed inset-0 z-50"><button className="absolute inset-0 bg-slate-950/40" onClick={()=>setMobileNavOpen(false)} aria-label="Close menu"/><aside className="absolute bottom-0 left-0 right-0 max-h-[88vh] rounded-t-[28px] bg-white p-5 shadow-2xl sm:bottom-auto sm:left-0 sm:top-0 sm:h-full sm:w-80 sm:rounded-none"><div className="flex items-center justify-between"><Brand/><button onClick={()=>setMobileNavOpen(false)} className="rounded-xl p-2 text-slate-500"><X className="size-5"/></button></div><div className="mt-6" onClick={()=>setMobileNavOpen(false)}><SidebarNav compact/></div><div className={`mt-5 rounded-xl border p-3 text-xs leading-5 ${health.tone}`}>{health.label}<br/>{validation.hardViolations} detected HARD · {validation.coverage.implementedHardRules}/{validation.coverage.applicableHardRules} enforced<br/>RB v{currentScheduleRulebookVersion}/{currentRulebookVersion} · EV v{currentScheduleEnforcementVersion}/{currentEnforcementVersion}</div></aside></div>:null}
-    {mobileCopilotOpen?<div className="fixed inset-0 z-50"><button className="absolute inset-0 bg-slate-950/40" onClick={()=>setMobileCopilotOpen(false)} aria-label="Close Copilot"/><div className="absolute inset-x-0 bottom-0 h-[88vh] sm:left-auto sm:right-4 sm:bottom-4 sm:w-[400px]"><CopilotPanel mobile onClose={()=>setMobileCopilotOpen(false)}/></div></div>:null}
   </div>;
 }

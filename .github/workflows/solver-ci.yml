@@ -6,6 +6,15 @@ on:
   pull_request:
     paths:
       - "solver/**"
+      - "lib/domain.ts"
+      - "lib/constraint-*.ts"
+      - "lib/solver-*.ts"
+      - "lib/legacy-safety-bridge.ts"
+      - "lib/server-studio-state.ts"
+      - "app/api/solver/**"
+      - "tests/fixtures/**"
+      - "tests/*solver*.test.ts"
+      - "tests/*constraint*.test.ts"
       - ".github/workflows/solver-ci.yml"
 
 jobs:

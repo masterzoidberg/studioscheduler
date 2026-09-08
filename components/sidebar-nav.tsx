@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { BookOpenText, CalendarDays, Clock3, GraduationCap, History, LayoutDashboard, Settings, ShieldCheck, UsersRound, Wrench } from "lucide-react";
+import { BookOpenText, CalendarDays, GraduationCap, History, LayoutDashboard, Settings, ShieldCheck, UsersRound, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const navItems: Array<{ label: string; href: string; icon: LucideIcon }> = [
@@ -14,7 +14,6 @@ export const navItems: Array<{ label: string; href: string; icon: LucideIcon }> 
   { label: "Schedule", href: "/schedule", icon: CalendarDays },
   { label: "People", href: "/people", icon: UsersRound },
   { label: "Classes", href: "/classes", icon: GraduationCap },
-  { label: "Scenarios", href: "/scenarios", icon: Clock3 },
   { label: "Versions", href: "/versions", icon: History },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
