@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:db": "node scripts/test-db.mjs --target=docker-local --allow-disposable && node scripts/test-safe01-db.mjs --target=docker-local --allow-disposable",
-    "test:parity": "node scripts/test-parity.mjs"
+    "test:parity": "node scripts/test-parity.mjs",
+    "test:e2e": "node scripts/test-e2e.mjs --allow-disposable"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",
