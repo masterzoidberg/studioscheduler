@@ -8,7 +8,8 @@ export interface ConstraintBindingReference {
   constraintId: string;
   ruleIds: string[];
   entityType: ConstraintBindingEntityType;
-  expectedName: string;
+  expectedName?: string;
+  expectedId?: string;
   source: string;
   status: ConstraintBindingStatus;
   matchedEntityIds: string[];
@@ -26,7 +27,8 @@ type NamedEntity = { id: string; name: string };
 
 type PendingReference = {
   entityType: ConstraintBindingEntityType;
-  expectedName: string;
+  expectedName?: string;
+  expectedId?: string;
   source: string;
 };
 
@@ -43,7 +45,7 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function add(
+function addName(
   references: PendingReference[],
   entityType: ConstraintBindingEntityType,
   expectedName: string | null,
@@ -53,33 +55,46 @@ function add(
   references.push({ entityType, expectedName, source });
 }
 
-function addMany(
+function addNames(
   references: PendingReference[],
   entityType: ConstraintBindingEntityType,
   names: string[],
   source: string,
 ) {
-  for (const name of names) add(references, entityType, name, source);
+  for (const name of names) addName(references, entityType, name, source);
+}
+
+function addIds(
+  references: PendingReference[],
+  entityType: ConstraintBindingEntityType,
+  ids: string[],
+  source: string,
+) {
+  for (const raw of ids) {
+    const expectedId = raw.trim();
+    if (expectedId) references.push({ entityType, expectedId, source });
+  }
 }
 
 function referencesForNode(node: ConstraintIRNode): PendingReference[] {
   const references: PendingReference[] = [];
 
-  addMany(references, "CLASS", node.selector.classNames ?? [], "selector.classNames");
-  addMany(references, "TEACHER", node.selector.teacherNames ?? [], "selector.teacherNames");
-  addMany(references, "ROOM", node.selector.roomNames ?? [], "selector.roomNames");
-  addMany(references, "STUDENT", node.selector.studentNames ?? [], "selector.studentNames");
+  addNames(references, "CLASS", node.selector.classNames ?? [], "selector.classNames");
+  addIds(references, "TEACHER", node.selector.teacherIds ?? [], "selector.teacherIds");
+  addNames(references, "TEACHER", node.selector.teacherNames ?? [], "selector.teacherNames");
+  addNames(references, "ROOM", node.selector.roomNames ?? [], "selector.roomNames");
+  addNames(references, "STUDENT", node.selector.studentNames ?? [], "selector.studentNames");
 
   // Relationship selectors currently carry the canonical related student's display name.
   // Treat that as a real planning-data binding instead of allowing the constraint to
   // evaluate vacuously when the relationship target is absent.
-  add(references, "STUDENT", stringValue(node.selector.studentRelation), "selector.studentRelation");
+  addName(references, "STUDENT", stringValue(node.selector.studentRelation), "selector.studentRelation");
 
-  add(references, "TEACHER", stringValue(node.parameters.teacherName), "parameters.teacherName");
-  add(references, "ROOM", stringValue(node.parameters.roomName), "parameters.roomName");
-  add(references, "CLASS", stringValue(node.parameters.predecessor), "parameters.predecessor");
-  add(references, "CLASS", stringValue(node.parameters.successor), "parameters.successor");
-  addMany(references, "CLASS", strings(node.parameters.daughterClassNames), "parameters.daughterClassNames");
+  addName(references, "TEACHER", stringValue(node.parameters.teacherName), "parameters.teacherName");
+  addName(references, "ROOM", stringValue(node.parameters.roomName), "parameters.roomName");
+  addName(references, "CLASS", stringValue(node.parameters.predecessor), "parameters.predecessor");
+  addName(references, "CLASS", stringValue(node.parameters.successor), "parameters.successor");
+  addNames(references, "CLASS", strings(node.parameters.daughterClassNames), "parameters.daughterClassNames");
 
   // V3 lower-level exceptions are named dancer exceptions. If the dancer cannot be
   // resolved, the exception semantics cannot safely be applied by a solver.
@@ -87,15 +102,19 @@ function referencesForNode(node: ConstraintIRNode): PendingReference[] {
     for (const [index, value] of node.parameters.exceptions.entries()) {
       if (!value || typeof value !== "object" || Array.isArray(value)) continue;
       const exception = value as Record<string, unknown>;
-      add(references, "STUDENT", stringValue(exception.studentName), `parameters.exceptions[${index}].studentName`);
+      addName(references, "STUDENT", stringValue(exception.studentName), `parameters.exceptions[${index}].studentName`);
     }
   }
 
   // De-duplicate the same semantic reference when a compiler node intentionally
-  // repeats it in both selector and parameters (for example DIRECTLY_AFTER).
+  // repeats it in both selector and parameters. Stable IDs and display names are
+  // deliberately distinct keys during the transition so a node cannot hide a bad
+  // typed ID behind a coincidentally matching legacy name.
   const seen = new Set<string>();
   return references.filter((reference) => {
-    const key = `${reference.entityType}|${canonicalBindingName(reference.expectedName)}`;
+    const key = reference.expectedId
+      ? `${reference.entityType}|ID|${reference.expectedId}`
+      : `${reference.entityType}|NAME|${canonicalBindingName(reference.expectedName || "")}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -114,14 +133,15 @@ function bindReference(
   node: ConstraintIRNode,
   pending: PendingReference,
 ): ConstraintBindingReference {
-  const expected = canonicalBindingName(pending.expectedName);
-  const matches = entitiesFor(state, pending.entityType)
-    .filter((entity) => canonicalBindingName(entity.name) === expected);
+  const entities = entitiesFor(state, pending.entityType);
+  const matches = pending.expectedId
+    ? entities.filter((entity) => entity.id === pending.expectedId)
+    : entities.filter((entity) => canonicalBindingName(entity.name) === canonicalBindingName(pending.expectedName || ""));
   return {
     constraintId: node.id,
     ruleIds: node.ruleIds,
     entityType: pending.entityType,
-    expectedName: pending.expectedName,
+    ...(pending.expectedId ? { expectedId: pending.expectedId } : { expectedName: pending.expectedName || "" }),
     source: pending.source,
     status: matches.length === 1 ? "BOUND" : matches.length === 0 ? "MISSING" : "AMBIGUOUS",
     matchedEntityIds: matches.map((entity) => entity.id).sort(),
@@ -129,12 +149,14 @@ function bindReference(
 }
 
 /**
- * Proves that every concrete named entity referenced by the compiled HARD model
+ * Proves that every concrete entity referenced by the compiled HARD model
  * resolves to exactly one current Planning Dataset entity.
  *
- * Compiler completeness answers "did we translate the Rulebook?". This report
- * separately answers "does that translation bind to today's planning facts?".
- * Without both, a named constraint can silently become a no-op.
+ * Legacy constraints may still bind by reviewed display name while typed policy
+ * binds by stable ID. Compiler completeness answers "did we translate the
+ * Rulebook?"; this report separately answers "does that translation bind to
+ * today's planning facts?". Without both, a constraint can silently become a
+ * no-op.
  */
 export function validateConstraintModelBindings(
   state: StudioState,
