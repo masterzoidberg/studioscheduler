@@ -7,8 +7,9 @@ if (!script) {
 }
 
 const transientStartup = /connection to server on socket[\s\S]*No such file or directory[\s\S]*Is the server running locally/i;
+const maxAttempts = 4;
 
-for (let attempt = 1; attempt <= 2; attempt += 1) {
+for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
   const result = spawnSync(process.execPath, [script, ...args], {
     cwd: process.cwd(),
     env: process.env,
@@ -26,8 +27,11 @@ for (let attempt = 1; attempt <= 2; attempt += 1) {
   }
 
   const combined = `${stdout}\n${stderr}`;
-  if (attempt === 1 && transientStartup.test(combined)) {
-    process.stderr.write(`Disposable PostgreSQL startup socket disappeared; retrying ${script} once with a fresh container.\n`);
+  if (attempt < maxAttempts && transientStartup.test(combined)) {
+    process.stderr.write(
+      `Disposable PostgreSQL startup socket disappeared; retrying ${script} with a fresh container `
+      + `(attempt ${attempt + 1}/${maxAttempts}).\n`,
+    );
     await new Promise((resolve) => setTimeout(resolve, 1000));
     continue;
   }
