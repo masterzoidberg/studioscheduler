@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSupabasePublicConfiguration } from "@/lib/supabase-config";
 
-const { createClientMock } = vi.hoisted(() => ({ createClientMock: vi.fn(() => ({ kind: "mock-supabase" })) }));
+const { createClientMock } = vi.hoisted(() => ({
+  createClientMock: vi.fn((_url: string, _key: string, _options?: unknown) => ({ kind: "mock-supabase" })),
+}));
 vi.mock("@supabase/supabase-js", () => ({ createClient: createClientMock }));
 
 const productionHost = "kbgzrefivxqoiwumfyui.supabase.co";
