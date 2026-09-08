@@ -159,9 +159,10 @@ $function$;
 revoke all on function private.assert_reviewed_rulebook_v3_v36(uuid) from public,anon,authenticated;
 
 -- Transition the exact reviewed V3 artifact to V4 by changing AIM-003 machine
--- fields only. Teacher display name is used exactly once here to bind the legacy
--- reviewed rule to its current stable planning identity; no runtime code needs
--- that display name after the transition.
+-- fields only. This is an artifact-scoped data migration, not a global seed:
+-- databases that contain another or deidentified Rulebook install the V5.2
+-- functions but are not rewritten. Teacher display name is used exactly once
+-- here to bind the reviewed rule to its current stable planning identity.
 do $migration$
 declare
   v_studio uuid;
@@ -179,11 +180,16 @@ declare
 begin
   select studio_id into v_studio
   from public.rulebook_versions
-  where rulebook_id='dwde-2026-2027-master-rulebook' and status='CURRENT'
+  where rulebook_id='dwde-2026-2027-master-rulebook'
+    and status='CURRENT'
+    and (
+      (version=3 and source_hash='7d03e131bd0b6a1eddafff70fd3024628215236d3d846cb156d1514329120c5b')
+      or (version=4 and source_metadata->>'provenance'='TYPED_POLICY_MIGRATION')
+    )
   order by version desc
   limit 1;
   if v_studio is null then
-    raise exception 'POL01_RULEBOOK_MISSING: DWDE current Rulebook was not found';
+    return;
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended('rulebook:'||v_studio::text,0));
@@ -345,7 +351,8 @@ $migration$;
 -- V4 publication is still compiler-owned. PostgreSQL does not recreate semantics;
 -- it checks that the compiler artifact proves the one bounded replacement:
 -- exactly one AIM-003 node, stable teacher ID, no name selector, and unchanged
--- Monday-through-Thursday meaning. V3 remains publishable only with compiler 0.3.
+-- Monday-through-Thursday meaning. Pre-V4 publication retains the existing
+-- generic JSONB/version mechanics; V4 alone adds the new policy-certification gate.
 create or replace function public.publish_constraint_model_v30(
   p_snapshot jsonb,
   p_reason text,
@@ -382,11 +389,11 @@ begin
     raise exception 'STALE_RULEBOOK: expected %, current %',p_expected_rulebook_version,v_current_rulebook;
   end if;
 
-  perform private.assert_reviewed_rulebook_v3_v36(v_studio);
-  if v_current_rulebook=3 and v_compiler<>'dwde-ir-0.3' then
-    raise exception 'CONSTRAINT_MODEL_COMPILER_MISMATCH: reviewed Rulebook V3 requires dwde-ir-0.3';
-  elsif v_current_rulebook=4 and v_compiler<>'dwde-ir-0.4' then
-    raise exception 'CONSTRAINT_MODEL_COMPILER_MISMATCH: typed Rulebook V4 requires dwde-ir-0.4';
+  if v_current_rulebook=4 then
+    perform private.assert_reviewed_rulebook_v3_v36(v_studio);
+    if v_compiler<>'dwde-ir-0.4' then
+      raise exception 'CONSTRAINT_MODEL_COMPILER_MISMATCH: typed Rulebook V4 requires dwde-ir-0.4';
+    end if;
   end if;
 
   perform private.validate_constraint_model_snapshot_v27(p_snapshot,v_current_rulebook,v_compiler);
