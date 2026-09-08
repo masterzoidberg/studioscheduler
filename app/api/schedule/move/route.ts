@@ -49,6 +49,32 @@ function blocked(code: string, error: string, detail: Record<string, unknown> = 
   return NextResponse.json({ status: "BLOCKED", code, error, ...detail }, { status: 409 });
 }
 
+function transactionErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return String(error);
+}
+
+function knownTransactionBlock(error: unknown) {
+  const message = transactionErrorMessage(error);
+  if (message.includes("STALE_MANUAL_MOVE_CONTEXT")) {
+    return blocked("MANUAL_MOVE_CONTEXT_CHANGED_RETRY", "Scheduling context changed before commit. Retry the move.");
+  }
+  if (message.includes("WORKSPACE_SELECTION_MISMATCH")) {
+    return blocked("WORKSPACE_SELECTION_MISMATCH", "The selected workspace is not the legacy active membership context. Switch back to the active workspace; full multi-workspace writes arrive in T22/T23.");
+  }
+  if (message.includes("LOCKED_")) {
+    return blocked("MANUAL_MOVE_TRANSACTION_REJECTED", "This assignment became locked before the move could be committed. Refresh the schedule and retry after unlocking it.");
+  }
+  if (message.includes("HARD_VALIDATION")) {
+    return blocked("MANUAL_MOVE_TRANSACTION_REJECTED", "The move failed authoritative validation before commit. Refresh the schedule and retry against the current state.");
+  }
+  return null;
+}
+
 function isCanonicalScheduleContext(token: Awaited<ReturnType<typeof loadCurrentSolverContextToken>>) {
   return token.scheduleVersion !== null
     && token.scheduleId !== null
@@ -156,16 +182,8 @@ export async function POST(request: NextRequest) {
       p_ai_proposed: patch.proposedBy === "AI",
     });
     if (result.error) {
-      const message = result.error.message || "Manual move transaction failed.";
-      if (message.includes("STALE_MANUAL_MOVE_CONTEXT")) {
-        return blocked("MANUAL_MOVE_CONTEXT_CHANGED_RETRY", "Scheduling context changed before commit. Retry the move.");
-      }
-      if (message.includes("WORKSPACE_SELECTION_MISMATCH")) {
-        return blocked("WORKSPACE_SELECTION_MISMATCH", "The selected workspace is not the legacy active membership context. Switch back to the active workspace; full multi-workspace writes arrive in T22/T23.");
-      }
-      if (message.includes("LOCKED_") || message.includes("HARD_VALIDATION")) {
-        return blocked("MANUAL_MOVE_TRANSACTION_REJECTED", message);
-      }
+      const knownBlock = knownTransactionBlock(result.error);
+      if (knownBlock) return knownBlock;
       throw result.error;
     }
 
@@ -180,8 +198,10 @@ export async function POST(request: NextRequest) {
       authoritativeConstraintModelVersion: snapshot.contextToken.constraintModelVersion,
     });
   } catch (error) {
+    const knownBlock = knownTransactionBlock(error);
+    if (knownBlock) return knownBlock;
     return NextResponse.json({
-      error: error instanceof Error ? error.message : String(error),
+      error: transactionErrorMessage(error),
       code: "MANUAL_MOVE_ERROR",
     }, { status: 500 });
   }
