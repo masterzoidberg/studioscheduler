@@ -38,12 +38,16 @@ function docker(args, input) {
 }
 
 function psql(container, sql, label, extraArgs = []) {
-  const result = docker([
-    'exec', '-i', container,
-    'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres',
-    ...extraArgs,
-  ], sql);
-  return result.stdout;
+  try {
+    const result = docker([
+      'exec', '-i', container,
+      'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres',
+      ...extraArgs,
+    ], sql);
+    return result.stdout;
+  } catch (error) {
+    throw new DatabaseHarnessError(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function psqlScalar(container, sql) {
@@ -93,7 +97,7 @@ function startPsql(container, sql) {
     if (stdout.includes(marker)) return Promise.resolve();
     if (settled) return Promise.reject(new DatabaseHarnessError(`psql exited before marker ${marker}:\n${stdout}\n${stderr}`));
     return new Promise((resolve, reject) => {
-      const waiter = { marker, resolve, reject, done: false, timer: null };
+      const waiter = { marker, resolve, done: false, timer: null };
       waiter.timer = setTimeout(() => {
         waiter.done = true;
         reject(new DatabaseHarnessError(`Timed out waiting for psql marker ${marker}:\n${stdout}\n${stderr}`));
@@ -143,6 +147,32 @@ create or replace function auth.uid()
 returns uuid language sql stable security definer set search_path=''
 as $function$
   select nullif(pg_catalog.current_setting('request.jwt.claim.sub',true),'')::uuid
+$function$;
+
+create or replace function private.dwde_actor_context()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path=''
+as $function$
+declare
+  v_uid uuid:=auth.uid();
+  v_studio uuid;
+  v_role text;
+  v_actor text;
+begin
+  if v_uid is null then raise exception 'Authentication required'; end if;
+  select m.studio_id,m.role into v_studio,v_role
+  from public.studio_members m
+  where m.user_id=v_uid
+  order by case m.role when 'OWNER' then 0 when 'EDITOR' then 1 else 2 end
+  limit 1;
+  if v_studio is null then raise exception 'Studio membership required'; end if;
+  select coalesce(p.display_name,u.email,'Studio user') into v_actor
+  from auth.users u left join public.profiles p on p.id=u.id where u.id=v_uid;
+  return jsonb_build_object('user_id',v_uid,'studio_id',v_studio,'role',v_role,'actor',v_actor);
+end
 $function$;
 
 create or replace function public.adopt_solver_candidate_v44(

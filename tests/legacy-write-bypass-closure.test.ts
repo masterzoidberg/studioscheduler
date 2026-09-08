@@ -64,11 +64,12 @@ describe("T13 legacy write bypass closure", () => {
 });
 
 describe("SAFE-01 commit-time membership authorization", () => {
-  it("uses a transactional row lock in the shared editor context", () => {
-    expect(safe01Migration).toContain("create or replace function private.dwde_actor_context()");
+  it("locks the resolved editor membership without changing the shared read resolver", () => {
+    expect(safe01Migration).toContain("create or replace function private.assert_editor_context()");
+    expect(safe01Migration).not.toContain("create or replace function private.dwde_actor_context()");
     expect(safe01Migration).toContain("volatile");
     expect(safe01Migration).toContain("for update");
-    expect(safe01Migration).toContain("if not found or v_studio is null");
+    expect(safe01Migration).toContain("if not found or v_locked_role not in ('OWNER','EDITOR')");
   });
 
   it("makes V4.9 adoption explicitly null-safe before downstream adoption", () => {
