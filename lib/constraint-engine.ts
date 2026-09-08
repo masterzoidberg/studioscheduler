@@ -1,4 +1,4 @@
-import type { Assignment, ClassDefinition, StudioState } from "@/lib/domain";
+import type { Assignment, ClassDefinition, StudioState, Teacher } from "@/lib/domain";
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 
 export interface ConstraintEngineViolation {
@@ -48,6 +48,12 @@ function textMatches(value: string, selectors: string[] | undefined) {
   if (!selectors?.length) return true;
   const actual = normalize(value);
   return selectors.some((selector) => normalize(selector) === actual);
+}
+
+function teacherMatchesSelector(teacher: Teacher, node: ConstraintIRNode) {
+  const ids = node.selector.teacherIds;
+  if (ids?.length && !ids.includes(teacher.id)) return false;
+  return textMatches(teacher.name, node.selector.teacherNames);
 }
 
 function subjectAllowed(klass: ClassDefinition, allowed: string[]) {
@@ -128,7 +134,6 @@ export function validateConstraintModelSchedule(
   const delegated = new Set<string>();
   const unsupported = new Set<string>();
   const classesById = new Map(state.classes.map((klass) => [klass.id, klass]));
-  const sessionsById = new Map(state.sessions.map((session) => [session.id, session]));
   const classesBySession = new Map(
     state.sessions
       .map((session) => [session.id, classesById.get(session.classId)] as const)
@@ -173,11 +178,12 @@ export function validateConstraintModelSchedule(
   // with no compiled qualification domain may exist in inventory, but may not be
   // scheduled until the Rulebook is updated and recompiled.
   const teacherDomainNodes = model.hardConstraints.filter((node) => node.kind === "TEACHER_SUBJECT_DOMAIN");
+  const coveredTeacherIds = new Set(teacherDomainNodes.flatMap((node) => node.selector.teacherIds || []));
   const coveredTeacherNames = new Set(teacherDomainNodes.flatMap((node) => node.selector.teacherNames || []).map(normalize));
   for (const assignment of assignments) {
     const teacher = teachersById.get(assignment.teacherId);
     const klass = classesBySession.get(assignment.sessionId);
-    if (!teacher || !klass || coveredTeacherNames.has(normalize(teacher.name))) continue;
+    if (!teacher || !klass || coveredTeacherIds.has(teacher.id) || coveredTeacherNames.has(normalize(teacher.name))) continue;
     violations.push({
       constraintId: "teacher-qualification-default-deny",
       ruleIds: ["CUR-007"],
@@ -193,6 +199,11 @@ export function validateConstraintModelSchedule(
         if (!state.classes.some((klass) => normalize(klass.name) === normalize(className))) {
           addViolation(violations, node, `${className} is referenced by the current Rulebook constraint model but is missing from planning inventory.`);
         }
+      }
+    }
+    for (const teacherId of node.selector.teacherIds || []) {
+      if (!teachersById.has(teacherId)) {
+        addViolation(violations, node, `Teacher ${teacherId} is referenced by stable ID in the current Rulebook constraint model but is missing from teacher inventory.`, [], [teacherId]);
       }
     }
     for (const teacherName of node.selector.teacherNames || []) {
@@ -293,7 +304,7 @@ export function validateConstraintModelSchedule(
       const maximum = Number(node.parameters.minutes || 60);
       const resource = String(node.parameters.resource || "");
       if (resource === "TEACHER") {
-        for (const teacher of state.teachers.filter((item) => textMatches(item.name, node.selector.teacherNames))) {
+        for (const teacher of state.teachers.filter((item) => teacherMatchesSelector(item, node))) {
           for (const day of DAYS) {
             const list = assignments.filter((assignment) => assignment.teacherId === teacher.id && assignment.day === day)
               .sort((a, b) => minutes(a.startTime) - minutes(b.startTime));
@@ -325,7 +336,7 @@ export function validateConstraintModelSchedule(
     if (node.kind === "MAX_WORKDAYS") {
       evaluated.add(node.id);
       const maximum = Number(node.parameters.maxDays || 0);
-      for (const teacher of state.teachers.filter((item) => textMatches(item.name, node.selector.teacherNames))) {
+      for (const teacher of state.teachers.filter((item) => teacherMatchesSelector(item, node))) {
         const list = assignments.filter((assignment) => assignment.teacherId === teacher.id);
         const count = new Set(list.map((assignment) => assignment.day)).size;
         if (maximum && count > maximum) addViolation(violations, node, `${teacher.name} is scheduled on ${count} days; maximum is ${maximum}.`, list, [teacher.id]);
@@ -396,7 +407,7 @@ export function validateConstraintModelSchedule(
       const prohibitedSubjects = parameterStrings(node, "prohibitedSubjects");
       const prohibitedLevels = parameterStrings(node, "prohibitedLevels");
       const exceptionClasses = parameterStrings(node, "exceptionClasses");
-      for (const teacher of state.teachers.filter((item) => textMatches(item.name, node.selector.teacherNames))) {
+      for (const teacher of state.teachers.filter((item) => teacherMatchesSelector(item, node))) {
         for (const assignment of assignments.filter((item) => item.teacherId === teacher.id)) {
           const klass = classesBySession.get(assignment.sessionId);
           if (!klass) continue;
@@ -424,7 +435,7 @@ export function validateConstraintModelSchedule(
       const exactDay = typeof node.parameters.day === "string" ? String(node.parameters.day) : null;
       const start = typeof node.parameters.start === "string" ? String(node.parameters.start) : null;
       const end = typeof node.parameters.end === "string" ? String(node.parameters.end) : null;
-      for (const teacher of state.teachers.filter((item) => textMatches(item.name, node.selector.teacherNames))) {
+      for (const teacher of state.teachers.filter((item) => teacherMatchesSelector(item, node))) {
         for (const assignment of assignments.filter((item) => item.teacherId === teacher.id)) {
           if (allowedDays.length && !allowedDays.includes(assignment.day)) {
             addViolation(violations, node, `${teacher.name} cannot teach on ${assignment.day}.`, [assignment], [teacher.id]);
