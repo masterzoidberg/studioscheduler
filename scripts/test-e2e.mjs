@@ -326,6 +326,7 @@ function parseStatusJson(text) {
     apiUrl: pick('API_URL', 'SUPABASE_URL'),
     anonKey: pick('ANON_KEY', 'PUBLISHABLE_KEY'),
     serviceRoleKey: pick('SERVICE_ROLE_KEY', 'SECRET_KEY'),
+    mailpitUrl: pick('MAILPIT_URL', 'INBUCKET_URL'),
   };
 }
 
@@ -386,12 +387,11 @@ async function runHarness() {
     supabaseStarted = true;
 
     const status = parseStatusJson(run('supabase', ['status', '--output', 'json'], { cwd: tempRoot }).stdout);
-    if (!status.apiUrl || !status.anonKey || !status.serviceRoleKey) {
-      throw new E2EHarnessError('Supabase status did not expose the local API, anon and service-role credentials.');
+    if (!status.apiUrl || !status.anonKey || !status.serviceRoleKey || !status.mailpitUrl) {
+      throw new E2EHarnessError('Supabase status did not expose the local API, public key, service-role credential and Mailpit URL.');
     }
     assertLoopbackUrl('local Supabase API', status.apiUrl);
-    const mailpitUrl = `http://127.0.0.1:${ports.mailpit}`;
-    assertLoopbackUrl('local Mailpit', mailpitUrl);
+    assertLoopbackUrl('local Mailpit', status.mailpitUrl);
     assertLoopbackUrl('local Next.js', ports.appUrl);
 
     const dbContainer = findDatabaseContainer(projectId);
@@ -432,7 +432,7 @@ async function runHarness() {
       E2E_APP_URL: ports.appUrl,
       E2E_SUPABASE_URL: status.apiUrl,
       E2E_SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
-      E2E_MAILPIT_URL: mailpitUrl,
+      E2E_MAILPIT_URL: status.mailpitUrl,
       E2E_DB_CONTAINER: dbContainer,
       E2E_OWNER_EMAIL: ownerEmail,
       E2E_STUDIO_ID: studioId,
