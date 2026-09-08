@@ -193,8 +193,10 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   await blocker.done;
   const moveResponse = await moveRequest.response();
   expect(moveResponse).not.toBeNull();
-  expect(moveResponse.status()).toBe(409);
   const movePayload = await moveResponse.json();
+  if (moveResponse.status() !== 409) {
+    throw new Error(`VERIFY-01 expected stale MOVE HTTP 409, received ${moveResponse.status()}: ${JSON.stringify(movePayload)}`);
+  }
   expect(movePayload.code).toBe('MANUAL_MOVE_CONTEXT_CHANGED_RETRY');
 
   const rejected = await probeSchedule();
