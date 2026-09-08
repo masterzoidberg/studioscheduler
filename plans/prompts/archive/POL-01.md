@@ -1,7 +1,7 @@
 # POL-01 — Introduce bounded typed policy authoring authority
 
 Execution class: **HIGH-REASONING IMPLEMENTATION**. Milestone: **A**. Dependencies: **SET-01, VERIFY-01**.
-Status is owned by [TASKS](../TASKS.md); do not infer readiness from this prompt existing.
+Status is owned by [TASKS](../../TASKS.md); this prompt is archived historical instruction after accepted completion.
 
 ## Outcome and current state
 
@@ -11,7 +11,7 @@ Current evidence at audit HEAD `9120439`: StudioRule parameters exist but curren
 
 ## Architectural decisions already made
 
-Read [DECISIONS](../DECISIONS.md) and [execution rules](../CODEX_EXECUTION_RULES.md). Supabase remains operational truth: planning facts in PlanningDatasetVersion, policy in RulebookVersion, deterministic compiled meaning in ConstraintModelVersion, adopted placements in ScheduleVersion. Preserve pinned historical authority and typed unsupported-policy rejection. Review metadata never duplicates facts. Reuse existing commands/components; a planned route/schema is new work, not an existing path claim.
+Read [DECISIONS](../../DECISIONS.md) and [execution rules](../../CODEX_EXECUTION_RULES.md). Supabase remains operational truth: planning facts in PlanningDatasetVersion, policy in RulebookVersion, deterministic compiled meaning in ConstraintModelVersion, adopted placements in ScheduleVersion. Preserve pinned historical authority and typed unsupported-policy rejection. Review metadata never duplicates facts. Reuse existing commands/components; a planned route/schema is new work, not an existing path claim.
 
 ## Scope and required behavior
 
@@ -19,14 +19,14 @@ Implement DEC-104 typed policy envelopes inside versioned Rulebook snapshots, st
 
 ## Expected inspection points
 
-- [lib/domain.ts](../../lib/domain.ts)
-- [lib/constraint-ir.ts](../../lib/constraint-ir.ts)
-- [lib/constraint-compiler.ts](../../lib/constraint-compiler.ts)
-- [lib/constraint-compiler-v3.ts](../../lib/constraint-compiler-v3.ts)
-- [lib/reviewed-rulebook.ts](../../lib/reviewed-rulebook.ts)
-- [lib/constraint-data-binding.ts](../../lib/constraint-data-binding.ts)
-- [lib/constraint-engine.ts](../../lib/constraint-engine.ts)
-- [solver/dwde_solver/feasibility.py](../../solver/dwde_solver/feasibility.py)
+- [lib/domain.ts](../../../lib/domain.ts)
+- [lib/constraint-ir.ts](../../../lib/constraint-ir.ts)
+- [lib/constraint-compiler.ts](../../../lib/constraint-compiler.ts)
+- [lib/constraint-compiler-v3.ts](../../../lib/constraint-compiler-v3.ts)
+- [lib/reviewed-rulebook.ts](../../../lib/reviewed-rulebook.ts)
+- [lib/constraint-data-binding.ts](../../../lib/constraint-data-binding.ts)
+- [lib/constraint-engine.ts](../../../lib/constraint-engine.ts)
+- [solver/dwde_solver/feasibility.py](../../../solver/dwde_solver/feasibility.py)
 
 Inspect successor migrations/callers and relevant assertions before editing. Add forward migrations only; historical paths above are evidence, not edit targets. Implement this coherent slice; if more than one independent migration/semantic family is needed, execute and verify each sequentially under this task with criterion-level evidence.
 
@@ -52,7 +52,7 @@ Add regressions that fail for the identified missing behavior, including rejecti
 
 ## Verification commands
 
-Run from repository root with explicit disposable configuration; see [TEST_STRATEGY](../TEST_STRATEGY.md) for Python and authenticated environment setup.
+Run from repository root with explicit disposable configuration; see [TEST_STRATEGY](../../TEST_STRATEGY.md) for Python and authenticated environment setup.
 
 ```powershell
 npm run lint
@@ -72,4 +72,3 @@ Record changed files, new test names, commands and exit codes, demonstrated beha
 ## Escalation conditions
 
 Escalate with a concrete reproducer if schema cannot preserve authority without duplicate truth; a required HARD semantic is unsupported; dependency-closed policy replacement cannot be proven; current code conflicts with accepted decisions; historical migrations would need rewriting; or this bounded scope expands materially. Resolve routine file/API uncertainty by inspection. Complete independent authorized work before asking for an external decision. No task prompt authorizes deployment, paid services, messages to others, or destructive customer-data operations.
-

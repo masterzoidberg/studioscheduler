@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **POL-01**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01 and SET-01 are DONE after CI-backed hardening and verification; their prompts are archived.
+Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **SET-02**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01 and POL-01 are DONE after CI-backed hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -16,8 +16,8 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | [SAFE-02](prompts/archive/SAFE-02.md) | Make local configuration and verification safe | DONE | A | SAFE-01 | STANDARD IMPLEMENTATION |
 | [VERIFY-01](prompts/archive/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | DONE | A | SAFE-02 | STANDARD IMPLEMENTATION |
 | [SET-01](prompts/archive/SET-01.md) | Add targeted setup review with room-capacity vertical slice | DONE | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
-| [POL-01](prompts/POL-01.md) | Introduce bounded typed policy authoring authority | READY | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
-| [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | NOT_STARTED | A | SET-01 | STANDARD IMPLEMENTATION |
+| [POL-01](prompts/archive/POL-01.md) | Introduce bounded typed policy authoring authority | DONE | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
+| [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | READY | A | SET-01 | STANDARD IMPLEMENTATION |
 | [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | NOT_STARTED | A | POL-01 | STANDARD IMPLEMENTATION |
 | [SET-03](prompts/SET-03.md) | Manage studio hours and rooms through Setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | NOT_STARTED | A | SET-03 | STANDARD IMPLEMENTATION |
@@ -50,7 +50,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 ## Historical task mapping
 
-T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01 and SET-01 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
+T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01, SET-01 and POL-01 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
 
 | Superseded unfinished task | New owner |
 |---|---|
@@ -77,7 +77,7 @@ Former milestones/phase labels are superseded by A DWDE Operational, B Second-St
 
 | ID | Observation/evidence | Affected work | Owner/action and objective unblock |
 |---|---|---|---|
-| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; VERIFY-01 CI run 371 passed the disposable DB suite and authenticated browser harness; SET-01 CI run 395 passed the expanded DB chain and combined authenticated browser workflow. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
+| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; VERIFY-01 CI run 371 passed the disposable DB suite and authenticated browser harness; SET-01 CI run 395 passed the expanded DB chain and combined authenticated browser workflow; POL-01 CI run 428 passed the further-expanded DB chain after one unchanged rerun of a transient PostgreSQL startup-socket failure. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
 | BLK-DWDE | No current complete manager-confirmed private dataset or independent workflow evidence established; replaces old BLK-014 | ACC-01 only | Studio manager completes in-app intake/review and supplies private acceptance references; full parity/solve/workflow evidence passes. Public toy fixtures cannot unblock. |
 | EXT-RELEASE | Deployed environment migration/config/restore acceptance not inspected | OPS-01/ACC-01 operational criteria | Owner authorizes environment validation/release separately; operator supplies exact deployed versions and restore evidence. |
 | EXT-STUDIO2 | Independent participant/data not established | GEN-05 | Owner supplies participant and supported dataset; frozen-SHA checklist passes without source patches. |
@@ -140,6 +140,21 @@ Private evidence may already exist outside Git; “not established here” is no
 - No global readiness/certification switch, availability-policy schema, deployment, private DWDE certification, customer-data mutation or external-service write was performed or implied.
 - Result: SET-01 DONE. POL-01 and SET-02 are dependency-ready; ledger order selects POL-01 as the sole NEXT task.
 
+### POL-01 — DONE
+
+- Starting implementation HEAD: `2403f6f21e029e43a438eaef731b73967e5d6fc2`.
+- Accepted implementation head before planning closeout: `7b43a00cdcbf6980e34bb52f79215d66b4e07a08`.
+- Changed implementation/test surface includes `lib/typed-policy.ts`, `lib/dwde-policy-transition.ts`, `lib/constraint-compiler-v3.ts`, `lib/constraint-data-binding.ts`, `lib/constraint-engine.ts`, `lib/constraint-ir.ts`, `lib/schedule-readiness.ts`, `solver/dwde_solver/feasibility.py`, additive migrations `20260908050000_pol01_typed_policy_v52.sql` and `20260908051500_pol01_server_publication_closure_v53.sql`, `scripts/test-pol01-db.mjs`, `tests/pol01-typed-policy-transition.test.ts`, `tests/pol01-runtime-stable-id.test.ts`, `tests/typed-policy.test.ts`, `tests/pol01-migration.test.ts`, and the shared solver runtime-parity fixture.
+- Policy transition: AIM-003 is the first bounded typed Rulebook policy. V4 stores a schema-versioned `TEACHER_DAY_WINDOW` envelope with one stable teacher ID and the reviewed Monday-through-Thursday availability meaning. The teacher display name is used only by the canonical migration to resolve the legacy target once; execution thereafter is ID-bound and rename-invariant.
+- Dependency closure: the exact reviewed V3 source hash is the residual baseline. V4 changes only AIM-003 machine fields, preserves its human-reviewed fields, proves the other 177 Rulebook records unchanged, rejects legacy enforcement ownership of AIM-003, and requires exactly one AIM-003 Constraint IR node using `teacherIds`. Unsupported HARD policy, malformed envelopes, duplicate/name-bound sources, changed residual policy and invalid/missing/archived teacher references fail closed.
+- Model/version behavior: the active Rulebook advances honestly to V4/format 2.2 with `TYPED_POLICY_MIGRATION` provenance; the prior current ConstraintModel is invalidated; V4 publication requires compiler `dwde-ir-0.4`. Existing pre-V4 synthetic publication mechanics remain available only through their established authority path and are not misclassified as canonical DWDE V4 policy.
+- Publication safety: redefining the historical V3.0 publication primitive does not reopen it. V5.2 revokes `publish_constraint_model_v30` from public/anon/authenticated/service_role immediately, V5.3 repeats the closure as defense in depth, and the current service wrapper transaction-locks the selected membership row and explicitly requires OWNER/EDITOR before delegating to the internal primitive.
+- Database evidence: `scripts/test-pol01-db.mjs` uses only a deidentified disposable PostgreSQL fixture and proves stable-ID V4 publication, rename invariance, missing/archive/reference rejection, residual-drift rejection, duplicate/name-bound semantic-source rejection, and no-write behavior. The private canonical 178-rule DWDE snapshot is intentionally not committed to Git, so `tests/pol01-migration.test.ts` separately pins the exact V3 source-hash cutover, residual-accounting and privilege-closure source contract while the executable disposable regression proves the post-cutover V4 database behavior.
+- Cross-runtime evidence: the shared parity fixture includes a renamed teacher targeted by stable ID; a forced Friday placement is rejected identically by Python CP-SAT and TypeScript authority. Solver CI also runs the pinned Python solver/service pytest path and production solver container build.
+- CI evidence at SHA `7b43a00`: PR #55, CI run **428** success and Solver CI run **147** success. The first Ubuntu attempt reached and passed T13 privilege closure before a disposable SAFE-01 PostgreSQL container lost its startup socket twice; rerunning the unchanged Ubuntu job succeeded. Final Ubuntu evidence passed planning integrity, lint, typecheck, 380 unit tests, build, the expanded disposable DB chain and route smoke tests; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed; Solver CI passed CP-SAT/service pytest, production solver container build and TypeScript/Python runtime parity.
+- No deployment, private DWDE data publication, customer-data mutation, external-service write, arbitrary policy DSL, AI policy parsing, full DWDE policy conversion or optimization was performed or implied.
+- Result: POL-01 DONE. SET-02 and POL-02 are dependency-ready; ledger order selects SET-02 as the sole NEXT task.
+
 ## Audit completion record
 
-Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01 and SET-01 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with POL-01.
+Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01 and POL-01 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with SET-02.

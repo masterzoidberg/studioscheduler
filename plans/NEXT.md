@@ -1,39 +1,34 @@
 # Next implementation session
 
-**POL-01 — Introduce bounded typed policy authoring authority**  
-**Execution class: HIGH-REASONING IMPLEMENTATION**  
+**SET-02 — Create one Studio Setup entry and dashboard**  
+**Execution class: STANDARD IMPLEMENTATION**  
 **Milestone: A — DWDE Operational**  
 **Status: READY for implementation.**
 
-Work on `feat/pre-cami-hardening`. Latest accepted implementation baseline is `2403f6f21e029e43a438eaef731b73967e5d6fc2` (SET-01 accepted implementation head before planning closeout). PR #55 CI run **395** and Solver CI run **114** passed at that SHA. Ubuntu passed planning integrity, lint, typecheck, 358 unit tests, build, the expanded disposable DB chain and route smoke tests; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed both the preserved VERIFY-01 journey and the SET-01 room-capacity review journey; Solver CI passed CP-SAT/service pytest, production solver container build and TypeScript/Python runtime parity.
+Work on `feat/pre-cami-hardening`. Latest accepted implementation baseline is `7b43a00cdcbf6980e34bb52f79215d66b4e07a08` (POL-01 accepted implementation head before planning closeout). PR #55 CI run **428** and Solver CI run **147** passed at that SHA. Ubuntu passed planning integrity, lint, typecheck, 380 unit tests, build, the expanded disposable DB chain and route smoke tests after one unchanged retry of a Docker/PostgreSQL startup-socket flake; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed; Solver CI passed CP-SAT/service pytest, the production solver container build and TypeScript/Python runtime parity.
 
-Read [POL-01 implementation prompt](prompts/POL-01.md). This is the only selected next task. Dependencies SET-01 and VERIFY-01 are accepted. SET-02 is also dependency-ready but remains unselected because ledger order selects POL-01 first. No private DWDE manager dataset is required.
+Read [SET-02 implementation prompt](prompts/SET-02.md). This is the only selected next task. Dependency SET-01 is accepted. POL-02 is also dependency-ready now that POL-01 is accepted, but remains unselected because ledger order selects SET-02 first. No private DWDE manager dataset is required.
 
-Why next: the product now has a targeted review-attestation foundation for planning facts, but policy execution remains partly name-bound and guarded around a fixed reviewed DWDE baseline. POL-01 introduces the first bounded typed policy-authoring path without creating a second policy store or arbitrary DSL.
+Why next: the product now has targeted setup review evidence and its first stable-ID typed policy slice, but the manager setup job is still split across People, Classes, Planning Repairs, Readiness and Rulebook. SET-02 creates one manager-facing Setup entry/dashboard without changing legality or introducing a second setup-data store.
 
-Implement the smallest dependency-closed policy slice:
-- add schema-versioned typed policy envelopes inside versioned Rulebook snapshots;
-- use stable teacher IDs rather than teacher names as execution targets;
-- implement teacher availability/day-window parameters first;
-- preserve immutable reviewed DWDE history and pin the verified residual baseline;
-- replace one dependency-closed availability bundle so exactly one semantic source executes across compiler, readiness, runtime, solver and SQL safeguards;
-- make teacher rename behavior invariant;
-- reject invalid teacher references, changed residual HARD policy and unknown/unsupported HARD policy fail-closed;
-- keep the active Rulebook honestly versioned rather than silently reinterpreting prose;
-- update deterministic model/accounting through forward-only migration where required;
-- do not add arbitrary DSL, AI policy parsing, full DWDE conversion, preference optimization or a second canonical policy table.
+Implement the smallest manager-facing navigation slice:
+- add one Setup entry/dashboard with sections Studio, Teachers, Classes, Students, Requirements, Preferences and Review;
+- reuse existing inventory, review and repair components/commands rather than duplicating canonical data;
+- retain old setup-related routes as redirects or deep-link compatibility where appropriate;
+- give a first-time/empty workspace one clear setup action;
+- let returning managers resume at a meaningful outstanding section without persisting duplicate setup state;
+- when a later section is unavailable, say exactly what is missing rather than implying readiness;
+- move raw Rulebook/readiness/version diagnostics to Settings → Advanced while keeping them accessible;
+- preserve keyboard navigation and a usable 390px tap layout;
+- do not change scheduling legality, typed-policy semantics or Supabase authority.
 
 Inspect first:
-- `lib/domain.ts`;
-- `lib/constraint-ir.ts`;
-- `lib/constraint-compiler.ts`;
-- `lib/constraint-compiler-v3.ts`;
-- `lib/reviewed-rulebook.ts`;
-- `lib/constraint-data-binding.ts`;
-- `lib/constraint-engine.ts`;
-- `solver/dwde_solver/feasibility.py`;
-- current Rulebook publication/governance migrations and execution-registry/accounting tests;
-- parity fixtures before changing shared semantics.
+- `components/app-shell.tsx`;
+- `components/dashboard.tsx`;
+- `components/planning-repairs-view.tsx`;
+- `components/required-class-intake.tsx`;
+- `app/planning-repairs/page.tsx`;
+- existing home/navigation, People, Classes, Readiness, Rulebook and Settings/Advanced entry points before moving or redirecting anything.
 
 Required verification from repository root:
 ```powershell
@@ -41,13 +36,11 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
-npm run test:db
-npm run test:parity
 npm run test:e2e
 ```
 
-Because POL-01 changes shared solver/Constraint IR semantics, also run the pinned Python solver pytest path defined in [TEST_STRATEGY](TEST_STRATEGY.md). Acceptance requires typed teacher-window roundtrip, rename invariance, unsupported-HARD rejection, invalid-reference default-deny, untouched baseline parity, exactly-one semantic source for the replaced bundle, and agreement among TypeScript, Python and database publication safeguards.
+SET-02 is user-facing, so authenticated browser acceptance must cover both the first-time path and a returning manager path, including deep links, keyboard focus and narrow-screen behavior. Existing authoritative state must remain unchanged merely by navigating Setup.
 
-Non-goals: no full manager Setup screen for availability yet, no full DWDE policy conversion, no optimization, no deployment, no customer-data mutation and no external-service write.
+Non-goals: no new setup-data store, no new policy schema, no changed legality, no full teacher/class/student editing expansion beyond the existing reusable workflows, no optimization, no deployment, no customer-data mutation and no external-service write.
 
 After accepted completion, update [TASKS](TASKS.md), archive the completed prompt, derive README/NEXT, and select the next dependency-satisfied task according to ledger order.
