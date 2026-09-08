@@ -305,8 +305,8 @@ insert into public.rule_enforcement_versions(studio_id,version,rulebook_version,
 values('${studioId}',1,1,'${ownerUserId}','Verify Owner','Synthetic empty enforcement fixture','{}','[]'::jsonb,'CURRENT');
 select private.ensure_planning_dataset_version_v25('${studioId}','${ownerUserId}','Verify Owner','VERIFY-01 synthetic planning fixture');
 insert into public.constraint_model_versions(studio_id,version,rulebook_version,compiler_version,actor_user_id,actor_label,reason,snapshot,snapshot_hash,complete_hard_constraint_compilation,status)
-select '${studioId}',1,1,'dwde-ir-0.3','${ownerUserId}','Verify Owner','Synthetic generic Constraint IR','$model$${model}$model$'::jsonb,
-  private.constraint_model_hash_v27('$model$${model}$model$'::jsonb),true,'CURRENT';
+select '${studioId}',1,1,'dwde-ir-0.3','${ownerUserId}','Verify Owner','Synthetic generic Constraint IR','${model}'::jsonb,
+  private.constraint_model_hash_v27('${model}'::jsonb),true,'CURRENT';
 insert into public.schedule_versions(studio_id,version,rulebook_version,enforcement_version,planning_dataset_version,constraint_model_version,actor_user_id,actor_label,reason,is_current,validation_result)
 select '${studioId}',1,1,1,p.version,1,'${ownerUserId}','Verify Owner','VERIFY-01 synthetic current schedule',true,
   '{"valid":true,"fullyValidated":true,"hardViolations":0,"warnings":0,"violations":[],"coverage":{"applicableHardRules":0,"implementedHardRules":0,"partialHardRules":0,"notImplementedHardRules":0,"notApplicableHardRules":0,"uncoveredHardRuleIds":[]}}'::jsonb
