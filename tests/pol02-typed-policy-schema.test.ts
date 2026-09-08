@@ -28,7 +28,7 @@ function rule(id: string, policy: Record<string, unknown>): StudioRule {
 function valid(id: string, policy: Record<string, unknown>) {
   const parsed = parseTypedPolicy(rule(id, policy));
   expect(parsed.status).toBe("VALID");
-  if (parsed.status !== "VALID") throw new Error(parsed.message);
+  if (parsed.status !== "VALID") throw new Error(parsed.status === "INVALID" ? parsed.message : "expected valid policy");
   return parsed.policy;
 }
 
@@ -83,26 +83,9 @@ describe("POL-02 typed policy schemas", () => {
   });
 
   it("deduplicates and sorts stable class IDs for qualifications and required assignments", () => {
-    expect(valid("CUR-021", {
-      schemaVersion: "1.0",
-      kind: "TEACHER_QUALIFICATION",
-      teacherId: "teacher-cami",
-      classIds: ["class-jazz-3", "class-jazz-2", "class-jazz-3"],
-    })).toMatchObject({ classIds: ["class-jazz-2", "class-jazz-3"] });
-
-    expect(valid("CAM-007", {
-      schemaVersion: "1.0",
-      kind: "REQUIRED_TEACHER",
-      teacherId: "teacher-cami",
-      classIds: ["class-jazz-4a", "class-jazz-4a"],
-    })).toMatchObject({ classIds: ["class-jazz-4a"] });
-
-    expect(valid("ROOM-002", {
-      schemaVersion: "1.0",
-      kind: "REQUIRED_ROOM",
-      roomId: "room-a",
-      classIds: ["class-ballet-2", "class-ballet-1"],
-    })).toMatchObject({ classIds: ["class-ballet-1", "class-ballet-2"] });
+    expect(valid("CUR-021", { schemaVersion: "1.0", kind: "TEACHER_QUALIFICATION", teacherId: "teacher-cami", classIds: ["class-jazz-3", "class-jazz-2", "class-jazz-3"] })).toMatchObject({ classIds: ["class-jazz-2", "class-jazz-3"] });
+    expect(valid("CAM-007", { schemaVersion: "1.0", kind: "REQUIRED_TEACHER", teacherId: "teacher-cami", classIds: ["class-jazz-4a", "class-jazz-4a"] })).toMatchObject({ classIds: ["class-jazz-4a"] });
+    expect(valid("ROOM-002", { schemaVersion: "1.0", kind: "REQUIRED_ROOM", roomId: "room-a", classIds: ["class-ballet-2", "class-ballet-1"] })).toMatchObject({ classIds: ["class-ballet-1", "class-ballet-2"] });
   });
 
   it("keeps room capacity enforcement separate from the PlanningDataset capacity value", () => {
@@ -111,49 +94,15 @@ describe("POL-02 typed policy schemas", () => {
       kind: "ROOM_CAPACITY_POLICY",
       roomId: "room-c",
       exemptClassIds: ["class-elementary-2", "class-elementary-1", "class-elementary-1"],
-    })).toEqual({
-      schemaVersion: "1.0",
-      kind: "ROOM_CAPACITY_POLICY",
-      roomId: "room-c",
-      exemptClassIds: ["class-elementary-1", "class-elementary-2"],
-    });
+    })).toEqual({ schemaVersion: "1.0", kind: "ROOM_CAPACITY_POLICY", roomId: "room-c", exemptClassIds: ["class-elementary-1", "class-elementary-2"] });
   });
 
   it("canonicalizes required feature and basic preference records", () => {
-    expect(valid("ROOM-021", {
-      schemaVersion: "1.0",
-      kind: "ROOM_REQUIRED_FEATURES",
-      classIds: ["class-pointe-1"],
-      requiredFeatures: ["sprung-floor", "barre", "barre"],
-    })).toMatchObject({ requiredFeatures: ["barre", "sprung-floor"] });
-
-    expect(valid("CAM-020", {
-      schemaVersion: "1.0",
-      kind: "PREFERRED_TEACHER",
-      teacherId: "teacher-cami",
-      classIds: ["class-jazz-3"],
-    })).toMatchObject({ kind: "PREFERRED_TEACHER", teacherId: "teacher-cami" });
-
-    expect(valid("ROOM-022", {
-      schemaVersion: "1.0",
-      kind: "PREFERRED_ROOM",
-      roomId: "room-b",
-      classIds: ["class-tap-3"],
-    })).toMatchObject({ kind: "PREFERRED_ROOM", roomId: "room-b" });
-
-    expect(valid("OPT-020", {
-      schemaVersion: "1.0",
-      kind: "PREFERRED_DAY",
-      classIds: ["class-jazz-3"],
-      days: ["Thursday", "Monday", "Thursday"],
-    })).toMatchObject({ days: ["Monday", "Thursday"] });
-
-    expect(valid("OPT-021", {
-      schemaVersion: "1.0",
-      kind: "AVOID_DAY",
-      classIds: ["class-jazz-3"],
-      days: ["Friday"],
-    })).toMatchObject({ days: ["Friday"] });
+    expect(valid("ROOM-021", { schemaVersion: "1.0", kind: "ROOM_REQUIRED_FEATURES", classIds: ["class-pointe-1"], requiredFeatures: ["sprung-floor", "barre", "barre"] })).toMatchObject({ requiredFeatures: ["barre", "sprung-floor"] });
+    expect(valid("CAM-020", { schemaVersion: "1.0", kind: "PREFERRED_TEACHER", teacherId: "teacher-cami", classIds: ["class-jazz-3"] })).toMatchObject({ kind: "PREFERRED_TEACHER", teacherId: "teacher-cami" });
+    expect(valid("ROOM-022", { schemaVersion: "1.0", kind: "PREFERRED_ROOM", roomId: "room-b", classIds: ["class-tap-3"] })).toMatchObject({ kind: "PREFERRED_ROOM", roomId: "room-b" });
+    expect(valid("OPT-020", { schemaVersion: "1.0", kind: "PREFERRED_DAY", classIds: ["class-jazz-3"], days: ["Thursday", "Monday", "Thursday"] })).toMatchObject({ days: ["Monday", "Thursday"] });
+    expect(valid("OPT-021", { schemaVersion: "1.0", kind: "AVOID_DAY", classIds: ["class-jazz-3"], days: ["Friday"] })).toMatchObject({ days: ["Friday"] });
   });
 
   it.each([
