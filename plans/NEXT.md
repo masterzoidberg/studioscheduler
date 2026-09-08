@@ -1,47 +1,53 @@
 # Next implementation session
 
-**SET-01 — Add targeted setup review with room-capacity vertical slice**  
-**Execution class: STANDARD IMPLEMENTATION**  
+**POL-01 — Introduce bounded typed policy authoring authority**  
+**Execution class: HIGH-REASONING IMPLEMENTATION**  
 **Milestone: A — DWDE Operational**  
 **Status: READY for implementation.**
 
-Work on `feat/pre-cami-hardening`. Latest accepted implementation baseline is `04727b89c6e053c167af7f9dded51917ccd9489a` (VERIFY-01 accepted implementation head). PR #55 CI run **371** and Solver CI run **90** passed at that SHA. Ubuntu passed lint, typecheck, unit tests, build, disposable DB integration and route smoke tests; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed; Solver CI passed CP-SAT/service pytest, production solver container build and TypeScript/Python runtime parity.
+Work on `feat/pre-cami-hardening`. Latest accepted implementation baseline is `2403f6f21e029e43a438eaef731b73967e5d6fc2` (SET-01 accepted implementation head before planning closeout). PR #55 CI run **395** and Solver CI run **114** passed at that SHA. Ubuntu passed planning integrity, lint, typecheck, 358 unit tests, build, the expanded disposable DB chain and route smoke tests; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed both the preserved VERIFY-01 journey and the SET-01 room-capacity review journey; Solver CI passed CP-SAT/service pytest, production solver container build and TypeScript/Python runtime parity.
 
-Read [SET-01 implementation prompt](prompts/SET-01.md). This is the only selected next task. Dependencies SAFE-02 and VERIFY-01 are accepted. No private DWDE manager dataset is required.
+Read [POL-01 implementation prompt](prompts/POL-01.md). This is the only selected next task. Dependencies SET-01 and VERIFY-01 are accepted. SET-02 is also dependency-ready but remains unselected because ledger order selects POL-01 first. No private DWDE manager dataset is required.
 
-Why next: the product has versioned planning facts and a reproducible authenticated verification harness, but manager review is still whole-dataset rather than targeted. SET-01 introduces the bounded DEC-103 review-attestation foundation using **room capacity** as the first complete UI/server/DB vertical slice.
+Why next: the product now has a targeted review-attestation foundation for planning facts, but policy execution remains partly name-bound and guarded around a fixed reviewed DWDE baseline. POL-01 introduces the first bounded typed policy-authoring path without creating a second policy store or arbitrary DSL.
 
-Implement the smallest safe slice:
-- add review attestations without duplicating canonical planning facts;
-- add a deterministic slice fingerprint for room-capacity review;
-- show **reviewed**, **missing**, and **changed** states in manager-facing UI;
-- do not allow missing required capacity to be attested as “no restriction”;
-- invalidate the affected room-capacity review when its authoritative capacity changes, while unrelated teacher notes do not invalidate it;
-- reject stale fingerprints, archived/new-entity misuse and cross-tenant writes with no review success write;
-- keep historical review readable;
-- do **not** replace the overall scheduling/readiness gate yet.
+Implement the smallest dependency-closed policy slice:
+- add schema-versioned typed policy envelopes inside versioned Rulebook snapshots;
+- use stable teacher IDs rather than teacher names as execution targets;
+- implement teacher availability/day-window parameters first;
+- preserve immutable reviewed DWDE history and pin the verified residual baseline;
+- replace one dependency-closed availability bundle so exactly one semantic source executes across compiler, readiness, runtime, solver and SQL safeguards;
+- make teacher rename behavior invariant;
+- reject invalid teacher references, changed residual HARD policy and unknown/unsupported HARD policy fail-closed;
+- keep the active Rulebook honestly versioned rather than silently reinterpreting prose;
+- update deterministic model/accounting through forward-only migration where required;
+- do not add arbitrary DSL, AI policy parsing, full DWDE conversion, preference optimization or a second canonical policy table.
 
-Inspect:
+Inspect first:
 - `lib/domain.ts`;
-- `lib/planning-dataset.ts`;
-- `components/people-view.tsx`;
-- `components/planning-dataset-confirmation-card.tsx`;
-- `lib/planning-confirmation-readiness.ts`;
-- `scripts/test-db.mjs`;
-- existing review/version/audit patterns before adding schema or commands.
+- `lib/constraint-ir.ts`;
+- `lib/constraint-compiler.ts`;
+- `lib/constraint-compiler-v3.ts`;
+- `lib/reviewed-rulebook.ts`;
+- `lib/constraint-data-binding.ts`;
+- `lib/constraint-engine.ts`;
+- `solver/dwde_solver/feasibility.py`;
+- current Rulebook publication/governance migrations and execution-registry/accounting tests;
+- parity fixtures before changing shared semantics.
 
-Required commands from root:
+Required verification from repository root:
 ```powershell
 npm run lint
 npm run typecheck
 npm test
 npm run build
 npm run test:db
+npm run test:parity
 npm run test:e2e
 ```
 
-Run `npm run test:parity` as well if SET-01 touches shared solver/Constraint IR semantics or parity fixtures. Browser assertions must observe both the manager UI and authoritative persisted review state. Database acceptance requires executed transaction/RLS evidence, not SQL-text inspection.
+Because POL-01 changes shared solver/Constraint IR semantics, also run the pinned Python solver pytest path defined in [TEST_STRATEGY](TEST_STRATEGY.md). Acceptance requires typed teacher-window roundtrip, rename invariance, unsupported-HARD rejection, invalid-reference default-deny, untouched baseline parity, exactly-one semantic source for the replaced bundle, and agreement among TypeScript, Python and database publication safeguards.
 
-Non-goals: no availability schema, policy compiler rewrite, global certification switch, real DWDE certification, deployment, paid services or live customer-data mutation.
+Non-goals: no full manager Setup screen for availability yet, no full DWDE policy conversion, no optimization, no deployment, no customer-data mutation and no external-service write.
 
-After accepted completion, update [TASKS](TASKS.md), archive the completed prompt, derive README/NEXT, and select the next dependency-satisfied task according to ledger order. POL-01 and SET-02 both depend on SET-01; ledger order selects POL-01 unless evidence changes the dependency graph.
+After accepted completion, update [TASKS](TASKS.md), archive the completed prompt, derive README/NEXT, and select the next dependency-satisfied task according to ledger order.
