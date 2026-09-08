@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **SAFE-02**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01 is DONE after additive commit-time membership hardening and CI-backed two-connection PostgreSQL verification; its prompt is archived.
+Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **VERIFY-01**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01 and SAFE-02 are DONE after CI-backed hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -13,9 +13,9 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | ID / prompt | Outcome | Status | Milestone | Dependencies | Execution class |
 |---|---|---|---|---|---|
 | [SAFE-01](prompts/archive/SAFE-01.md) | Reject missing or revoked membership at commit | DONE | A | None | STANDARD IMPLEMENTATION |
-| [SAFE-02](prompts/SAFE-02.md) | Make local configuration and verification safe | READY | A | SAFE-01 | STANDARD IMPLEMENTATION |
+| [SAFE-02](prompts/archive/SAFE-02.md) | Make local configuration and verification safe | DONE | A | SAFE-01 | STANDARD IMPLEMENTATION |
+| [VERIFY-01](prompts/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | READY | A | SAFE-02 | STANDARD IMPLEMENTATION |
 | [SET-01](prompts/SET-01.md) | Add targeted setup review with room-capacity vertical slice | NOT_STARTED | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
-| [VERIFY-01](prompts/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | NOT_STARTED | A | SAFE-02 | STANDARD IMPLEMENTATION |
 | [POL-01](prompts/POL-01.md) | Introduce bounded typed policy authoring authority | NOT_STARTED | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
 | [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | NOT_STARTED | A | SET-01 | STANDARD IMPLEMENTATION |
 | [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | NOT_STARTED | A | POL-01 | STANDARD IMPLEMENTATION |
@@ -50,7 +50,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 ## Historical task mapping
 
-T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01 is also archived with its current completion record below. Do not infer complete production safety from bounded task acceptance.
+T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01 and SAFE-02 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
 
 | Superseded unfinished task | New owner |
 |---|---|
@@ -77,7 +77,7 @@ Former milestones/phase labels are superseded by A DWDE Operational, B Second-St
 
 | ID | Observation/evidence | Affected work | Owner/action and objective unblock |
 |---|---|---|---|
-| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI run 324 subsequently passed `npm run test:db`, including SAFE-01's focused disposable two-connection regression. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
+| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; run 327 also exercised SAFE-02 with no Supabase config. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
 | BLK-DWDE | No current complete manager-confirmed private dataset or independent workflow evidence established; replaces old BLK-014 | ACC-01 only | Studio manager completes in-app intake/review and supplies private acceptance references; full parity/solve/workflow evidence passes. Public toy fixtures cannot unblock. |
 | EXT-RELEASE | Deployed environment migration/config/restore acceptance not inspected | OPS-01/ACC-01 operational criteria | Owner authorizes environment validation/release separately; operator supplies exact deployed versions and restore evidence. |
 | EXT-STUDIO2 | Independent participant/data not established | GEN-05 | Owner supplies participant and supported dataset; frozen-SHA checklist passes without source patches. |
@@ -95,10 +95,21 @@ Private evidence may already exist outside Git; “not established here” is no
 - Authorization behavior: `private.assert_editor_context()` now locks the legacy resolved membership only at editor write boundaries; the shared STABLE read resolver is unchanged. V4.9 adoption locks the exact selected `(studio_id,user_id)` row with `FOR UPDATE` and rejects `NOT FOUND`, VIEWER and wrong-tenant actors with SQLSTATE 42501 before downstream adoption.
 - Race semantics: command-first holds the membership row through commit and revocation waits; revocation-first holds the row, adoption waits, then re-evaluates the committed VIEWER/deleted state and rejects.
 - Rejection evidence: focused disposable regression verifies never-member, deleted-member, VIEWER and wrong-tenant rejection; OWNER and EDITOR success; unchanged schedule/model/audit witness state; no downstream adoption write on rejection; both two-connection orderings.
-- CI evidence at implementation SHA `51fd92e`: PR #55, CI run **324** success (Ubuntu lint/typecheck/test/build/disposable DB/smoke and Windows matrix), Solver CI run **43** success. The Ubuntu disposable database step completed successfully with the SAFE-01 regression in the `npm run test:db` chain.
+- CI evidence at implementation SHA `51fd92e`: PR #55, CI run **324** success, Solver CI run **43** success.
 - Historical migrations and production data were not modified. No deployment was performed or implied by task acceptance.
-- Result: SAFE-01 DONE; dependency SAFE-02 becomes READY and is the sole NEXT task.
+
+### SAFE-02 — DONE
+
+- Starting accepted baseline: `51fd92e35eaa3129f237f91c196e4ad603d58547`.
+- Implementation commit: `2e946817b74fc84699c20ae21bcab7bc6bab9e52`; type-only test correction: `7c2078f85c64ab0bf7b645a18662c7d145cee14f`.
+- Configuration behavior: removed the hard-coded production Supabase URL/key fallback; `resolveSupabasePublicConfiguration` requires URL and publishable key together, validates the URL, and exposes an actionable configuration-required state. Browser/server/admin helpers throw locally before `createClient` when configuration is absent or partial.
+- UI behavior: root layout renders a safely-offline configuration-required screen before `WorkspaceProvider` mounts. Legacy Copilot is no longer mounted in normal manager navigation; legacy scenario creation was removed and historical scenario records remain read-only under Settings → Advanced.
+- CI behavior: Solver CI PR path filters now include shared Constraint IR/compiler/gateway/server-state and fixture/test paths. `.env.example` uses explicit loopback placeholders rather than the production project.
+- New regression: `tests/safe-local-configuration.test.ts` covers missing/partial/invalid configuration, explicit loopback client creation, removal of the former production fallback, root-layout containment, solver workflow triggers, and AI/scenario navigation containment.
+- CI evidence at SHA `7c2078f`: PR #55, CI run **327** success and Solver CI run **46** success. Ubuntu passed lint/typecheck/test/build, disposable DB integration and route smoke tests with no Supabase env injected; Windows passed lint/typecheck/test/build. The no-secrets build/smoke path therefore exercised the configuration-required branch rather than any fallback target.
+- Package versions were not changed. No production configuration, deployment, customer data, or external service was mutated.
+- Result: SAFE-02 DONE; VERIFY-01 becomes READY and is the sole NEXT task.
 
 ## Audit completion record
 
-Planning rebuild established the new queue without claiming implementation. SAFE-01 is the first post-rebuild accepted implementation slice. Remaining product work follows the active dependency graph above.
+Planning rebuild established the new queue without claiming implementation. SAFE-01 and SAFE-02 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with VERIFY-01.
