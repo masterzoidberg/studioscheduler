@@ -294,6 +294,105 @@
         },
         "preflight": { "validatedDelegatedConstraintIds": [] }
       }
+    },
+    {
+      "id": "typed-teacher-id-window-parity",
+      "expectedSolverStatus": "INFEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_CANDIDATE_HARD_VALIDATION_FAILED",
+      "probeCandidate": [
+        {
+          "sessionId": "session-typed-window",
+          "day": "Friday",
+          "startTime": "17:00",
+          "endTime": "18:00",
+          "teacherId": "teacher-aimee-stable",
+          "roomId": "room-a"
+        }
+      ],
+      "problem": {
+        "contractVersion": "1.0",
+        "context": {
+          "studioId": "parity-studio",
+          "rulebookVersion": 4,
+          "planningDatasetVersion": 8,
+          "compilerVersion": "dwde-ir-0.4"
+        },
+        "teachers": [
+          { "id": "teacher-aimee-stable", "name": "Aimee Renamed" }
+        ],
+        "rooms": [
+          { "id": "room-a", "name": "Studio A", "capacity": 20, "features": [] }
+        ],
+        "students": [],
+        "classes": [
+          {
+            "id": "class-typed-window",
+            "name": "Ballet Test",
+            "subject": "Ballet",
+            "level": "Level 1",
+            "durationMinutes": 60,
+            "weeklyFrequency": 1,
+            "rosterStudentIds": [],
+            "companyOnly": false
+          }
+        ],
+        "sessions": [
+          {
+            "id": "session-typed-window",
+            "classId": "class-typed-window",
+            "ordinal": 1,
+            "durationMinutes": null,
+            "locked": false,
+            "lockedPlacement": null
+          }
+        ],
+        "constraintModel": {
+          "schemaVersion": "1.0",
+          "compilerVersion": "dwde-ir-0.4",
+          "rulebookVersion": 4,
+          "planningDatasetVersion": 8,
+          "activeRuleCount": 3,
+          "hardConstraints": [
+            {
+              "id": "qualified-domain",
+              "kind": "TEACHER_SUBJECT_DOMAIN",
+              "ruleIds": ["CUR-007"],
+              "selector": { "teacherNames": ["Aimee Renamed"] },
+              "parameters": { "allowedSubjects": ["Ballet"] },
+              "explanation": "The renamed teacher remains qualified for Ballet."
+            },
+            {
+              "id": "typed-aim-003-teacher-day-window",
+              "kind": "TEACHER_DAY_WINDOW",
+              "ruleIds": ["AIM-003"],
+              "selector": { "teacherIds": ["teacher-aimee-stable"] },
+              "parameters": { "allowedDays": ["Monday", "Tuesday", "Wednesday", "Thursday"] },
+              "explanation": "AIM-003 is bound by stable teacher ID, not display name."
+            },
+            {
+              "id": "typed-window-friday-anchor",
+              "kind": "FIXED_ASSIGNMENT",
+              "ruleIds": ["FIX-TEST"],
+              "selector": { "classNames": ["Ballet Test"] },
+              "parameters": { "day": "Friday", "start": "17:00", "end": "18:00", "lockType": "POLICY_FIXED" },
+              "explanation": "Parity witness forces Friday so the typed ID window must reject it."
+            }
+          ],
+          "objectivePrioritySpine": [],
+          "readinessRuleIds": [],
+          "governanceAssertions": [
+            {
+              "ruleId": "CUR-007",
+              "family": "QUALIFICATION",
+              "assertion": "Teacher qualification is default-deny."
+            }
+          ],
+          "uncompiledConstraintRuleIds": [],
+          "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
     }
   ]
 }
