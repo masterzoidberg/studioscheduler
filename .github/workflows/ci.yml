@@ -60,3 +60,25 @@ jobs:
             echo "Checking $route"
             curl --silent --show-error --fail "http://127.0.0.1:3000$route" > /dev/null
           done
+
+  authenticated-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+      - name: Pin npm
+        run: npm install --global npm@11.6.0 --no-audit --no-fund
+      - name: Install application dependencies
+        run: npm ci
+      - name: Run disposable authenticated browser workflow
+        env:
+          STUDIO_SCHEDULER_E2E_ALLOW_DISPOSABLE: "1"
+        run: npm run test:e2e
