@@ -14,6 +14,7 @@ Canonical truth lives in Supabase. Human policy, mutable studio facts, executabl
 
 - **RulebookVersion**: reviewed human scheduling policy with stable Rule IDs, original classifications, provenance, history, and versioned edits. Cami approves policy, not code mappings.
 - **PlanningDatasetVersion**: immutable snapshots of solver-significant mutable facts such as teachers, rooms, dancers, cohorts, classes, sessions, durations, rosters, capacities, and related planning metadata. Current inventory may change freely; changes create a new dataset version instead of rewriting history.
+- **Targeted setup review**: append-only review attestations supplement canonical planning facts without duplicating them. Room capacity is the first vertical slice; status is deterministically derived as reviewed, missing, changed, or needing review from immutable planning history and a slice fingerprint.
 - **ConstraintModelVersion**: fingerprinted output of the deterministic Rulebook compiler. It represents executable meaning of the Rulebook independently of mutable planning data.
 - **Constraint IR runtime**: evaluates typed HARD/fixed constraint nodes and returns stable constraint IDs plus the supporting Rule IDs. Teacher qualification is default-deny when no compiled Rulebook qualification domain exists.
 - **Scheduling Readiness**: blocks automatic solving when required planning structure is missing, the 178-rule Execution Registry is incomplete, the schedule is stale against current planning data, the compiler is incomplete, or other structural prerequisites fail.
@@ -89,7 +90,7 @@ ConstraintModelVersion represents **Rulebook meaning**, not the current studio i
 
 Editors may publish only a complete compiler artifact through the governed publication boundary. The database validates its shape, versions it, fingerprints it, and audits publication; the database does not reinterpret Rulebook prose itself.
 
-The Constraint IR runtime now governs server MOVE, ASSIGN/UNASSIGN, recovery and solver adoption. Historical compatibility readers and SQL safeguards remain. The current audit identifies a missing-membership edge case in adoption; see the canonical next task.
+The Constraint IR runtime governs server MOVE, ASSIGN/UNASSIGN, recovery and solver adoption. Historical compatibility readers and SQL safeguards remain. Commit-time membership authorization has been hardened; the current bounded transition is POL-01, which introduces typed teacher-availability policy authority without creating a second policy store or arbitrary DSL.
 
 ## Safety language
 
@@ -101,6 +102,7 @@ Canonical writes are not direct browser table mutations. Governed Supabase RPCs 
 
 - Rulebook changes
 - Planning inventory changes
+- Setup review attestations
 - Schedule assign / unassign / move / rebase / undo operations
 - Constraint Model publication
 - Scenario creation
