@@ -112,6 +112,7 @@ describe("canonical Constraint IR compiler", () => {
     expect(findConstraint(model, "weekday-earliest-start")).toMatchObject({
       kind: "DAY_TIME_WINDOW",
       ruleIds: ["OPS-001", "OPS-002"],
+      selector: {},
       parameters: {
         normalEarliestStart: "16:45",
         exceptionEarliestStart: "16:30",
@@ -224,7 +225,8 @@ describe("canonical Constraint IR compiler", () => {
     expect(findConstraint(model, "weekday-normal-latest-finish")).toBeUndefined();
     expect(evaluateScheduleReadiness(s).blockers).toContainEqual(expect.objectContaining({
       code: "UNSUPPORTED_REVIEWED_POLICY",
-      message: expect.stringContaining("supports only reviewed Rulebook V3"),
+      message: expect.stringContaining("DWDE typed-policy transition is unsupported"),
+      ruleIds: expect.arrayContaining(["OPS-003"]),
     }));
   });
 
