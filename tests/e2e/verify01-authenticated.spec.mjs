@@ -146,6 +146,8 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
 
   await page.goto(`${appUrl}/schedule`);
   await expect(page.getByRole('heading', { name: 'Weekly schedule' })).toBeVisible();
+  await page.getByRole('button', { name: 'Enable editing' }).click();
+  await expect(page.getByRole('heading', { name: 'Editing mode' })).toBeVisible();
   await page.getByRole('button', { name: /Verify Class, Verify Teacher, .*drag to move or tap to edit/ }).click();
   await expect(page.getByText('Assignment inspector')).toBeVisible();
   await page.getByRole('combobox', { name: /^Day/ }).selectOption('Tuesday');
@@ -166,7 +168,7 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   await blocker.acquired;
   const moveRequestPromise = page.waitForRequest((request) =>
     request.url().includes('/api/schedule/move') && request.method() === 'POST', { timeout: 5_000 }).catch(() => null);
-  await saveButton.evaluate((button) => button.click());
+  await saveButton.click();
   const moveRequest = await moveRequestPromise;
   if (!moveRequest) {
     await delay(300);
