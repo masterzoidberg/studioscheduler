@@ -148,7 +148,7 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   await expect(page.getByRole('heading', { name: 'Weekly schedule' })).toBeVisible();
   await page.getByRole('button', { name: 'Enable editing' }).click();
   await expect(page.getByRole('heading', { name: 'Editing mode' })).toBeVisible();
-  await page.getByRole('button', { name: /Verify Class, Verify Teacher, .*drag to move or tap to edit/ }).click();
+  await page.getByRole('button', { name: /Verify Class, Aimee, .*drag to move or tap to edit/ }).click();
   await expect(page.getByText('Assignment inspector')).toBeVisible();
   await page.getByRole('combobox', { name: /^Day/ }).selectOption('Tuesday');
   await page.getByLabel('Reason').fill('VERIFY-01 concurrent lock rejection');
