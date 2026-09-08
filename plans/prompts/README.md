@@ -1,10 +1,9 @@
 # Implementation prompts
 
-[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one task. Current: **SET-02**. Read the assigned bounded prompt rather than every file below. SAFE-01, SAFE-02, VERIFY-01, SET-01 and POL-01 are completed and archived; the 28 prompts below remain active planned work and do not claim implementation merely by existing.
+[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one task. Current: **POL-02**. Read the assigned bounded prompt rather than every file below. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are completed and archived; the 27 prompts below remain active planned work and do not claim implementation merely by existing.
 
 | Prompt | Execution class |
 |---|---|
-| [SET-02 — Create one Studio Setup entry and dashboard](SET-02.md) | STANDARD IMPLEMENTATION |
 | [POL-02 — Extend typed policy to studio and qualification families](POL-02.md) | STANDARD IMPLEMENTATION |
 | [SET-03 — Manage studio hours and rooms through Setup](SET-03.md) | STANDARD IMPLEMENTATION |
 | [SET-04 — Manage teacher availability and qualifications](SET-04.md) | STANDARD IMPLEMENTATION |
@@ -33,4 +32,4 @@
 | [CYCLE-01 — Support next season and safe archive lifecycle](CYCLE-01.md) | STANDARD IMPLEMENTATION |
 | [V1-01 — Close product v1 acceptance](V1-01.md) | STANDARD IMPLEMENTATION |
 
-Completed T01–T13, SAFE-01, SAFE-02, VERIFY-01, SET-01 and POL-01 are in the [historical archive](archive/README.md). T14–T29 ending _OLD remain superseded/incomplete, not completed history or active work. Their replacement mapping is in TASKS. Prompt README from the former queue is superseded by this index.
+Completed T01–T13, SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are in the [historical archive](archive/README.md). T14–T29 ending _OLD remain superseded/incomplete, not completed history or active work. Their replacement mapping is in TASKS. Prompt README from the former queue is superseded by this index.

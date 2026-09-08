@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **SET-02**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01 and POL-01 are DONE after CI-backed hardening and verification; their prompts are archived.
+Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **POL-02**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are DONE after CI-backed hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -17,8 +17,8 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | [VERIFY-01](prompts/archive/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | DONE | A | SAFE-02 | STANDARD IMPLEMENTATION |
 | [SET-01](prompts/archive/SET-01.md) | Add targeted setup review with room-capacity vertical slice | DONE | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
 | [POL-01](prompts/archive/POL-01.md) | Introduce bounded typed policy authoring authority | DONE | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
-| [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | READY | A | SET-01 | STANDARD IMPLEMENTATION |
-| [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | NOT_STARTED | A | POL-01 | STANDARD IMPLEMENTATION |
+| [SET-02](prompts/archive/SET-02.md) | Create one Studio Setup entry and dashboard | DONE | A | SET-01 | STANDARD IMPLEMENTATION |
+| [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | READY | A | POL-01 | STANDARD IMPLEMENTATION |
 | [SET-03](prompts/SET-03.md) | Manage studio hours and rooms through Setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | NOT_STARTED | A | SET-03 | STANDARD IMPLEMENTATION |
 | [SET-05](prompts/SET-05.md) | Complete class/session and roster setup | NOT_STARTED | A | SET-04 | STANDARD IMPLEMENTATION |
@@ -50,7 +50,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 ## Historical task mapping
 
-T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01, SET-01 and POL-01 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
+T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
 
 | Superseded unfinished task | New owner |
 |---|---|
@@ -77,7 +77,7 @@ Former milestones/phase labels are superseded by A DWDE Operational, B Second-St
 
 | ID | Observation/evidence | Affected work | Owner/action and objective unblock |
 |---|---|---|---|
-| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; VERIFY-01 CI run 371 passed the disposable DB suite and authenticated browser harness; SET-01 CI run 395 passed the expanded DB chain and combined authenticated browser workflow; POL-01 CI run 428 passed the further-expanded DB chain after one unchanged rerun of a transient PostgreSQL startup-socket failure. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
+| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; VERIFY-01 CI run 371 passed the disposable DB suite and authenticated browser harness; SET-01 CI run 395 passed the expanded DB chain and combined authenticated browser workflow; POL-01 CI run 428 passed the further-expanded DB chain after one unchanged rerun of a transient PostgreSQL startup-socket failure. During SET-02 CI, two independent runners exposed the same transport-only missing-socket startup race in different disposable regression containers; the shared runner was hardened to retry only that exact signature with a fresh container while SQL/assertion failures still fail immediately. Final CI run 432 passed the complete disposable DB chain and route smoke tests. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
 | BLK-DWDE | No current complete manager-confirmed private dataset or independent workflow evidence established; replaces old BLK-014 | ACC-01 only | Studio manager completes in-app intake/review and supplies private acceptance references; full parity/solve/workflow evidence passes. Public toy fixtures cannot unblock. |
 | EXT-RELEASE | Deployed environment migration/config/restore acceptance not inspected | OPS-01/ACC-01 operational criteria | Owner authorizes environment validation/release separately; operator supplies exact deployed versions and restore evidence. |
 | EXT-STUDIO2 | Independent participant/data not established | GEN-05 | Owner supplies participant and supported dataset; frozen-SHA checklist passes without source patches. |
@@ -155,6 +155,21 @@ Private evidence may already exist outside Git; “not established here” is no
 - No deployment, private DWDE data publication, customer-data mutation, external-service write, arbitrary policy DSL, AI policy parsing, full DWDE policy conversion or optimization was performed or implied.
 - Result: POL-01 DONE. SET-02 and POL-02 are dependency-ready; ledger order selects SET-02 as the sole NEXT task.
 
+### SET-02 — DONE
+
+- Starting implementation HEAD: `c5475a4409cae8f23b8f07dacbd1da0e31e38ebf`.
+- Accepted implementation head before planning closeout: `86a4e8d719b62c9aeab3a11b1b604f628ffe0d24`.
+- Implementation commits: `b99eb2f13f3ebd8fdce66703aa0a88a9b218e0a3`, browser-compatibility correction `01ff60702bec0045414710158af6a71517e30313`, and disposable-DB harness hardening `86a4e8d719b62c9aeab3a11b1b604f628ffe0d24`.
+- Manager journey: `/setup` is now the normal setup entry with Studio, Teachers, Classes, Students, Requirements, Preferences and Review sections. Existing authoritative inventory/review/repair surfaces are linked or reused rather than copied into a second setup-data model. Empty workspaces receive one clear setup action; returning workspaces deterministically resume at a meaningful outstanding section.
+- Navigation/diagnostics: normal manager navigation centers Home, Setup, Schedule and Settings. Raw Rulebook, readiness, version history and legacy scenario diagnostics remain accessible under Settings → Advanced. Existing People, Classes, Planning Repairs, Rulebook, Readiness and other deep links continue to resolve rather than being silently removed.
+- Progress semantics: setup progress is derived from existing authoritative workspace/inventory/review state and does not persist a duplicate setup-status record. Later sections that cannot yet be completed explain the missing prerequisite instead of claiming readiness. Existing Planning Repairs behavior, including the missing relationship signal on empty student inventory, was preserved rather than reinterpreted.
+- Browser evidence: `tests/e2e/set02-setup-dashboard.spec.mjs` covers first-time and returning-manager paths in the disposable authenticated environment, keyboard activation/focus, a 390px viewport, deep-link compatibility, Advanced diagnostics access and no authoritative writes caused merely by navigation. The preserved VERIFY-01 schedule workflow and SET-01 room-capacity review also run in the same harness.
+- Regression correction: the existing `Weekly schedule` heading was preserved after the first browser run showed that renaming it broke previously accepted VERIFY-01 evidence; the SET-02 Advanced selector was narrowed after its first form matched descriptive text in two links. These were test/compatibility corrections, not legality changes.
+- Harness evidence: two independent Ubuntu runners lost the disposable PostgreSQL socket in different regression containers. `scripts/run-disposable-db-regression.mjs` now permits bounded fresh-container retries only for the exact recognized missing-socket startup signature; `tests/database-harness.test.ts` proves repeated transient recovery and immediate failure for non-transient SQL/assertion errors.
+- CI evidence at SHA `86a4e8d`: PR #55, CI run **432** success and Solver CI run **151** success. Ubuntu passed planning integrity, lint, typecheck, unit tests, build, the full disposable DB chain and route smoke; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed all three current journeys; Solver CI passed CP-SAT/service pytest, the production solver container build and TypeScript/Python runtime parity.
+- No scheduling legality, typed-policy semantics, canonical data authority, deployment, private DWDE certification, customer data or external service was changed merely to complete SET-02.
+- Result: SET-02 DONE. POL-02 is dependency-ready and is the sole NEXT task by ledger order.
+
 ## Audit completion record
 
-Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01 and POL-01 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with SET-02.
+Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with POL-02.
