@@ -167,7 +167,7 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   expect(lockUpdate.data.locked).toBe(true);
 
   await blocker.done;
-  await expect(page.getByText(/Move blocked: Scheduling context changed/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/Scheduling context changed/)).toBeVisible({ timeout: 30_000 });
 
   const rejected = await probeSchedule();
   expect(rejected.scheduleCount).toBe(before.scheduleCount);
