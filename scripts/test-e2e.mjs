@@ -448,7 +448,7 @@ async function runHarness() {
     process.stderr.write(testRun.stderr);
   } finally {
     await stopChild(nextProcess);
-    if (nextLogFd !== null) closeSync(nextLogPath);
+    if (nextLogFd !== null) closeSync(nextLogFd);
     if (supabaseStarted) {
       const stopped = spawnSync('supabase', ['stop', '--no-backup'], {
         cwd: tempRoot,
