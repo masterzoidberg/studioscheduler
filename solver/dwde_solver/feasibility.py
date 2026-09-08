@@ -98,6 +98,29 @@ def _resolve_unique_by_name(items: dict[str, dict[str, Any]], name: str, kind: s
     return matches[0]
 
 
+def _resolve_teacher_selector(
+    teachers: dict[str, dict[str, Any]], selector: dict[str, Any], constraint_id: str
+) -> list[str]:
+    teacher_ids = [str(value) for value in (selector.get("teacherIds") or [])]
+    teacher_names = [str(value) for value in (selector.get("teacherNames") or [])]
+    if teacher_ids:
+        if len(set(teacher_ids)) != len(teacher_ids):
+            raise ValueError(f"Constraint {constraint_id} repeats a stable teacher ID")
+        for teacher_id in teacher_ids:
+            teacher = teachers.get(teacher_id)
+            if teacher is None:
+                raise ValueError(f"Constraint {constraint_id} references missing teacher ID {teacher_id!r}")
+            if teacher_names and not _text_matches(str(teacher.get("name", "")), teacher_names):
+                raise ValueError(
+                    f"Constraint {constraint_id} teacher ID {teacher_id!r} does not match its legacy teacherNames selector"
+                )
+        return teacher_ids
+    return [
+        _resolve_unique_by_name(teachers, teacher_name, "teacher", constraint_id)
+        for teacher_name in teacher_names
+    ]
+
+
 def _and_literal(model: cp_model.CpModel, literals: list[Any], name: str):
     result = model.new_bool_var(name)
     if not literals:
@@ -485,15 +508,14 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
         elif kind == "TEACHER_DAY_WINDOW":
             if params.get("inheritStudioOperatingWindows") is True and params.get("mayExtendOperatingHours") is False:
                 continue
-            teacher_names = selector.get("teacherNames") or []
+            teacher_ids = _resolve_teacher_selector(teachers, selector, constraint["id"])
             allowed_days = params.get("allowedDays")
             one_day = params.get("day")
             start_limit = params.get("start")
             end_limit = params.get("end")
             if one_day:
                 allowed_days = [one_day]
-            for teacher_name in teacher_names:
-                teacher_id = _resolve_unique_by_name(teachers, str(teacher_name), "teacher", constraint["id"])
+            for teacher_id in teacher_ids:
                 for item in session_vars.values():
                     present = item.teacher[teacher_id]
                     if allowed_days:
