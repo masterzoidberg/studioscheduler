@@ -1,8 +1,8 @@
 # Studio Scheduler — canonical planning entry
 
-Audit baseline: `91204390d8c025789e6af871a5939eb22decd517` on `feat/pre-cami-hardening`, 2026-09-07. T01–T13 remain accepted foundation history. SAFE-01 was accepted at implementation SHA `51fd92e35eaa3129f237f91c196e4ad603d58547`. SAFE-02 was accepted at implementation SHA `7c2078f85c64ab0bf7b645a18662c7d145cee14f` after CI run 327 and Solver CI run 46 passed, including no-secrets build/smoke verification and the disposable database suite.
+Audit baseline: `91204390d8c025789e6af871a5939eb22decd517` on `feat/pre-cami-hardening`, 2026-09-07. T01–T13 remain accepted foundation history. SAFE-01 was accepted at implementation SHA `51fd92e35eaa3129f237f91c196e4ad603d58547`. SAFE-02 was accepted at implementation SHA `7c2078f85c64ab0bf7b645a18662c7d145cee14f`. VERIFY-01 was accepted at implementation SHA `04727b89c6e053c167af7f9dded51917ccd9489a` after CI run 371 and Solver CI run 90 passed, including disposable authenticated browser evidence and TypeScript/Python runtime parity.
 
-**Current milestone: A — DWDE Operational. Exact next task: VERIFY-01 — Create shared parity and authenticated workflow harnesses. Execution class: STANDARD IMPLEMENTATION.** Read [NEXT](NEXT.md) and [the prompt](prompts/VERIFY-01.md). No owner architecture decision blocks starting.
+**Current milestone: A — DWDE Operational. Exact next task: SET-01 — Add targeted setup review with room-capacity vertical slice. Execution class: STANDARD IMPLEMENTATION.** Read [NEXT](NEXT.md) and [the prompt](prompts/SET-01.md). No owner architecture decision blocks starting.
 
 The product path is safety → verification harnesses → manager setup/review → generation/editing/locks/recovery/export → actual DWDE acceptance → independent studio → supported pilot → next-cycle Product v1.
 
@@ -20,6 +20,6 @@ The product path is safety → verification harnesses → manager setup/review �
 | [Audit verification](AUDIT_VERIFICATION.md) | Current audit results and limitations |
 | [UX](AUDIT_UX.md), [architecture](AUDIT_ARCHITECTURE.md), [history](AUDIT_HISTORY.md) | Dated evidence appendices; never execution queues |
 
-Do not load the complete archive for ordinary implementation. Files ending _OLD, prompts/archive and plans_OLD.zip are historical, not current instructions. Completed prompts T01–T13, SAFE-01 and SAFE-02 are archived; incomplete T14–T29 are preserved as superseded _OLD prompts.
+Do not load the complete archive for ordinary implementation. Files ending _OLD, prompts/archive and plans_OLD.zip are historical, not current instructions. Completed prompts T01–T13, SAFE-01, SAFE-02 and VERIFY-01 are archived; incomplete T14–T29 are preserved as superseded _OLD prompts.
 
 Read AGENTS → this file → NEXT → assigned prompt. Inspect current code before editing, follow targeted decisions and run required checks. TASKS owns status; README/NEXT are derived views. After accepted completion update those views and select one next dependency-satisfied task. No deployment or customer-data mutation follows merely from a roadmap entry.
