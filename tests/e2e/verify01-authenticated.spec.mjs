@@ -90,6 +90,7 @@ function holdStudioCommitLock(seconds = 6) {
   const sql = [
     'begin;',
     `select pg_advisory_xact_lock(hashtextextended('${studioId}'::text,0));`,
+    `do $verify01$ begin update public.assignments set locked=true where studio_id='${studioId}' and id='${assignmentId}' and schedule_version_id=(select id from public.schedule_versions where studio_id='${studioId}' and is_current order by version desc limit 1); if not found then raise exception 'VERIFY01 assignment missing while staging stale context'; end if; end $verify01$;`,
     "select 'VERIFY01_LOCK_ACQUIRED';",
     `select pg_sleep(${seconds});`,
     'commit;',
@@ -188,17 +189,6 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
     );
   }
   page.off('request', recordScheduleRequest);
-  await delay(750);
-
-  const lockUpdate = await admin
-    .from('assignments')
-    .update({ locked: true })
-    .eq('schedule_version_id', before.currentScheduleId)
-    .eq('id', assignmentId)
-    .select('id,locked')
-    .single();
-  if (lockUpdate.error) throw lockUpdate.error;
-  expect(lockUpdate.data.locked).toBe(true);
 
   await blocker.done;
   const moveResponse = await moveRequest.response();
