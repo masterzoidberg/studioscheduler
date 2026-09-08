@@ -205,8 +205,8 @@ const rulebookMigrationPrereqSql = String.raw`
 insert into public.rules(
   id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
 ) values
-('OPS-002','${studioId}','OPS','TEST_FIXTURE','Weekday fixture','Deidentified migration prerequisite only.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',2,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
-('ADV-004','${studioId}','ADV','TEST_FIXTURE','Progression fixture','Deidentified migration prerequisite only.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',2,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED');
+('OPS-002','${studioId}','OPS','TEST_FIXTURE','Weekday 4:30 start exceptions','Only Elementary 1, Elementary 2, Level 4B, and 4B/5 levels may start at 4:30 PM. 4:45 PM remains the preferred normal weekday start time.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',2,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+('ADV-004','${studioId}','ADV','TEST_FIXTURE','Kiran Landis lower-level exception','Kiran Landis has more flexibility than the normal lower-level rule; pursue lower-level placement, but do not treat it with the same hard rigidity as the general requirement.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',2,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED');
 insert into public.rules(
   id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
 )
