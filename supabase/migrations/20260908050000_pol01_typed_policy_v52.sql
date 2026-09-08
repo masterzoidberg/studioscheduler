@@ -481,8 +481,8 @@ begin
   );
 end
 $function$;
-revoke all on function public.publish_constraint_model_v30(jsonb,text,integer) from public,anon;
-grant execute on function public.publish_constraint_model_v30(jsonb,text,integer) to authenticated,service_role;
+revoke all on function public.publish_constraint_model_v30(jsonb,text,integer)
+  from public,anon,authenticated,service_role;
 
 -- The shared roster compiler contains residual reviewed V3 semantics that are
 -- unchanged in V4. Keep its implementation, but wrap its metadata so governed
