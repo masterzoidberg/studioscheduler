@@ -6,7 +6,7 @@ Production: https://studioscheduler-three.vercel.app
 
 ## Product invariant
 
-**Cami, ChatGPT, the validator, and the future solver must be looking at the same Schedule, Rulebook, Constraint Model, and Planning Dataset.**
+**Cami, ChatGPT, the validator, and the solver must be looking at the same Schedule, Rulebook, Constraint Model, and Planning Dataset.**
 
 Canonical truth lives in Supabase. Human policy, mutable studio facts, executable constraint meaning, and schedule history are versioned separately so a historical schedule can be explained and reproduced instead of being silently reinterpreted after the studio changes.
 
@@ -17,7 +17,7 @@ Canonical truth lives in Supabase. Human policy, mutable studio facts, executabl
 - **ConstraintModelVersion**: fingerprinted output of the deterministic Rulebook compiler. It represents executable meaning of the Rulebook independently of mutable planning data.
 - **Constraint IR runtime**: evaluates typed HARD/fixed constraint nodes and returns stable constraint IDs plus the supporting Rule IDs. Teacher qualification is default-deny when no compiled Rulebook qualification domain exists.
 - **Scheduling Readiness**: blocks automatic solving when required planning structure is missing, the 178-rule Execution Registry is incomplete, the schedule is stale against current planning data, the compiler is incomplete, or other structural prerequisites fail.
-- **ScheduleVersion**: immutable assignment snapshots. Current schedule writes are version-aware and preserve history. Existing legacy enforcement links remain temporarily for compatibility while the Constraint IR path is proven and promoted.
+- **ScheduleVersion**: immutable assignment snapshots. Current schedule writes use server Constraint IR validation and preserve versioned history. Legacy readers and defense-in-depth SQL checks remain; superseded direct writers are revoked.
 - **Scenarios**: isolated what-if branches that do not silently change canonical truth.
 - **AI Copilot**: reads current versioned context and may propose changes, but legality is determined by deterministic code rather than the language model.
 - **Access control**: Supabase Auth plus studio membership roles `OWNER`, `EDITOR`, and `VIEWER`.
@@ -70,7 +70,7 @@ PlanningDatasetVersion   Schedule candidate
        Readiness / legality findings
                 |
                 v
-       Feasibility solver (next)
+       Feasibility solver
 ```
 
 No LLM prose parsing occurs inside the legality path at runtime.
@@ -89,15 +89,11 @@ ConstraintModelVersion represents **Rulebook meaning**, not the current studio i
 
 Editors may publish only a complete compiler artifact through the governed publication boundary. The database validates its shape, versions it, fingerprints it, and audits publication; the database does not reinterpret Rulebook prose itself.
 
-The Readiness page currently runs the Constraint IR evaluator as an independent diagnostic oracle. The legacy schedule mutation validator is deliberately retained until the IR runtime passes integrated golden fixtures and is safe to promote to the canonical mutation boundary.
+The Constraint IR runtime now governs server MOVE, ASSIGN/UNASSIGN, recovery and solver adoption. Historical compatibility readers and SQL safeguards remain. The current audit identifies a missing-membership edge case in adoption; see the canonical next task.
 
 ## Safety language
 
-Until the canonical mutation path and feasibility solver are both operating from the complete Constraint Model, the application should use language such as:
-
-> No detected conflict under current machine coverage.
-
-It must not claim that a schedule is fully legal merely because the legacy validator or a partial diagnostic pass reports zero findings.
+Supported deterministic meaning is required for canonical scheduling. A legal partial draft is not a complete reviewed schedule; unsupported HARD policy must fail closed. Current unit tests do not establish complete DWDE data or deployed manager acceptance. See the [canonical product plan](plans/MASTER_PLAN.md).
 
 ## Mutation boundaries
 
@@ -199,12 +195,6 @@ A new Constraint IR kind must never silently fall through the runtime. Coverage 
 - Some authenticated `SECURITY DEFINER` RPCs are intentionally exposed because they are application command boundaries. Each must perform its own authenticated membership/role authorization before privileged work; public/anonymous execution must remain revoked.
 - A Supabase advisor warning about an authenticated `SECURITY DEFINER` command is therefore a review signal, not by itself proof that the command is unsafe.
 
-## Roadmap from here
+## Development plan
 
-1. Keep golden feasible/impossible fixtures green and expand them as new semantics are promoted.
-2. Remove remaining stale user-facing `EnforcementProposal` workflow and compatibility-language drift.
-3. Promote the Constraint IR runtime into the canonical schedule mutation validation boundary only after equivalence/safety tests pass.
-4. Run a HARD-feasibility-only whole-week solve before introducing preference weights.
-5. Add soft optimization using the reviewed priority spine only after feasibility is proven.
-6. Add candidate schedule compare/adopt workflow.
-7. Build **Constraint X-Ray**: explain why a class is placed, what blocks a requested move, and the smallest conflicting set of requirements when the whole model is infeasible.
+Start with [plans/README.md](plans/README.md), then [plans/NEXT.md](plans/NEXT.md) and its linked prompt. These are the canonical planning entry points; dated docs and _OLD files are historical evidence. The plan covers manager setup/review, complete scheduling workflow, independent studio onboarding, pilot operations and Product v1.

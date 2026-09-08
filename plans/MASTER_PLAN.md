@@ -1,224 +1,83 @@
-# Master Development Plan
+# Studio Scheduler product completion plan
 
-Canonical strategy; task status and executable detail live in [TASKS](TASKS.md). Audit baseline: `17b3a60`. The repository has substantial working infrastructure; this is an evolution and cutover plan, not a rewrite.
+Canonical baseline: `91204390d8c025789e6af871a5939eb22decd517`, 2026-09-07. Scope is a trustworthy weekly scheduling application that managers configure and operate independently. [TASKS](TASKS.md) owns task status; [NEXT](NEXT.md) selects one task. This plan supersedes prior release/generic/cutover roadmaps.
 
-# Product Objective
+## What exists and what does not
 
-## DWDE
+Current code implements versioned policy/planning/schedules, deterministic Constraint IR, CP-SAT feasibility, coherent candidate context, per-session solver locks, authoritative manual commands/recovery and restricted legacy writes. T01–T13 are accepted historical work. New P1 correctness finding: V49 adoption's nullable membership check fails to reject a missing row; SAFE-01 fixes this before new features.
 
-Make a fully operational scheduling application prepopulated with DWDE people, rooms, curriculum, Rulebook, rosters, constraints, historical versions, and schedules. Cami must be able to trust generation, inspect a candidate, adopt it, edit it safely, recover, and distribute output.
+The manager product is incomplete: inventory forms omit scheduling availability/qualification intake, readiness is DWDE-specific, review is global rather than scoped, onboarding is absent, normal UI exposes internal architecture, lock controls and schedule print/export are missing, all-room/mobile/duration behavior needs repair. Copilot still carries legacy authority assumptions. Tenant UUIDs, names, 178-rule accounting and calendar defaults prevent independent onboarding. Passing tests do not prove private data completeness, deployed migration state or independent manager use.
 
-The audit did not verify current production planning completeness or run the current full DWDE dataset. These remain release evidence requirements.
+Evidence: [architecture audit](AUDIT_ARCHITECTURE.md), [UX journey audit](AUDIT_UX.md), [history/instruction audit](AUDIT_HISTORY.md), [verification record](AUDIT_VERIFICATION.md). These are dated evidence appendices, not competing task queues.
 
-## Product
+## Delivery route
 
-Support recurring class/activity scheduling: instructors, participants, groups, rooms, sessions, eligibility, availability, enrollment, sequencing, hard constraints, and preferences. Dance studios are the initial domain; adjacent class businesses are allowed only within supported templates. Do not generalize to hospitals, logistics, airlines, or universal scheduling.
+1. SAFE-01 closes the missing-member authorization gap; SAFE-02 makes local configuration safe and contains misleading AI. VERIFY-01 provides parity and authenticated disposable verification.
+2. SET-01 adds narrow review state through one existing room-capacity workflow. POL-01/02/03 progressively support governed typed policy forms; SET-02–07 build a unified manager setup and certification journey.
+3. UX-01/02, LOCK-01, UX-03 complete generation, editing, lock/regeneration, recovery and usable export. OPS-01 proves release configuration/recovery prerequisites. ACC-01 tests actual DWDE use; a data blocker is an acceptance gate, not a stop on development.
+4. GEN-01/02 finish generic policy extraction; GEN-03/04 deliver explicit tenancy and empty-workspace onboarding. IMPORT-01 reduces bulk setup effort; GEN-05 proves a distinct studio.
+5. OPT-01/02 and CAND-01 provide reviewed quality improvement and durable candidate comparison. OPS-02/03 finish account/privacy/support/monitoring. PILOT-01 proves supported operation.
+6. CYCLE-01 supports returning next season. V1-01 verifies repeatable independent use, recovery and product scope with AI disabled.
 
-DWDE must be one configured tenant. Studio #2 must onboard with zero bespoke compiler/solver/application logic.
+Priority is the ledger order among dependency-satisfied tasks; NEXT remains the single selected task. OPS-01 is intentionally executable before ACC-01 despite appearing later in thematic discussion. No dependency waits on fake customer evidence. If required independent support/evidence is unavailable, record the gate and continue ready engineering tasks.
 
-## Target architecture
+## Objective milestone exits
 
-```text
-Selected Organization
-        |
-Planning Facts + Structured Rulebook
-        |
-Immutable Versioned Snapshots
-        |
-Generic Deterministic Compilation
-        |
-System Invariants + Constraint IR + Locks
-        |
-+-----------------------------+
-|                             |
-Runtime Validator        CP-SAT Solver
-|                             |
-+-------------+---------------+
-              |
-Candidate / Manual Change
-              |
-Server Validation
-              |
-Governed Transaction
-              |
-New ScheduleVersion
-```
+**A — DWDE Operational:** all A tasks DONE. Cami or delegated actual manager completes in-app inventory, scheduling restrictions, review/no-restriction states and confirmation with actual complete private studio data; whole-week solve independently validates every required session/roster/qualification/lock; infeasible/unknown/stale/unavailable states are understandable; manager assigns/moves/unassigns/locks/regenerates/recovers without developer data repair; printable/CSV schedule reconciles with accepted version; desktop, mobile and keyboard paths pass; authorized deployment/configuration and disposable restore evidence exists. First-feasible output must be usable with manager-accepted bounded manual finishing; otherwise pull optimization forward. No outstanding critical/high security, data-loss or HARD legality defect. A is not achieved today.
 
-AI operates beside this path as a proposal/explanation layer. It uses pinned context and typed proposals, never canonical authority.
+**B — Second-Studio Ready:** A plus all B tasks DONE. A different organization creates/chooses its workspace and completes setup/import with no DWDE seed requirements, names, first-membership routing or tenant-specific code edits. Four rooms, different curriculum/hours and Sunday work within declared grid. Every active policy accounted deterministically; all roles/reads/writes tenant-isolated; rename metamorphic and independent witness fixtures pass. A real independent manager succeeds at frozen SHA; [S2 checklist](STUDIO_2_ACCEPTANCE.md) controls evidence detail. B is not achieved today.
 
-# Architectural Invariants
+**C — Commercial Pilot Ready:** B plus all C tasks DONE. Supported external studio completes two weekly build/review/revision cycles; deterministic quality preferences and candidate reopening work; invitations/role revocation/last-owner behavior proven; privacy/export/deletion/support responsibilities and limitations documented; monitored solver failures and restore drill observable; named operator can support incidents; no unresolved critical/high defect. Owner supplies commercial/privacy arrangements and authorization for actual operation. Billing automation is not required.
 
-1. No reusable application, compiler, validator, or solver logic may branch on a particular studio, person, room, class, level, subject, or tenant-specific Rule ID. Existing coupling is tracked for removal; T05 may guard an explicitly isolated legacy DWDE adapter, not add new generic-kernel exceptions.
-2. Tenant-specific policy belongs in tenant data/configuration.
-3. Human-facing names are presentation; canonical scheduling identity uses stable IDs.
-4. HARD legality is deterministic.
-5. LLM output is never authoritative policy or canonical scheduling state.
-6. Solver output is a candidate until validated and adopted through the governed boundary.
-7. Manual changes and solver adoption use the same scheduling semantics.
-8. Rulebook, Planning Dataset, Constraint Model, Schedule, and lock context remain coherent.
-9. Unsupported HARD semantics fail closed, including unsupported parameters, not just unknown kinds.
-10. Partial schedules may exist during editing but never masquerade as publishable complete schedules.
-11. Historical migrations and ledger provenance are immutable; change behavior with forward migrations.
-12. Introduce no infrastructure merely for theoretical extensibility.
-13. Tests never connect to production. Release operators may separately collect authorized deployment evidence.
-14. Database transactions enforce explicit tenant/actor authorization, structural integrity, concurrency, history, and audit; the browser is only preview.
-15. Preserve existing historical IDs/artifacts through versioned compatibility; never silently reinterpret historical policy.
+**D — Product v1:** C plus CYCLE-01 and V1-01 DONE. Two studios repeat full intake-to-final-export without developer data transformation, including next-cycle carry-forward/review, archive/history and restore. Required browser/role/concurrency/parity regressions pass, user help covers supported failure paths, operator can maintain/upgrade/recover service, monitoring and private-data handling accepted. AI-disabled workflow is complete. Known lower-risk limitations are visible. This is a bounded weekly scheduling product, not an all-purpose studio management suite.
 
-# Verified findings and task coverage
+## Capability gap matrix
 
-| Finding | Evidence at baseline | Consequence | Tasks |
-|---|---|---|---|
-| F01 Split authority | [workspace](../components/workspace-provider.tsx), [v25 commands](../supabase/migrations/20260902122425_schedule_commands_v25.sql), [adoption](../app/api/solver/adopt/route.ts) | Manual edits can violate solver-enforced policy | T10–T13 |
-| F02 Candidate duration differs from persistence | [gateway](../lib/solver-gateway.ts), [adoption SQL](../supabase/migrations/20260904032500_governed_solver_candidate_adoption.sql) | Validated short interval can become a longer persisted interval; probe reproduced gateway acceptance | T04 |
-| F03 Wording/execution divergence | [compiler](../lib/constraint-compiler.ts), [v3 compiler](../lib/constraint-compiler-v3.ts) | OPS-003 edit still compiles old close; reproduced | T05, T21, T25 |
-| F04 Order-sensitive equality | [model helpers](../lib/constraint-model-version.ts) | Equivalent reordered models compare unequal; reproduced; production incidence unknown | T03 |
-| F05 Archive downstream gaps | [loader](../lib/server-studio-state.ts), [v33 adoption](../supabase/migrations/20260904032500_governed_solver_candidate_adoption.sql), [v40](../supabase/migrations/20260905034428_planning_inventory_archive_v40.sql) | Active session set differs from SQL count | T06, T11, T12 |
-| F06 Incoherent mutable reads | [loader](../lib/server-studio-state.ts), [problem builder](../lib/solver-problem.ts) | Version label does not prove all facts share a snapshot | T07 |
-| F07 Missing candidate base schedule | [context](../lib/solver-problem.ts), [adoption](../app/api/solver/adopt/route.ts) | Intervening manual changes can be overwritten | T08 |
-| F08 Incomplete locks | [problem](../lib/solver-problem.ts), [service](../solver/dwde_solver/service.py) | Multi-session lock unsupported; name-based lock resolution | T09 |
-| F09 DWDE kernel coupling | [compiler](../lib/constraint-compiler.ts), [readiness](../lib/schedule-readiness.ts), [registry](../lib/rule-execution-registry.ts) | Exactly 178 rules and named requirements block unrelated tenants | T20–T21, T24–T25 |
-| F10 Implicit tenant command context | [actor helper](../supabase/production-ledger/20260831123403_v2_1_governed_infrastructure.sql), [workspace](../components/workspace-provider.tsx) | First membership may differ from selected workspace | T22–T23 |
-| F11 Parity gaps | [TS runtime](../lib/constraint-engine.ts), [Python](../solver/dwde_solver/feasibility.py) | Default-deny depends on CUR-007 only in Python; Unicode normalization differs | T14, T20 |
-| F12 Boundary/operations gaps | [publication](../supabase/migrations/20260902163046_constraint_model_publication_v30.sql), [gateway](../app/api/solver/feasibility/route.ts), [Supabase config](../lib/supabase.ts) | Client artifact disruption, role race, second-solve timeout, production fallback | T13, T15, T16, T29 |
-| F13 Weak executed DB/real-workload evidence | [CI](../.github/workflows/ci.yml), [golden tests](../tests/golden-schedule-fixtures.test.ts) | Passing source assertions/toy fixtures do not certify production use | T02, T14, T16 |
-| F14 Legacy AI/scenario presentation | [Copilot](../app/api/copilot/route.ts), [scenarios](../components/scenarios-view.tsx) | Stale explanations and implied what-if capability | T16 launch containment, T28 fuller alignment |
-| F15 No executable optimization | [IR](../lib/constraint-ir.ts), [Python](../solver/dwde_solver/feasibility.py) | First-feasible may be unattractive | T17–T19 |
+Current statuses are evidence classifications, not delivery claims. “Verified” means current local tests for that bounded behavior; “partial” means code exists without the complete product criterion.
 
-Preserve version snapshots, audit/RLS foundations, Next.js, Supabase, CP-SAT, mobile/desktop components, and candidate workflow. Schema/domain names are mostly sufficient. “Teacher/student/class” may remain internal names with UI terminology mapping.
+| Capability | Current | A: DWDE | B: second studio | C: pilot | D: v1 |
+|---|---|---|---|---|---|
+| Setup/teacher/student/room management | Basic inventory partial; scheduling intake absent | SET-01–07 complete | Empty neutral studio works | Repeated intake supported | Independent repeat |
+| Planning data/classes/sessions/rosters | Versioned CRUD/repair partial | Complete in-app review | Typed ID dependencies | Reviewed bulk intake | New-cycle reuse |
+| Qualifications/availability | Compiler semantics; no full forms | Explicit policy forms | No name bindings | Supported limits documented | Regression maintained |
+| Policy/rules/HARD validation | Guarded DWDE + IR verified; arbitrary prose unsupported | Typed supported bundles; fail closed | Tenant record accounting | Generic supported authoring | Stable documented vocabulary |
+| Preferences | Priority metadata only | Record honestly; feasibility + manual finish accepted | Same | OPT-01/02 measured | Repeatable quality |
+| Completeness/certification | Global attestation partial | Scoped review + operation gates | Tenant-neutral | Supported | Cycle-aware |
+| Solver/generation | Feasibility/code tests verified | Whole actual dataset and failures proven | Independent fixture/manager | Bounded optimization | Operating reliability |
+| Manual editing | Authoritative routes tested; UX partial | Full keyboard/tap/drag journey | All rooms/hours | Supported | Repeated |
+| Locks/regeneration | Session protection tested; toggle absent | LOCK-01 controls/context | Generic | Supported | Repeated |
+| Recovery/history/audit | Versions/undo/rebase code; restore unproven | UI recovery + OPS-01 restore | Cross-tenant denial | Operator drill | Cycle/history retained |
+| Onboarding/login/auth | OAuth/magic link code; local login rendered | Clear setup entry | Empty workspace + select | Invite/revoke verified | Repeatable |
+| Imports | Validation/package code; manager CSV absent | Forms sufficient; honest effort gate | IMPORT-01 preview/apply | Support/limits | Stable |
+| AI | Legacy context/proposal code partial | Hide misleading paths; not required | Optional/off | Optional/off | Optional/off |
+| Mobile/accessibility | Login rendered only; schedule source partial | All primary actions 390px + keyboard | Generic room/horizon | Regression | Acceptance repeated |
+| Print/export | JSON export; schedule artifact absent | Reviewed schedule print/CSV | Tenant-aware | Privacy-safe support | Old/new cycle artifacts |
+| Candidate comparison | Transient/legacy scenarios partial | Review before adopt | No false compare claims | CAND-01 durable compare | Supported |
+| Tenancy/roles/security | Membership/RLS partial; NULL gap | SAFE-01; fixed DWDE scope explicit | Every boundary explicit | Lifecycle/privacy | Maintained |
+| Backups/staging/migrations | Ledger/harness; operational restore unproven | OPS-01 evidence | Per-tenant integrity | Operator-owned recovery | Upgrade/restore proven |
+| Support/monitoring | CI only; operations unverified | Minimum release runbook | Documented limits | OPS-03 monitored support | Repeatable maintenance |
+| Documentation/help | Technical README, stale claims | In-app guidance + release notes | Neutral onboarding/import help | Contextual help/runbook | Complete supported scope |
+| Archive/account lifecycle | Archive primitives/membership partial | Safe archive feedback | Workspace creation/selection | OPS-02 ownership/invites/privacy | CYCLE-01 reuse/retention |
 
-# Milestones
+## Feature classification and exclusions
 
-All milestone acceptance is initially NOT_STARTED. Existing code does not prove release readiness.
+MUST HAVE BEFORE DWDE: auth/editor authorization, inventory/classes/sessions/rosters/qualifications/availability, supported HARD requirements, honest preferences, deterministic validation, setup review/certification, generation/manual editing/locks/recovery/history/conflict explanations, mobile/keyboard, print/export, audit, error handling, backup/release configuration and current user guidance.
 
-## Milestone A — DWDE Operational
+MUST HAVE BEFORE SECOND STUDIO: complete tenant isolation, neutral empty-workspace onboarding/selection, generic supported rule authoring, all configured rooms/hours, Sunday, CSV templates/preview, second-studio acceptance. Existing invitations must not undermine isolation; complete lifecycle is C.
 
-Gate: T01–T16 criteria plus [DWDE release checklist](DWDE_RELEASE_PLAN.md).
+MUST HAVE BEFORE COMMERCIAL PILOT: quality scoring/optimization, durable candidate compare, owner/account/invite/revoke lifecycle, privacy/export/deletion procedures, monitored operations, support/help, external pilot evidence. MUST HAVE BEFORE PRODUCT V1: next cycle and independent repeated acceptance.
 
-Required: trustworthy complete planning inventory and qualifications; supported HARD policy; coherent snapshot and locks; full active-session solve; independent validation; atomic adoption; same authority for manual edits/rebase/undo; stale-change rejection; archive integrity; readable conflict/non-success results; usable print/export/mobile viewing; verified roles and restore procedure; named manager acceptance.
+POST-V1: optional conversational setup and AI explanations/summaries after canonical-context alignment; public schedule links, dated calendars/holiday exceptions, custom grids, third-party integrations and more sophisticated conflict minimization only with evidence. NOT NEEDED for this product: student billing, payroll, attendance register, generic CRM, arbitrary policy DSL, alternative solver bake-off, second canonical setup/policy/schedule model.
 
-Preferences T17–T19 are P1 unless manager evidence shows first-feasible schedules require unacceptable reconstruction. Record that promotion rather than silently calling an unusable schedule operational. AI is optional; misleading current AI behavior must be contained before release.
+## Adversarial decisions incorporated
 
-## Milestone B — Generic Kernel
+Why could this still fail? A technically valid first schedule may be unusable or intake may take a developer a week. ACC-01 explicitly measures manager assistance and usable output; it cannot pass by counting green tests. Optimization may be pulled ahead of A if actual usability requires it. Forms must work before external acceptance, rather than wait for a developer-transcribed fixture.
 
-Gate: T20–T22 plus parity evidence from T14.
+Overengineering risk: a second setup database, standalone certification engine, huge DSL and broad SaaS features. Removed in DEC-102–106: shared forms/readiness, narrow attestations, existing version authorities, supported typed families and explicit scope.
 
-- ID-based rule targets and typed parameters/exceptions.
-- Tenant-neutral compilation, runtime, solver, and generic readiness.
-- No DWDE-specific kernel branching or fixed 178-rule assumptions.
-- DWDE policy extracted to tenant records while golden behavior remains.
-- Renamed-DWDE fixture invariance.
-- Explicit tenant authorization throughout commands and same-studio reference validation.
+Underestimated work: static semantics appear in compiler, readiness, Python and SQL, sometimes spanning multiple source rules. POL-01 and GEN-01 retain HIGH-REASONING classification with dependency-closed replacement and shared parity. Turning off one guard is not a migration strategy. LOCK-01 is a real command/context change, not a button-only task.
 
-T20/T21/T22 are L-sized parents with bounded child slices in the ledger.
+Most important unasked question: can the manager maintain the data next season without losing trusted history? CYCLE-01 and D acceptance now require this. Another first-season demo does not close v1.
 
-## Milestone C — Studio #2
-
-Gate: T17–T27 relevant dependencies and [formal acceptance](STUDIO_2_ACCEPTANCE.md).
-
-An unrelated organization uses standard provisioning, imports/forms, supported rules, generation, scoring/comparison, adoption/edit/recovery/export with no bespoke source changes. Manual onboarding assistance is acceptable; custom code is not.
-
-## Milestone D — External Pilot
-
-Gate: T27 plus T29 pilot evidence.
-
-3–5 independent organizations use real schedules. Capture onboarding effort, supported rules, rejected/accepted candidates, failure causes, support burden, and paid-pilot feedback. Do not substitute demo accounts for real use.
-
-## Milestone E — Commercial MVP
-
-Gate: T29 operations, repeated Studio #2-style acceptance, T17–T19 preferences, and T28 if AI is shipped.
-
-Repeatable onboarding, reliable generation/editing/adoption/export, useful preference optimization, role isolation, recoverability, bounded usage, basic billing/entitlements, supportability. Standard manual invoicing can serve pilots; MVP billing policy must be explicit.
-
-## Milestone F — 10–25 Customers
-
-Record measured paid retention, recurring scheduling use, actual adoption rate, support cost, setup effort, rule-template coverage, and bespoke engineering. T29 creates the protocol; the milestone remains open until actual evidence exists. Do not invent calendar targets or assert product-market fit from account counts alone.
-
-## Milestone G — Integration / Scale
-
-Status: DEFERRED until repeated customer demand and measured capacity constraints justify work. Evaluate Studio Pro, Jackrabbit, GymDesk or other integrations only from evidence; add bounded tasks under a decision then. No integrations are pre-authorized by this roadmap.
-
-# Ordered phases
-
-0. T01–T02: verification foundation.
-1. T03–T10: candidate, policy, snapshot, lock, and manual MOVE correctness.
-2. T11–T16: complete shared authority and manager workflow.
-3. T17–T19: good schedules and comparison.
-4. T20–T24: generic kernel and explicit tenants.
-5. T25–T29: repeatable onboarding, unrelated acceptance, pilot operations.
-
-Dependencies allow some safe parallel work after contracts stabilize, but numeric order is the default priority. No automatic subagent delegation is prescribed. One owner coordinates shared contracts and migration ordering.
-
-# Critical Path
-
-## DWDE critical path
-
-```text
-T01 → T02 → T03 → T04
-                 └→ T05
-T04 → T06
-T03 + T05 + T06 → T07 → T08 → T09
-T03–T09 → T10 → T11 → T12 → T13
-T05–T13 → T14 → T15 → T16 → Milestone A
-T14 → T17 → T18 → T19 (promote if manager cannot use first-feasible output)
-```
-
-T14 requires real completeness evidence; T16 requires manager and authorized release evidence. No amount of synthetic testing substitutes for either.
-
-## Studio #2 critical path
-
-```text
-T14 → T20 → T21
-T13 + T02 + T16 → T22 → T23
-T20 + T21 + T23 → T24 and T25
-T23 + T24 + T25 → T26
-T17 → T18 → T19
-T19 + T21–T26 → T27 → Milestone C → T29 → D/E
-T25 + T22 + T27 → T28 (optional AI release dependency)
-```
-
-T22 and T20 can run independently once their prerequisites are accepted, with a common identity contract. T19 also needs T16 per ledger. TASKS.md is the precise dependency authority when diagrams omit transitive edges.
-
-# Constraint X-Ray and preferences
-
-T15 starts with move violations, empty teacher/room/time domains, and display of existing fixed-anchor conflict IDs. Those IDs are partial/sufficient evidence relative to background constraints, not a smallest conflict proof. Later bounded diagnostic rebuilds may test a small repair menu without canonical writes. Defer exact minimal explanations/repairs.
-
-T17 defines transparent bounded integer penalties; T18 uses hierarchical optimization (VERY_STRONG, MODERATE, LIGHT, BASELINE) with HARD outside the objective. Preserve achieved stronger-tier results; report time-limited incumbents and optimality honestly. T19 introduces a small diverse candidate set. No arbitrary giant weights or false precision.
-
-# What Not To Build Yet
-
-- General-purpose scheduling DSL or universal scheduling engine.
-- Deep management-platform integrations before repeated pilot demand.
-- Exact globally minimal conflict explanations or exact minimum-cost repairs.
-- Autonomous AI policy changes or judgment learning.
-- Plugin/policy marketplace and inheritance infrastructure.
-- Event sourcing/bitemporal infrastructure.
-- Broad industry expansion.
-- Advanced billing.
-- Generalized scenario branch/merge.
-- Arbitrary resource bundles or multi-instructor scheduling unless demanded.
-- Solver replacement without representative measured failure.
-- Cosmetic whole-codebase renaming or generic “cleanup.”
-
-# Deletion/cutover strategy
-
-Delete unused [FeaturePreview](../components/feature-preview.tsx) only during adjacent work. Retire stale mapping instructions at T16. Remove legacy write access at T13 after migration; remove duplicate business-rule interpretation only when parity and all callers permit it. T21 removes duplicated DWDE policy tables. Keep historical SQL, version artifacts, DWDE data, and minimal relational safeguards. Do not perform unrelated deletion during planning.
-
-# Risk Register
-
-| Risk | Probability | Impact | Detection | Mitigation / owner task |
-|---|---|---|---|---|
-| Incomplete planning data | High | Critical | Manager source reconciliation and session counts | T14 snapshot-specific attestations; T16 walkthrough |
-| Policy/executable divergence | High | Critical | Wording/strength regression | T05 guard; T21/T25 structured rules |
-| Manual edit/solver divergence | High | Critical | IR-only illegal manual write tests | T10–T13 one authority |
-| Wrong-tenant mutation | High with multiple memberships | Critical | Two-tenant/two-role executed tests | T22/T23 explicit context |
-| Solver performance on real DWDE | Unknown | High | Complete benchmark with resource envelope | T14 measure; T15 bound; tighten domains before new infrastructure |
-| First-feasible schedules unattractive | High | High | Manager edits/adoption rate | T17–T19 selected preferences; promote if needed |
-| Per-customer bespoke engineering | High today | Critical commercially | Frozen-SHA unrelated onboarding | T27 zero bespoke code gate |
-| Migration/recovery failure | Unknown | Critical | Fresh reconstruction/restore drill | T02/T16, immutable history |
-| Candidate duration/version mismatch | Verified code risks | Critical | Adversarial interval/stale tests | T04/T07/T08 |
-| History/state loading growth | Medium | Medium | Large-history workload and query count | T07 current snapshot loading; T29 measured limits |
-| AI confusion/support burden | Medium | Medium | Wrong-context/injection evaluations | T16 contain; T28 align; AI optional |
-| Solve/provider cost overload | Medium | High | Concurrent request and usage tests | T15 total deadline; T29 per-tenant limits |
-
-Strongest strategy objection: scheduling can be infrequent and studio-specific, with messy enrollment data, making onboarding a bespoke service customers expect inside existing management platforms. Mitigate through paid pilots and measured engineering/support effort, not premature domain expansion.
+Deferred decisions have deadlines: exact private roster/availability facts are supplied inside Setup before ACC-01; actual solve budget/acceptable manual finishing is measured and accepted at ACC-01, no invented SLA; external studio chosen before GEN-05; backup/support response targets and retention terms supplied by operator before PILOT-01. If a customer's must-have semantic lies outside supported vocabulary, record a concrete generic extension before accepting that customer, rather than promise arbitrary rule support.
 

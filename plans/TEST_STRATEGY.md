@@ -1,140 +1,74 @@
-# Verification Strategy
+# Verification strategy
 
-Tests prove behavior at the layer where it matters. Shared fixtures and executed database boundaries take priority over SQL substring assertions. Audit baseline `17b3a60`; initial results below are historical observations, not new task acceptance.
+Current audit results are in [AUDIT_VERIFICATION](AUDIT_VERIFICATION.md). This file defines repeatable checks, not claims that future tests already exist.
 
-# Existing test layers
+## Existing commands
 
-- Vitest, Node environment: [config](../vitest.config.ts), [tests](../tests), plus colocated lib tests.
-- Python pytest: [feasibility tests](../solver/tests/test_feasibility.py), [service tests](../solver/tests/test_service.py).
-- Application CI: lint, typecheck, Vitest, build, unauthenticated rendered-route curl checks.
-- Solver CI: Python tests and Docker build; PR path trigger currently excludes TypeScript contract-only changes.
-- Migration tests mostly inspect SQL text/provenance, not executed transaction behavior.
+From repository root, with Node/npm versions in .github/workflows/ci.yml (Node 22, npm 11.6.0) and installed lockfile dependencies:
 
-Audit: lint/typecheck/build passed; 2 lint warnings. Current Windows checkout had 15 CRLF-caused failures, 241 passes; isolated LF SQL copy passed all 256. Python isolated pinned dependencies passed 24 tests. Ten routes returned HTTP 200. No live DB/RLS, authenticated UI, full current DWDE solve, or restore certification.
-
-# TypeScript tests
-
-Existing exact root commands:
 ```powershell
 npm run lint
 npm run typecheck
 npm test
 npm run build
-```
-
-T01 must fix portable checkout integrity without changing ledger hashes. Retain behavior tests for compilation/binding/readiness, immutable planning snapshots, candidates, import validation, rule proposals and repair semantics. Add negative/malformed cases and no-write assertions, not tests that merely mirror implementation strings.
-
-Relevant suites include [gateway](../tests/solver-gateway.test.ts), [model versions](../tests/constraint-model-version.test.ts), [readiness](../tests/schedule-readiness.test.ts), [candidate](../tests/schedule-command-candidate.test.ts), [archive](../tests/planning-inventory-lifecycle.test.ts).
-
-# Python solver tests
-
-Use a disposable virtual environment and pinned [requirements](../solver/requirements.txt). Example setup from root (choose a fresh temporary path if already used):
-```powershell
-python -m venv "$env:TEMP\studio-scheduler-test-venv"
-& "$env:TEMP\studio-scheduler-test-venv\Scripts\python.exe" -m pip install -r solver/requirements.txt
-Push-Location solver
-& "$env:TEMP\studio-scheduler-test-venv\Scripts\python.exe" -m pytest -q
-Pop-Location
-```
-
-Task prompts use `python -m pytest -q` assuming that environment is activated or its Python is selected. Never modify the global Python installation for tests. Record Python/OR-Tools versions, solver seed, workers, and time budget. Pinning supports reproducibility but does not imply cross-version identical search output.
-
-Cover feasible/infeasible/UNKNOWN/precondition/unsupported, service auth/context, exact session locks, parameter validation, capacity/qualifications, sequencing, and total diagnostic budget. Docker verification remains part of solver deployment checks; unavailable Docker is reported, not skipped silently.
-
-# Disposable DB integration tests
-
-**Implemented interface:** T02 provides [`npm run test:db`](../package.json) through [`scripts/test-db.mjs`](../scripts/test-db.mjs). The command still requires Docker Desktop because it exercises a real disposable PostgreSQL instance.
-
-T02 documents how to reconstruct current schema from bootstrap, archive and forward migrations without assuming a plain replay is valid. Test setup must include needed Supabase auth/vault behavior. Validate target is explicitly disposable; deny production host/project identifiers and require a positive nonproduction opt-in. Never let missing env vars select the production fallback in lib/supabase.ts.
-
-Execute role/RLS tests, not source searches: owner/editor/viewer/nonmember, direct legacy RPC denial, transaction rollback, version conflict, membership revocation, same-tenant references, artifact round trips, and archive completeness. T03 adds a live Constraint Model JSONB publication/read-back check and verifies that object-key reordering reuses the historical version/fingerprint. T04 adds live service-role adoption coverage: a session-level duration override must persist its exact validated end, while a shortened interval is rejected and leaves no schedule-version/current-pointer mutation. Restore an isolated backup to a second disposable instance and compare essential counts/versions. No production restore command is authorized.
-
-Command contract after T02:
-```powershell
 npm run test:db
 ```
 
-Fail clearly when setup is unavailable. The reconstruction, fixture identities, teardown, ledger handling, and staging recovery outline are documented in [`docs/testing/database-integration.md`](../docs/testing/database-integration.md). This plan does not invent credentials.
+Build/dev currently require explicit disposable Supabase overrides to avoid the production fallback. For a no-data build/render probe:
+```powershell
+$env:NEXT_PUBLIC_SUPABASE_URL='http://127.0.0.1:54321'
+$env:NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY='audit-disposable-placeholder'
+npm run build
+```
+A dummy key permits rendering only, not authenticated workflow verification. Never reuse the production fallback as a convenient test environment. SAFE-02 removes that fallback. Do not print secrets when inspecting configuration.
 
-# Runtime/solver parity tests
+Python, from root, isolated temporary environment (do not alter system packages):
+```powershell
+python -m venv "$env:TEMP\studio-scheduler-audit-venv"
+& "$env:TEMP\studio-scheduler-audit-venv\Scripts\python.exe" -m pip install -r solver/requirements.txt
+Push-Location solver
+& "$env:TEMP\studio-scheduler-audit-venv\Scripts\python.exe" -m pytest -q -p no:cacheprovider
+Pop-Location
+```
+Pinned solver requirements are current repository authority. Do not install an alternative solver merely because the base interpreter lacks ortools.
 
-**Planned interface:** T14 creates `npm run test:parity`, invoking both layers against shared serialized fixture inputs. T09/T20 add cases to that contract.
+## Database and auth fidelity
 
-Each case stores typed model, pinned facts, expected feasibility/validation findings, fixed candidate for evaluation, and optional score expectation. Where possible fix a complete assignment in Python to test whether it agrees with TS legality; separately test search output with independent TS validation. Independent tests with unrelated hand-built models do not establish parity.
+npm run test:db creates its own pinned disposable PostgreSQL container via scripts/test-db.mjs. It rejects production/external configuration and requires Docker daemon. It reconstructs effective schema and uses an explicit auth/Vault shim; this executes PostgreSQL functions/RLS/transactions but does not reproduce managed Supabase Auth. Keep ledger byte-integrity tests separate from normalized SQL text assertions.
 
-Required coverage:
-- every IR kind and supported parameter combination;
-- unknown kinds and unsupported parameter values fail closed;
-- explicit consistent default-deny qualification (no CUR-007 behavior switch);
-- stable ID binding and Unicode/punctuation/duplicate display names;
-- durations/session overrides, boundaries, cross-midnight/malformed values;
-- sequencing designated meeting versus every applicable successor;
-- gaps/workdays/attendance and capacity exceptions;
-- user locks versus policy fixed assignments;
-- delegated progression/enrollment proofs;
-- partial placement legality versus final completeness;
-- deterministic preference scoring and tier priority.
+For each migration test effective function definitions after all migrations replay; owner/editor/viewer/no-member/wrong-tenant/service-only grants; expected-context races; rollback/no-write counts; archived/history resolution. SAFE-01 adds absent membership and concurrent role-revocation tests with exact authorization failure, not any incidental foreign-key/candidate error. Lock row ordering makes transactions serializable relative to membership mutation; test both mutation orders.
 
-Name normalization must never create semantic divergence. During compatibility, use explicit golden mapping cases; new scheduling identity uses IDs.
+VERIFY-01 introduces **new** npm run test:parity and npm run test:e2e commands. They are absent at audit baseline. It must establish isolated authenticated fixtures, loopback allowlisting, disposable credentials and backend persistence assertions. Prefer a pinned local managed-service stack when real auth/RLS semantics are required; document dependency if necessary rather than pretending an HTTP mock proves auth. Existing browser tools may inspect UI but are not a committed reproducible harness. No silent shared/staging fallback.
 
-# Golden DWDE fixtures
+## Required coverage by change
 
-T14 creates a complete representative fixture with manager evidence; existing small [golden tests](../tests/golden-schedule-fixtures.test.ts) remain useful but are not full data proof.
+| Change | Required added evidence |
+|---|---|
+| Review/fingerprints/certification | unknown vs explicit-none, missing positive fact, slice-selective invalidation, policy/schema change, concurrency, tenant denial and no-write |
+| Typed policy/compiler/IR | each family positive/negative/boundary, unsupported HARD, multi-rule bundle ownership, rename/permutation/duplicate labels, TS/Python parity, current SQL safeguards |
+| Scheduling/locks/recovery | partial vs final, duration overrides, exact session lock, stale base/context, role revocation, archive/history, authoritative rejection without optimistic success |
+| Inventory/import/cycles | atomic batch/version creation, stale writes, identity references, reviewed roster, retry/idempotence, historical reproducibility, privacy-safe exports |
+| UI | authenticated desktop + 390px mobile + keyboard/tap, empty/loading/error/retry, retained form input, actual persisted accepted/rejected result, every configured room |
+| Operations/tenancy | role matrix across two studios, zero/multi membership, support diagnostic redaction, backup restore reconciliation, incident/release procedure |
+| Acceptance | actual participant, frozen SHA/config, complete workload, bounded timings, assistance log and exact pass/fail artifact links |
 
-Store synthetic/deidentified fixture data in Git; personal roster sources in approved private storage. Record source reconciliation and exact versions/hashes. Include known feasible witness, controlled impossible variants, existing exceptions, archived identities, multi-session locks and actual workload scale.
+## Shared semantic fixtures
 
-# Renamed-DWDE genericity test
+VERIFY-01 runs the same serialized cases through TS deterministic evaluator and Python service/solver. Include known feasible witness, proven impossible small cases, zero/partial schedules, unqualified teacher, overlap, mixed per-session duration, archived IDs, unsupported HARD and session locks. Add each typed family when introduced. Independent validation/rescoring must not simply trust the candidate's result or objective total.
 
-T20/T21 transform all display names, preserving opaque IDs and semantic taxonomy codes/relationships. Compare legality, target binding, precondition results, and objective values before/after. Also rename tenant-local Rule display codes independently of canonical IDs. Include non-ASCII names and punctuation collisions.
+Maintain DWDE golden historical regression plus deidentified full representative workload and rename metamorphic transformations; do not replace full manager acceptance with either. A pure feasible example only tests part of the problem. Avoid claiming minimal unsatisfiable causes when diagnostics merely identify known participating restrictions.
 
-Do not require unchanged explanation text, display-inclusive hashes, or arbitrary equal-optimum assignments. Any changed semantic verdict due solely to labels is a failure.
+## Browser and operational acceptance
 
-# Studio #2 fixture
+Primary journey: sign in → Setup → inventory/requirements → review → build → review candidate → adopt → edit → lock/regenerate → undo/recover → print/export. Test parallel stale update, unavailable/timeout/unsupported paths and AI off. Before B add empty new workspace, different rule count, morning/Sunday, 4 rooms, multi-membership and CSV. Before D add new cycle and restored history.
 
-Run [STUDIO_2_ACCEPTANCE](STUDIO_2_ACCEPTANCE.md) through T27: non-DWDE music school, four rooms, thirty participants, twenty sessions, different taxonomy and morning hours. Freeze code before onboarding; source editing during setup invalidates zero-bespoke acceptance.
+Final exported timetable must reconcile session IDs/counts/durations/placements to pinned schedule, with no unintended roster disclosure. A visibly labeled draft export is allowed while incomplete/stale; a reviewed final artifact must fail gate when stale or incomplete. Retain a printable artifact or image evidence and an automated content reconciliation, not screenshots alone.
 
-# Tenant isolation tests
+Before operational release, operator supplies authorized app/solver/database migration versions, safe staging/config checks, restore evidence with count/hash comparison, supported limits and incident instructions. Running build is not deployment verification. Customer/private artifacts stay outside public Git; record secure reference and deidentified summary.
 
-For every exposed table/command/API: anonymous/nonmember denial, tenant A member denied tenant B, viewer denied writes, editor denied owner actions, dual membership chooses exact tenant, role revocation during request rejected at commit. Include candidate/model/planning/schedule/history/audit/AI/import surfaces. Test direct RPC access outside the UI.
+## CI repairs and completion
 
-Check both returned data and persisted rows: an error status alone does not prove rollback or absence of side effects. Use opaque IDs plus same-studio reference tests.
+SAFE-02 expands Python workflow triggering to shared schema/runtime/fixture changes. Current CI push trigger is main plus PRs; a branch push alone is not historical CI proof. Historical run IDs in OLD ledger are cited records unless independently fetched.
 
-# Candidate stale-version tests
+STANDARD tasks use bounded acceptance examples already in their prompts. POL-01 and GEN-01 require explicit semantic-family checkpoints and adversarial parity review. Unavailable required check means BLOCKED verification, not an assumed pass. Do not repeatedly broaden testing after appropriate checks pass absent new evidence.
 
-T08/T13 require candidate context to pin studio, Rulebook, Planning Dataset, Constraint Model/compiler, base ScheduleVersion, lock identity. Independently change each before adoption; reject atomically and preserve current version. Test concurrent adoption, retry, missing context, and membership changes.
-
-T07 verifies coherent immutable input under concurrent pointer/fact changes. A newly loaded version number must never be substituted for the reviewed token.
-
-# Archive/restore tests
-
-T06/T12/T14: archive optional session/class/teacher/room/participant within guards, confirm active set, solve/adopt, restore/reconfirm. Ensure old snapshots resolve archived identities and active candidates cannot use archived resources. Test lock-protected archive rejection, parent/child state, roster references, completeness counts, and no partial transaction.
-
-# Deployment/authenticated smoke tests
-
-**Planned interface:** T16 creates `npm run test:e2e` for authenticated local/staging tests. Only disposable/staging test users and targets. Existing curl 200 tests prove rendering, not manager usability.
-
-Verify role flow, current workspace, create/edit/review/adopt/undo/export, all rooms/morning hours, essential mobile form fallback, and service-down/UNKNOWN messaging. Capture browser/device and versions. Validate actual timeout budgets and service credentials without logging secrets.
-
-T16 removes production config fallback, documents environment expectations and recovery. Authorized release operators can provide deployment SHA/migration metadata; automated tests must never target production. T14/T16/T20 update solver CI triggers to cover shared fixture and TypeScript contract changes when that contract is established.
-
-# Full DWDE acceptance test
-
-T14 proves complete data and engine workflow; T16 completes every manager step in [DWDE_RELEASE_PLAN](DWDE_RELEASE_PLAN.md). Record named reviewer, confirmed snapshot and source completeness, solve resource limits, exact candidate/persisted equivalence, manual IR-only rejection, undo, export and mobile evidence.
-
-A release requires both executable checks and actual manager acceptance. Missing external data/reviewer evidence is a blocker to the relevant task/gate.
-
-## Evidence retention
-
-Record task/run ID, SHA, environment, commands and exit codes, dependency versions, case IDs, output hashes/artifact references, rejected-write DB state, reviewer and unresolved limitations. Do not commit secrets, tokens, private student records, or provider keys. Use private approved evidence roots for live studio artifacts and deidentified summaries in plans.
-
-## Harness readiness
-
-| Command | Exists at baseline? | Owner | Dependent tasks |
-|---|---|---|---|
-| npm run lint/typecheck/build; npm test | Yes | Existing | All code tasks |
-| python -m pytest -q from solver | Yes with requirements | Existing | Solver/parity changes |
-| npm run test:db | Yes — Docker required | T02 | Database/canonical boundary tasks |
-| npm run test:parity | No — planned | T14 | Objective/generic kernel tasks |
-| npm run test:e2e | No — planned | T16 | Onboarding/product acceptance |
-
-No acceptance record may present a planned command as already run.

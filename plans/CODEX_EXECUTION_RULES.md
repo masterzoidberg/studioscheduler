@@ -1,62 +1,25 @@
-# Codex Execution Rules
+# Codex execution rules
 
-Read [README](README.md), [MASTER_PLAN](MASTER_PLAN.md), and [TASKS](TASKS.md) at the start. These instructions govern plan execution within the user's authorized scope.
+Stable operating rules; task state belongs in [TASKS](TASKS.md), selected task in [NEXT](NEXT.md).
 
-1. Inspect current HEAD, applicable instructions, working tree, relevant code, and dependency evidence before editing.
-2. One primary task or bounded child per execution session unless tightly coupled correctness work demands otherwise.
-3. Do not silently widen scope. Record evidence and task linkage for necessary adjacent changes.
-4. Never edit historical production migrations or ledger fingerprints.
-5. Add forward migrations; inspect existing grants and callers before changing a function.
-6. Never connect to production for tests; fail rather than fall back to a production endpoint.
-7. Use disposable database environments and synthetic/deidentified fixtures.
-8. Never weaken correctness tests merely to pass. Byte-integrity tests remain byte-integrity tests.
-9. Keep TypeScript runtime and Python solver semantics aligned through shared serialized fixtures.
-10. Any new Constraint IR kind requires typed parameters, compiler support, runtime support, solver support (or explicit proven delegation), tests, and explanation provenance.
-11. No DWDE-specific branching in reusable kernel code. Track temporary legacy adapter guard behavior for T21 extraction.
-12. Tenant ID must be explicit at authorization boundaries; check the exact membership transactionally.
-13. AI never decides legality or applies authoritative policy.
-14. Solver adoption requires the reviewed pinned studio/Rulebook/planning/model/base-schedule/lock context.
-15. Update TASKS status/evidence and derived README/NEXT pointers after each accepted task. Update related acceptance/leakage/decision files where affected.
-16. Record discovered blockers with evidence, impact, owner/action, and unblock criterion; do not work around them invisibly.
-17. Prefer deleting superseded paths after safe cutover and privilege verification.
-18. Avoid architecture expansion without demonstrated need.
-19. Preserve unrelated user changes. Do not clean caches, rewrite configs, or refactor unrelated files as a side effect.
-20. No task is DONE without criterion-level evidence. Failed, skipped, or unavailable checks are reported explicitly.
-21. Keep draft placement legality separate from finalized completeness; do not “repair” a schedule by hiding missing required sessions.
-22. Do not deploy, provision paid services, contact others, or create automations merely because a future roadmap mentions them.
-23. L-sized tasks must be sliced under their parent ID before implementation; preserve the T01–T29 execution spine.
-24. Never claim data completeness, authenticated usability, production recovery, or customer adoption from a unit test alone.
+1. Read AGENTS, plans/README, NEXT and assigned prompt; inspect current code, applicable local instructions, git status/branch/HEAD and relevant dependency evidence. Task-specific decisions are linked; historical _OLD files and archives are evidence only.
+2. Follow the user's authorized scope. Complete coherent reversible work autonomously; no arbitrary session-size or preserve-old-numbering requirement. Do not implement unrelated features, refactor broadly or add unnecessary dependencies.
+3. Fetch origin and compare when beginning implementation if network is available. Fast-forward only when correct branch, clean tree and remote strictly ahead. Never reset, clean, auto-stash, force-push or overwrite unknown changes. Record divergence and inspect before reconciliation.
+4. Preserve historical migration/production-ledger/bootstrap bytes and fingerprints. Add forward migrations; inspect effective latest function definitions, callers, grants and downstream helpers, not only original definitions.
+5. Never test against production or fall back to an external endpoint. Disposable PostgreSQL harness is the existing SQL verification authority; managed auth fidelity needs isolated authenticated evidence separately.
+6. Supabase owns canonical policy/planning/model/schedule truth. No second setup/policy/schedule authority. Typed policy changes preserve unsupported HARD fail-closed behavior, provenance, dependency-closed replacement and complete accounting.
+7. Authorize exact selected studio/current role at server and transaction boundaries. Missing membership must deny. Serialize authorization with role revocation and keep version/hash/lock checks atomic. Preserve SQL structural/reference defenses.
+8. Keep TS runtime/Python solver parity. Every admitted IR family has typed parameters, compiler/binding/runtime/search or explicit proven delegation, boundary fixtures and explanation provenance. Unknown kinds cannot silently pass.
+9. Draft incompleteness differs from illegal placement. Adoption/final export require current complete certification and independent validation. Old candidates never get fresh tokens substituted.
+10. Human reviews require explicit action and server-derived slice fingerprints. AI is optional, proposes only, never certifies/decides legality or silently writes canonical truth.
+11. Use synthetic/deidentified public fixtures; private manager/child data and acceptance recordings stay access-controlled. Record artifact references without credentials or unnecessary personal details.
+12. Run task-specific meaningful tests. SQL substring checks do not replace executed transactions; route 200 does not prove authenticated workflow; unit fixtures do not prove manager acceptance, deployment or restore. Report every unavailable/skipped/failed check honestly.
+13. If required checks cannot execute, complete independent work and record blocker/action/unblock condition; do not claim DONE. Do not weaken tests or silently change the goal.
+14. Update criterion-level completion evidence in TASKS; derive README/NEXT and prompt archive. Preserve completed IDs; newly found defects get traceable corrective tasks. One selected next task.
+15. Routine uncertainty is resolved through inspection. Escalate only material conflict with accepted authority, unsupported required semantics, unavoidable historical rewrite or substantial scope expansion. Prepare concrete alternatives and finish independent authorized work first.
+16. Roadmap entries do not authorize deploying, paid provisioning, messaging other people, real data deletion, production tests or background automations.
 
-## Completion record template
+Completion record: task/child; start HEAD; files; criteria → tests/artifacts; exact commands/exit codes; disposable environment; commit/reference or uncommitted; limitations; decision deviations; blockers/unblock evidence; resulting status and one next task. A prompt existing or old tests passing is not completion.
 
-```text
-Task/child:
-Starting HEAD:
-Implemented files:
-Acceptance criterion → test/artifact:
-Commands and exit codes:
-Environment (confirm nonproduction):
-Commit/reference (or uncommitted):
-Risks/limitations:
-Decision deviations:
-New blockers and unblock condition:
-Resulting task status:
-Newly READY tasks:
-Updated plan files:
-```
-
-## Blocker record template
-
-```text
-BLK-NNN:
-Observed:
-Task/criteria affected:
-Evidence:
-Impact:
-Owner / next action:
-Unblock condition:
-Resolution evidence (when resolved):
-```
-
-TASKS.md holds records; README links cross-task blockers. DECISIONS records changes to scope or architecture, not every implementation detail.
+Prompt design follows concise outcome/context/authority/acceptance/escalation contracts and avoids mandatory full-history loading. Current [OpenAI model guidance](https://developers.openai.com/api/docs/guides/latest-model) supports explicit instruction priority, authorized follow-through and proportionate verification. The user-named Promptessor and Elser pages were consulted as secondary framing only; no third-party model/pricing/behavior claims govern this repository. Model choice follows execution class, not a permanently pinned product name.
 
