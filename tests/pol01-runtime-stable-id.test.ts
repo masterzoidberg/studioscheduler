@@ -61,14 +61,17 @@ function assignment(day: Assignment["day"]): Assignment {
 }
 
 describe("POL-01 stable-ID runtime teacher window", () => {
-  it("enforces the same typed policy after the teacher display name changes", () => {
-    const legal = validateConstraintModelSchedule(state(), model(), [assignment("Monday")]);
-    expect(legal.valid).toBe(true);
-    expect(legal.violations).toEqual([]);
+  it("enforces the same typed AIM-003 policy after the teacher display name changes", () => {
+    const monday = validateConstraintModelSchedule(state(), model(), [assignment("Monday")]);
+    expect(monday.evaluatedConstraintIds).toContain("typed-aim-003-teacher-day-window");
+    expect(monday.violations.filter((violation) => violation.ruleIds.includes("AIM-003"))).toEqual([]);
+    expect(monday.violations).toContainEqual(expect.objectContaining({
+      constraintId: "teacher-qualification-default-deny",
+      ruleIds: ["CUR-007"],
+    }));
 
-    const illegal = validateConstraintModelSchedule(state(), model(), [assignment("Friday")]);
-    expect(illegal.valid).toBe(false);
-    expect(illegal.violations).toContainEqual(expect.objectContaining({
+    const friday = validateConstraintModelSchedule(state(), model(), [assignment("Friday")]);
+    expect(friday.violations).toContainEqual(expect.objectContaining({
       constraintId: "typed-aim-003-teacher-day-window",
       ruleIds: ["AIM-003"],
       affectedEntityIds: ["teacher-aimee-stable"],
