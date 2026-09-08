@@ -51,48 +51,50 @@ async function nextMagicLink(previousText) {
   throw new Error(`Local Mailpit did not receive a new Supabase magic-link email.${lastError ? ` Last connection error: ${lastError.message}` : ''}`);
 }
 
-test('OWNER reviews room capacity and persisted attestation matches manager UI', async ({ page }) => {
-  test.setTimeout(120_000);
+export function registerSet01RoomCapacityReviewTest() {
+  test('OWNER reviews room capacity and persisted attestation matches manager UI', async ({ page }) => {
+    test.setTimeout(120_000);
 
-  const previousMail = await latestMailText();
-  await page.goto(appUrl);
-  await page.getByLabel('Email address').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
-  await expect(page.getByText('Check your email for the DWDE sign-in link.')).toBeVisible();
+    const previousMail = await latestMailText();
+    await page.goto(appUrl);
+    await page.getByLabel('Email address').fill(ownerEmail);
+    await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
+    await expect(page.getByText('Check your email for the DWDE sign-in link.')).toBeVisible();
 
-  const magicLink = await nextMagicLink(previousMail);
-  await page.goto(magicLink);
-  await expect(page.getByText(`${ownerEmail} · OWNER`)).toBeVisible({ timeout: 30_000 });
+    const magicLink = await nextMagicLink(previousMail);
+    await page.goto(magicLink);
+    await expect(page.getByText(`${ownerEmail} · OWNER`)).toBeVisible({ timeout: 30_000 });
 
-  await page.goto(`${appUrl}/people`);
-  await expect(page.getByRole('heading', { name: 'Room capacity' })).toBeVisible({ timeout: 30_000 });
-  const reviewRegion = page.getByRole('region', { name: 'Room capacity' });
-  const roomReview = reviewRegion.locator('article').filter({ hasText: 'Verify Room' });
+    await page.goto(`${appUrl}/people`);
+    await expect(page.getByRole('heading', { name: 'Room capacity' })).toBeVisible({ timeout: 30_000 });
+    const reviewRegion = page.getByRole('region', { name: 'Room capacity' });
+    const roomReview = reviewRegion.locator('article').filter({ hasText: 'Verify Room' });
 
-  await expect(roomReview).toContainText('Capacity 20');
-  await expect(roomReview).toContainText('Needs review');
-  await roomReview.getByRole('button', { name: 'Confirm capacity reviewed' }).click();
-  await expect(roomReview).toContainText('Reviewed', { timeout: 30_000 });
-  await expect(roomReview.getByText(/Review history \(1\)/)).toBeVisible();
+    await expect(roomReview).toContainText('Capacity 20');
+    await expect(roomReview).toContainText('Needs review');
+    await roomReview.getByRole('button', { name: 'Confirm capacity reviewed' }).click();
+    await expect(roomReview).toContainText('Reviewed', { timeout: 30_000 });
+    await expect(roomReview.getByText(/Review history \(1\)/)).toBeVisible();
 
-  const persisted = await admin
-    .from('setup_review_attestations')
-    .select('scope_kind,entity_id,aspect,review_schema_version,outcome,reviewer_user_id,reviewer_label,source_planning_dataset_version,dependency_fingerprint')
-    .eq('studio_id', studioId)
-    .eq('scope_kind', 'ROOM')
-    .eq('entity_id', roomId)
-    .eq('aspect', 'capacity');
-  if (persisted.error) throw persisted.error;
-  expect(persisted.data).toHaveLength(1);
-  expect(persisted.data[0].outcome).toBe('REVIEWED_VALUE');
-  expect(persisted.data[0].review_schema_version).toBe(1);
-  expect(persisted.data[0].source_planning_dataset_version).toBeGreaterThan(0);
-  expect(persisted.data[0].reviewer_label).toBe('Verify Owner');
-  expect(persisted.data[0].dependency_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    const persisted = await admin
+      .from('setup_review_attestations')
+      .select('scope_kind,entity_id,aspect,review_schema_version,outcome,reviewer_user_id,reviewer_label,source_planning_dataset_version,dependency_fingerprint')
+      .eq('studio_id', studioId)
+      .eq('scope_kind', 'ROOM')
+      .eq('entity_id', roomId)
+      .eq('aspect', 'capacity');
+    if (persisted.error) throw persisted.error;
+    expect(persisted.data).toHaveLength(1);
+    expect(persisted.data[0].outcome).toBe('REVIEWED_VALUE');
+    expect(persisted.data[0].review_schema_version).toBe(1);
+    expect(persisted.data[0].source_planning_dataset_version).toBeGreaterThan(0);
+    expect(persisted.data[0].reviewer_label).toBe('Verify Owner');
+    expect(persisted.data[0].dependency_fingerprint).toMatch(/^[0-9a-f]{64}$/);
 
-  const owner = await admin.auth.admin.listUsers();
-  if (owner.error) throw owner.error;
-  const ownerUser = owner.data.users.find((user) => user.email === ownerEmail);
-  expect(ownerUser).toBeTruthy();
-  expect(persisted.data[0].reviewer_user_id).toBe(ownerUser.id);
-});
+    const owner = await admin.auth.admin.listUsers();
+    if (owner.error) throw owner.error;
+    const ownerUser = owner.data.users.find((user) => user.email === ownerEmail);
+    expect(ownerUser).toBeTruthy();
+    expect(persisted.data[0].reviewer_user_id).toBe(ownerUser.id);
+  });
+}
