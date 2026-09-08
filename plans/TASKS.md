@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **VERIFY-01**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01 and SAFE-02 are DONE after CI-backed hardening and verification; their prompts are archived.
+Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **SET-01**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02 and VERIFY-01 are DONE after CI-backed hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -14,8 +14,8 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 |---|---|---|---|---|---|
 | [SAFE-01](prompts/archive/SAFE-01.md) | Reject missing or revoked membership at commit | DONE | A | None | STANDARD IMPLEMENTATION |
 | [SAFE-02](prompts/archive/SAFE-02.md) | Make local configuration and verification safe | DONE | A | SAFE-01 | STANDARD IMPLEMENTATION |
-| [VERIFY-01](prompts/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | READY | A | SAFE-02 | STANDARD IMPLEMENTATION |
-| [SET-01](prompts/SET-01.md) | Add targeted setup review with room-capacity vertical slice | NOT_STARTED | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
+| [VERIFY-01](prompts/archive/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | DONE | A | SAFE-02 | STANDARD IMPLEMENTATION |
+| [SET-01](prompts/SET-01.md) | Add targeted setup review with room-capacity vertical slice | READY | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
 | [POL-01](prompts/POL-01.md) | Introduce bounded typed policy authoring authority | NOT_STARTED | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
 | [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | NOT_STARTED | A | SET-01 | STANDARD IMPLEMENTATION |
 | [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | NOT_STARTED | A | POL-01 | STANDARD IMPLEMENTATION |
@@ -50,7 +50,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 ## Historical task mapping
 
-T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01 and SAFE-02 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
+T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02 and VERIFY-01 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
 
 | Superseded unfinished task | New owner |
 |---|---|
@@ -77,7 +77,7 @@ Former milestones/phase labels are superseded by A DWDE Operational, B Second-St
 
 | ID | Observation/evidence | Affected work | Owner/action and objective unblock |
 |---|---|---|---|
-| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; run 327 also exercised SAFE-02 with no Supabase config. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
+| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; later VERIFY-01 CI run 371 also passed the disposable DB suite and authenticated browser harness. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
 | BLK-DWDE | No current complete manager-confirmed private dataset or independent workflow evidence established; replaces old BLK-014 | ACC-01 only | Studio manager completes in-app intake/review and supplies private acceptance references; full parity/solve/workflow evidence passes. Public toy fixtures cannot unblock. |
 | EXT-RELEASE | Deployed environment migration/config/restore acceptance not inspected | OPS-01/ACC-01 operational criteria | Owner authorizes environment validation/release separately; operator supplies exact deployed versions and restore evidence. |
 | EXT-STUDIO2 | Independent participant/data not established | GEN-05 | Owner supplies participant and supported dataset; frozen-SHA checklist passes without source patches. |
@@ -110,6 +110,21 @@ Private evidence may already exist outside Git; “not established here” is no
 - Package versions were not changed. No production configuration, deployment, customer data, or external service was mutated.
 - Result: SAFE-02 DONE; VERIFY-01 becomes READY and is the sole NEXT task.
 
+### VERIFY-01 — DONE
+
+- Starting accepted baseline: `7c2078f85c64ab0bf7b645a18662c7d145cee14f`.
+- Accepted implementation head before planning closeout: `04727b89c6e053c167af7f9dded51917ccd9489a`.
+- New shared parity surface: `tests/fixtures/solver-runtime-parity.json`, `tests/runtime-parity.test.ts`, `solver/tests/runtime_parity_runner.py`, `solver/tests/test_runtime_parity.py`, and `scripts/test-parity.mjs`; `npm run test:parity` is wired into Solver CI with Node 22 and Python 3.12.
+- New authenticated browser surface: `scripts/test-e2e.mjs` and `tests/e2e/verify01-authenticated.spec.mjs`; the harness is loopback/disposable-only, creates synthetic local Auth/Supabase fixtures, and never uses private DWDE data or production fallback credentials.
+- Parity behavior: serialized feasible/impossible/partial/locked cases exercise both TypeScript authority and Python solver behavior, including deliberate legality mismatch, qualification default-deny, duration mismatch and stale candidate coverage.
+- Browser behavior: synthetic OWNER signs in by local magic link, explicitly enters schedule Editing mode, performs a real authoritative MOVE request, receives a structured HTTP 409 conflict when the assignment becomes concurrently locked, and then completes a governed room inventory write.
+- No-write proof: rejected MOVE leaves ScheduleVersion count/current version/current schedule ID unchanged, preserves assignment placement fields, and creates no `SCHEDULE_COMMAND` success audit row. The concurrent lock is visible as the conflicting authoritative state and is explicitly cleaned up before the inventory-write leg.
+- Error-boundary correction: `app/api/schedule/move/route.ts` now normalizes known transaction conflicts whether Supabase returns them in `result.error` or throws them, preventing `LOCKED_`/HARD validation conflicts from leaking as generic 500s while keeping diagnostic SQL/stack detail out of the normal response.
+- CI wiring: PR CI contains the authenticated disposable e2e job; Solver CI path filters include parity fixtures/scripts/shared constraint surfaces. `package.json` exposes `test:parity` and `test:e2e`.
+- CI evidence at SHA `04727b8`: PR #55, CI run **371** success and Solver CI run **90** success. Ubuntu passed lint, typecheck, unit tests, build, disposable DB integration and route smoke tests; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed; Solver CI passed CP-SAT/service pytest, production solver container build, and runtime parity.
+- No deployment, real DWDE certification, customer-data mutation or external-service write was performed or implied.
+- Result: VERIFY-01 DONE; SET-01 becomes READY and is the sole NEXT task.
+
 ## Audit completion record
 
-Planning rebuild established the new queue without claiming implementation. SAFE-01 and SAFE-02 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with VERIFY-01.
+Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02 and VERIFY-01 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with SET-01.
