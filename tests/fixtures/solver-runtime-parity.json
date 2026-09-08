@@ -1,0 +1,299 @@
+{
+  "schemaVersion": "1.0",
+  "cases": [
+    {
+      "id": "feasible-qualified-ballet",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": true,
+      "problem": {
+        "contractVersion": "1.0",
+        "context": {
+          "studioId": "parity-studio",
+          "rulebookVersion": 3,
+          "planningDatasetVersion": 7,
+          "compilerVersion": "dwde-parity-v1"
+        },
+        "teachers": [
+          { "id": "teacher-qualified", "name": "Qualified Teacher" }
+        ],
+        "rooms": [
+          { "id": "room-a", "name": "Studio A", "capacity": 20, "features": [] }
+        ],
+        "students": [],
+        "classes": [
+          {
+            "id": "class-ballet",
+            "name": "Ballet 1",
+            "subject": "Ballet",
+            "level": "Level 1",
+            "durationMinutes": 60,
+            "weeklyFrequency": 1,
+            "rosterStudentIds": [],
+            "companyOnly": false
+          }
+        ],
+        "sessions": [
+          {
+            "id": "session-ballet",
+            "classId": "class-ballet",
+            "ordinal": 1,
+            "durationMinutes": null,
+            "locked": false,
+            "lockedPlacement": null
+          }
+        ],
+        "constraintModel": {
+          "schemaVersion": "1.0",
+          "compilerVersion": "dwde-parity-v1",
+          "rulebookVersion": 3,
+          "planningDatasetVersion": 7,
+          "activeRuleCount": 1,
+          "hardConstraints": [
+            {
+              "id": "qualified-domain",
+              "kind": "TEACHER_SUBJECT_DOMAIN",
+              "ruleIds": ["CUR-007"],
+              "selector": { "teacherNames": ["Qualified Teacher"] },
+              "parameters": { "allowedSubjects": ["Ballet"] },
+              "explanation": "Qualified Teacher may teach Ballet."
+            }
+          ],
+          "objectivePrioritySpine": [],
+          "readinessRuleIds": [],
+          "governanceAssertions": [
+            {
+              "ruleId": "CUR-007",
+              "family": "QUALIFICATION",
+              "assertion": "Teacher qualification is default-deny."
+            }
+          ],
+          "uncompiledConstraintRuleIds": [],
+          "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "qualification-default-deny",
+      "expectedSolverStatus": "INFEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_CANDIDATE_HARD_VALIDATION_FAILED",
+      "probeCandidate": [
+        {
+          "sessionId": "session-jazz",
+          "day": "Monday",
+          "startTime": "17:00",
+          "endTime": "18:00",
+          "teacherId": "teacher-unqualified",
+          "roomId": "room-a"
+        }
+      ],
+      "problem": {
+        "contractVersion": "1.0",
+        "context": {
+          "studioId": "parity-studio",
+          "rulebookVersion": 3,
+          "planningDatasetVersion": 7,
+          "compilerVersion": "dwde-parity-v1"
+        },
+        "teachers": [
+          { "id": "teacher-unqualified", "name": "Unqualified Teacher" }
+        ],
+        "rooms": [
+          { "id": "room-a", "name": "Studio A", "capacity": 20, "features": [] }
+        ],
+        "students": [],
+        "classes": [
+          {
+            "id": "class-jazz",
+            "name": "Jazz 1",
+            "subject": "Jazz",
+            "level": "Level 1",
+            "durationMinutes": 60,
+            "weeklyFrequency": 1,
+            "rosterStudentIds": [],
+            "companyOnly": false
+          }
+        ],
+        "sessions": [
+          {
+            "id": "session-jazz",
+            "classId": "class-jazz",
+            "ordinal": 1,
+            "durationMinutes": null,
+            "locked": false,
+            "lockedPlacement": null
+          }
+        ],
+        "constraintModel": {
+          "schemaVersion": "1.0",
+          "compilerVersion": "dwde-parity-v1",
+          "rulebookVersion": 3,
+          "planningDatasetVersion": 7,
+          "activeRuleCount": 1,
+          "hardConstraints": [],
+          "objectivePrioritySpine": [],
+          "readinessRuleIds": [],
+          "governanceAssertions": [
+            {
+              "ruleId": "CUR-007",
+              "family": "QUALIFICATION",
+              "assertion": "Teacher qualification is default-deny."
+            }
+          ],
+          "uncompiledConstraintRuleIds": [],
+          "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "duration-mismatch-rejected",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_CANDIDATE_INTERVAL_MISMATCH",
+      "tamper": { "kind": "END_TIME", "value": "18:15" },
+      "problem": {
+        "contractVersion": "1.0",
+        "context": {
+          "studioId": "parity-studio",
+          "rulebookVersion": 3,
+          "planningDatasetVersion": 7,
+          "compilerVersion": "dwde-parity-v1"
+        },
+        "teachers": [
+          { "id": "teacher-qualified", "name": "Qualified Teacher" }
+        ],
+        "rooms": [
+          { "id": "room-a", "name": "Studio A", "capacity": 20, "features": [] }
+        ],
+        "students": [],
+        "classes": [
+          {
+            "id": "class-ballet",
+            "name": "Ballet 1",
+            "subject": "Ballet",
+            "level": "Level 1",
+            "durationMinutes": 60,
+            "weeklyFrequency": 1,
+            "rosterStudentIds": [],
+            "companyOnly": false
+          }
+        ],
+        "sessions": [
+          {
+            "id": "session-ballet",
+            "classId": "class-ballet",
+            "ordinal": 1,
+            "durationMinutes": null,
+            "locked": false,
+            "lockedPlacement": null
+          }
+        ],
+        "constraintModel": {
+          "schemaVersion": "1.0",
+          "compilerVersion": "dwde-parity-v1",
+          "rulebookVersion": 3,
+          "planningDatasetVersion": 7,
+          "activeRuleCount": 1,
+          "hardConstraints": [
+            {
+              "id": "qualified-domain",
+              "kind": "TEACHER_SUBJECT_DOMAIN",
+              "ruleIds": ["CUR-007"],
+              "selector": { "teacherNames": ["Qualified Teacher"] },
+              "parameters": { "allowedSubjects": ["Ballet"] },
+              "explanation": "Qualified Teacher may teach Ballet."
+            }
+          ],
+          "objectivePrioritySpine": [],
+          "readinessRuleIds": [],
+          "governanceAssertions": [
+            {
+              "ruleId": "CUR-007",
+              "family": "QUALIFICATION",
+              "assertion": "Teacher qualification is default-deny."
+            }
+          ],
+          "uncompiledConstraintRuleIds": [],
+          "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "stale-candidate-context-rejected",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_RESPONSE_CONTEXT_MISMATCH",
+      "tamper": { "kind": "CONTEXT_RULEBOOK_VERSION", "value": 99 },
+      "problem": {
+        "contractVersion": "1.0",
+        "context": {
+          "studioId": "parity-studio",
+          "rulebookVersion": 3,
+          "planningDatasetVersion": 7,
+          "compilerVersion": "dwde-parity-v1"
+        },
+        "teachers": [
+          { "id": "teacher-qualified", "name": "Qualified Teacher" }
+        ],
+        "rooms": [
+          { "id": "room-a", "name": "Studio A", "capacity": 20, "features": [] }
+        ],
+        "students": [],
+        "classes": [
+          {
+            "id": "class-ballet",
+            "name": "Ballet 1",
+            "subject": "Ballet",
+            "level": "Level 1",
+            "durationMinutes": 60,
+            "weeklyFrequency": 1,
+            "rosterStudentIds": [],
+            "companyOnly": false
+          }
+        ],
+        "sessions": [
+          {
+            "id": "session-ballet",
+            "classId": "class-ballet",
+            "ordinal": 1,
+            "durationMinutes": null,
+            "locked": false,
+            "lockedPlacement": null
+          }
+        ],
+        "constraintModel": {
+          "schemaVersion": "1.0",
+          "compilerVersion": "dwde-parity-v1",
+          "rulebookVersion": 3,
+          "planningDatasetVersion": 7,
+          "activeRuleCount": 1,
+          "hardConstraints": [
+            {
+              "id": "qualified-domain",
+              "kind": "TEACHER_SUBJECT_DOMAIN",
+              "ruleIds": ["CUR-007"],
+              "selector": { "teacherNames": ["Qualified Teacher"] },
+              "parameters": { "allowedSubjects": ["Ballet"] },
+              "explanation": "Qualified Teacher may teach Ballet."
+            }
+          ],
+          "objectivePrioritySpine": [],
+          "readinessRuleIds": [],
+          "governanceAssertions": [
+            {
+              "ruleId": "CUR-007",
+              "family": "QUALIFICATION",
+              "assertion": "Teacher qualification is default-deny."
+            }
+          ],
+          "uncompiledConstraintRuleIds": [],
+          "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    }
+  ]
+}
