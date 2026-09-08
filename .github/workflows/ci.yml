@@ -26,6 +26,9 @@ jobs:
         run: |
           npm --version
           npm ci
+      - name: Planning integrity
+        if: matrix.os == 'ubuntu-latest'
+        run: python plans/check_integrity.py
       - name: Restore Next.js build cache
         uses: actions/cache@v6.1.0
         with:
