@@ -21,6 +21,8 @@ export interface ConstraintSelectorIR {
   classNames?: string[];
   subjects?: string[];
   levels?: string[];
+  /** Stable-ID target for typed teacher policy. Legacy static policy may still use teacherNames during transition. */
+  teacherIds?: string[];
   teacherNames?: string[];
   roomNames?: string[];
   studentNames?: string[];
