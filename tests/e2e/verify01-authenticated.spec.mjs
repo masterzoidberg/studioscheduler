@@ -24,17 +24,22 @@ function delay(milliseconds) {
 }
 
 async function latestMagicLink() {
+  let lastError = null;
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const response = await fetch(`${mailpitUrl}/view/latest.txt`);
-    if (response.ok) {
-      const text = await response.text();
-      const links = text.match(/https?:\/\/[^\s<>"']+/g) ?? [];
-      const link = links.find((candidate) => candidate.includes('/auth/v1/verify'));
-      if (link) return link.replace(/&amp;/g, '&').replace(/[)>.,]+$/, '');
+    try {
+      const response = await fetch(`${mailpitUrl}/view/latest.txt`);
+      if (response.ok) {
+        const text = await response.text();
+        const links = text.match(/https?:\/\/[^\s<>"']+/g) ?? [];
+        const link = links.find((candidate) => candidate.includes('/auth/v1/verify'));
+        if (link) return link.replace(/&amp;/g, '&').replace(/[)>.,]+$/, '');
+      }
+    } catch (error) {
+      lastError = error;
     }
     await delay(250);
   }
-  throw new Error('Local Mailpit did not receive a Supabase magic-link email.');
+  throw new Error(`Local Mailpit did not receive a Supabase magic-link email.${lastError ? ` Last connection error: ${lastError.message}` : ''}`);
 }
 
 async function probeSchedule() {
