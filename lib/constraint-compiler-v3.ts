@@ -5,6 +5,7 @@ import { reviewedDwdePolicySupport, POL01_TYPED_RULE_IDS } from "@/lib/dwde-poli
 import { RULE_EXECUTION_BY_ID } from "@/lib/rule-execution-registry";
 import { parseTypedPolicy, teacherDayWindowPolicyParameters } from "@/lib/typed-policy";
 
+export const LEGACY_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
 export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.4";
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const POL01_TYPED_RULE_ID_SET = new Set<string>(POL01_TYPED_RULE_IDS);
@@ -174,10 +175,13 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
   ])]
     .filter((ruleId) => !representedRuleIds.has(ruleId))
     .sort(compareCanonicalStrings);
+  const compilerVersion = currentRulebook?.version === 4
+    ? CONSTRAINT_COMPILER_VERSION
+    : LEGACY_CONSTRAINT_COMPILER_VERSION;
 
   return {
     ...base,
-    compilerVersion: CONSTRAINT_COMPILER_VERSION,
+    compilerVersion,
     hardConstraints,
     uncompiledConstraintRuleIds,
     completeHardConstraintCompilation: policySupport.supported && uncompiledConstraintRuleIds.length === 0,
