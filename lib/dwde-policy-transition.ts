@@ -69,8 +69,9 @@ function mismatchIds(current: unknown[], baseline: unknown[], excluded = new Set
 }
 
 function machineFieldsStripped(value: unknown) {
-  const comparable = comparableRule(value);
-  const { affectedEntityIds: _affectedEntityIds, parameters: _parameters, ...humanPolicy } = comparable;
+  const humanPolicy = { ...comparableRule(value) };
+  delete (humanPolicy as Partial<typeof humanPolicy>).affectedEntityIds;
+  delete (humanPolicy as Partial<typeof humanPolicy>).parameters;
   return humanPolicy;
 }
 
