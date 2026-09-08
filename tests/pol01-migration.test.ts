@@ -50,7 +50,9 @@ describe("POL-01 bounded typed-policy database migration", () => {
     expect(v52).toContain("v_compiler<>'dwde-ir-0.4'");
   });
 
-  it("keeps the retired primitive closed behind the server-authority wrapper", () => {
+  it("keeps the retired primitive closed throughout migration and behind the server-authority wrapper", () => {
+    expect(v52).toContain("revoke all on function public.publish_constraint_model_v30(jsonb,text,integer)\n  from public,anon,authenticated,service_role;");
+    expect(v52).not.toContain("grant execute on function public.publish_constraint_model_v30");
     expect(v53).toContain("revoke all on function public.publish_constraint_model_v30(jsonb,text,integer)");
     expect(v53).toContain("from public,anon,authenticated,service_role");
     expect(v53).toContain("for update;");
