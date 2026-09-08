@@ -128,9 +128,15 @@ function setTomlValue(text, section, key, rawValue, required = true) {
   return lines.join('\n');
 }
 
+function ensureInbucketSection(text, ports) {
+  if (/^\s*\[inbucket\]\s*$/m.test(text)) return text;
+  return `${text.trimEnd()}\n\n[inbucket]\nenabled = true\nport = ${ports.mailpit}\nsmtp_port = ${ports.smtp}\npop3_port = ${ports.pop3}\n`;
+}
+
 function configureSupabaseProject(tempRoot, ports, projectId) {
   const configPath = path.join(tempRoot, 'supabase', 'config.toml');
   let config = readFileSync(configPath, 'utf8');
+  config = ensureInbucketSection(config, ports);
   config = config.replace(/^project_id\s*=.*$/m, `project_id = "${projectId}"`);
   config = setTomlValue(config, 'api', 'port', String(ports.api));
   config = setTomlValue(config, 'db', 'port', String(ports.db));
