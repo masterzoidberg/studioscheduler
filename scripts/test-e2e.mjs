@@ -252,12 +252,20 @@ function replayRepositorySchema(dbContainer) {
 }
 
 function syntheticFixtureSql(ownerUserId) {
+  const qualificationDescription = 'Synthetic qualification domain for the disposable VERIFY-01 teacher.';
   const model = JSON.stringify({
     schemaVersion: '1.0',
     compilerVersion: 'dwde-ir-0.3',
     rulebookVersion: 1,
-    activeRuleCount: 0,
-    hardConstraints: [],
+    activeRuleCount: 1,
+    hardConstraints: [{
+      id: 'aimee-subject-domain',
+      kind: 'TEACHER_SUBJECT_DOMAIN',
+      ruleIds: ['AIM-001'],
+      selector: { teacherNames: ['Aimee'] },
+      parameters: { allowedSubjects: ['Ballet', 'Pre-Pointe', 'Pointe'], balletLevels: 'ALL' },
+      explanation: qualificationDescription,
+    }],
     objectivePrioritySpine: [],
     readinessRuleIds: [],
     governanceAssertions: [],
@@ -294,13 +302,19 @@ end $block$;
 
 update public.studios set name='VERIFY-01 Synthetic Studio', slug='verify01-synthetic' where id='${studioId}';
 insert into public.studio_members(studio_id,user_id,role) values('${studioId}','${ownerUserId}','OWNER');
-insert into public.teachers(id,studio_id,name,subjects,notes) values('verify01-teacher','${studioId}','Verify Teacher','{}','Synthetic browser fixture');
+insert into public.teachers(id,studio_id,name,subjects,notes) values('verify01-teacher','${studioId}','Aimee','{}','Synthetic browser fixture alias for the current qualification adapter');
 insert into public.rooms(id,studio_id,name,capacity,features) values('verify01-room','${studioId}','Verify Room',20,'{}');
 insert into public.class_definitions(id,studio_id,name,subject,level,duration_minutes,weekly_frequency,roster_student_ids,eligible_teacher_ids,company_only)
 values('verify01-class','${studioId}','Verify Class','Ballet','Test Level',60,1,'{}','{}',false);
 insert into public.class_sessions(id,studio_id,class_id,ordinal,locked) values('verify01-session','${studioId}','verify01-class',1,false);
+insert into public.rules(
+  id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
+) values(
+  'AIM-001','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 teacher qualification','${qualificationDescription}','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'
+);
 insert into public.rulebook_versions(studio_id,version,name,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,rulebook_id,status,rule_count,format_version,document_type,source_metadata)
-values('${studioId}',1,'VERIFY-01 Generic Rulebook','${ownerUserId}','Verify Owner','Synthetic non-DWDE browser fixture','{}','[]'::jsonb,'verify01-generic-rulebook','CURRENT',0,'1.0','VERIFY01_TEST_RULEBOOK','{"fixture":"VERIFY-01","privateData":false}'::jsonb);
+select '${studioId}',1,'VERIFY-01 Generic Rulebook','${ownerUserId}','Verify Owner','Synthetic non-DWDE browser fixture','{AIM-001}',jsonb_agg(to_jsonb(r) order by r.id),'verify01-generic-rulebook','CURRENT',count(*)::integer,'1.0','VERIFY01_TEST_RULEBOOK','{"fixture":"VERIFY-01","privateData":false}'::jsonb
+from public.rules r where r.studio_id='${studioId}';
 insert into public.rule_enforcement_versions(studio_id,version,rulebook_version,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,status)
 values('${studioId}',1,1,'${ownerUserId}','Verify Owner','Synthetic empty enforcement fixture','{}','[]'::jsonb,'CURRENT');
 select private.ensure_planning_dataset_version_v25('${studioId}','${ownerUserId}','Verify Owner','VERIFY-01 synthetic planning fixture');
