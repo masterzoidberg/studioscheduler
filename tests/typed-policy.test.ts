@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StudioRule } from "@/lib/domain";
-import { parseTypedPolicy, teacherDayWindowPolicyParameters } from "@/lib/typed-policy";
+import { isTeacherDayWindowPolicy, parseTypedPolicy, teacherDayWindowPolicyParameters } from "@/lib/typed-policy";
 
 function rule(parameters: Record<string, unknown>): StudioRule {
   return {
@@ -45,7 +45,9 @@ describe("typed teacher availability policy envelope", () => {
         allowedDays: ["Monday", "Tuesday", "Wednesday", "Thursday"],
       },
     });
-    if (parsed.status !== "VALID") throw new Error("expected valid policy");
+    if (parsed.status !== "VALID" || !isTeacherDayWindowPolicy(parsed.policy)) {
+      throw new Error("expected valid teacher day-window policy");
+    }
     expect(teacherDayWindowPolicyParameters(parsed.policy)).toEqual({
       allowedDays: ["Monday", "Tuesday", "Wednesday", "Thursday"],
     });

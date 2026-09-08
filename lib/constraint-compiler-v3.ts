@@ -3,7 +3,7 @@ import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constrai
 import { compileConstraintModel as compileV01 } from "@/lib/constraint-compiler";
 import { reviewedDwdePolicySupport, POL01_TYPED_RULE_IDS } from "@/lib/dwde-policy-transition";
 import { RULE_EXECUTION_BY_ID } from "@/lib/rule-execution-registry";
-import { parseTypedPolicy, teacherDayWindowPolicyParameters } from "@/lib/typed-policy";
+import { isTeacherDayWindowPolicy, parseTypedPolicy, teacherDayWindowPolicyParameters } from "@/lib/typed-policy";
 
 export const LEGACY_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
 export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.4";
@@ -120,7 +120,7 @@ function compileTypedPolicies(state: StudioState, ruleMap: Map<string, StudioRul
       if (hard) invalidHardRuleIds.add(rule.id);
       continue;
     }
-    if (!POL01_TYPED_RULE_ID_SET.has(rule.id) || execution?.disposition !== "HARD_CONSTRAINT") {
+    if (!POL01_TYPED_RULE_ID_SET.has(rule.id) || execution?.disposition !== "HARD_CONSTRAINT" || !isTeacherDayWindowPolicy(parsed.policy)) {
       if (hard) invalidHardRuleIds.add(rule.id);
       continue;
     }

@@ -25,9 +25,6 @@ const TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 interface TypedPolicyBaseV1 {
   schemaVersion: typeof TYPED_POLICY_SCHEMA_VERSION;
   kind: string;
-  // Keeps POL-01 callers source-compatible while the union expands. Runtime
-  // consumers still discriminate on kind before using family-specific fields.
-  [key: string]: any;
 }
 
 export interface PolicyTimeWindowV1 { day: Day; start: string; end: string }
@@ -180,8 +177,11 @@ export function parseTypedPolicy(rule: Pick<StudioRule, "id" | "parameters">): T
   return bad(rule.id, "TYPED_POLICY_KIND_UNSUPPORTED", `typed policy kind ${kind} is unsupported.`);
 }
 
-export function teacherDayWindowPolicyParameters(policy: TypedPolicyV1): Record<string, unknown> {
-  if (policy.kind !== TEACHER_DAY_WINDOW_POLICY_KIND) return {};
+export function isTeacherDayWindowPolicy(policy: TypedPolicyV1): policy is TeacherDayWindowPolicyV1 {
+  return policy.kind === TEACHER_DAY_WINDOW_POLICY_KIND;
+}
+
+export function teacherDayWindowPolicyParameters(policy: TeacherDayWindowPolicyV1): Record<string, unknown> {
   return {
     ...(policy.allowedDays ? { allowedDays: [...policy.allowedDays] } : {}),
     ...(policy.day ? { day: policy.day } : {}),

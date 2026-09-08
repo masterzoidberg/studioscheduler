@@ -6,7 +6,7 @@ import {
   reviewedDwdeV3PolicySupport,
   type ReviewedDwdePolicySupport,
 } from "@/lib/reviewed-rulebook";
-import { parseTypedPolicy } from "@/lib/typed-policy";
+import { isTeacherDayWindowPolicy, parseTypedPolicy } from "@/lib/typed-policy";
 
 export const DWDE_TYPED_POLICY_VERSION = 4;
 export const DWDE_TYPED_POLICY_FORMAT_VERSION = "2.2";
@@ -156,6 +156,9 @@ export function reviewedDwdePolicySupport(
     if (parsed.status !== "VALID") {
       implicated.add("AIM-003");
       issues.push(parsed.status === "INVALID" ? parsed.message : "AIM-003 typed policy envelope is missing");
+    } else if (!isTeacherDayWindowPolicy(parsed.policy)) {
+      implicated.add("AIM-003");
+      issues.push("AIM-003 must remain a TEACHER_DAY_WINDOW typed policy");
     } else if (!typedRule.affectedEntityIds.includes(parsed.policy.teacherId)) {
       implicated.add("AIM-003");
       issues.push("AIM-003 affectedEntityIds must include its typed teacherId");
