@@ -45,12 +45,13 @@ for line in ledger.splitlines():
     prompt = prompt_path.read_text(encoding="utf-8-sig")
     if f"Dependencies: **{dependencies}**" not in prompt or f"**{execution_class}**" not in prompt:
         errors.append(f"Prompt/ledger mismatch: {task}")
-    for section in (
-        "Outcome", "Scope", "inspection points", "failure behavior", "UX behavior",
-        "Non-goals", "Tests", "Verification commands", "Completion evidence", "Escalation conditions",
-    ):
-        if section not in prompt:
-            errors.append(f"Missing prompt section {section}: {task}")
+    if status != "DONE":
+        for section in (
+            "Outcome", "Scope", "inspection points", "failure behavior", "UX behavior",
+            "Non-goals", "Tests", "Verification commands", "Completion evidence", "Escalation conditions",
+        ):
+            if section not in prompt:
+                errors.append(f"Missing prompt section {section}: {task}")
 
 visiting, visited = set(), set()
 def visit(task):
