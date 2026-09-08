@@ -5,9 +5,15 @@ const migration = readFileSync(
   "supabase/migrations/20260907190000_close_legacy_write_bypasses_v49.sql",
   "utf8",
 );
+const safe01Migration = readFileSync(
+  "supabase/migrations/20260908010000_safe01_commit_membership_authorization_v50.sql",
+  "utf8",
+);
 const feasibility = readFileSync("app/api/solver/feasibility/route.ts", "utf8");
 const adoption = readFileSync("app/api/solver/adopt/route.ts", "utf8");
 const dbHarness = readFileSync("scripts/test-db.mjs", "utf8");
+const safe01DbHarness = readFileSync("scripts/test-safe01-db.mjs", "utf8");
+const packageJson = readFileSync("package.json", "utf8");
 
 describe("T13 legacy write bypass closure", () => {
   it("retires every superseded schedule writer from browser and direct service execution", () => {
@@ -39,7 +45,6 @@ describe("T13 legacy write bypass closure", () => {
   it("rechecks the human actor inside the privileged adoption transaction", () => {
     expect(migration).toContain("adopt_solver_candidate_v49");
     expect(migration).toContain("where m.studio_id=p_studio_id and m.user_id=p_actor_user_id");
-    expect(migration).toContain("v_selected_role not in ('OWNER','EDITOR')");
     expect(adoption).toContain('admin.rpc("adopt_solver_candidate_v49"');
   });
 
@@ -55,5 +60,29 @@ describe("T13 legacy write bypass closure", () => {
     expect(dbHarness).toContain("T13 direct V3.0 model publication unexpectedly executed");
     expect(dbHarness).toContain("T13 actor role recheck did not reject downgraded editor");
     expect(dbHarness).toContain("T13 PASS:");
+  });
+});
+
+describe("SAFE-01 commit-time membership authorization", () => {
+  it("uses a transactional row lock in the shared editor context", () => {
+    expect(safe01Migration).toContain("create or replace function private.dwde_actor_context()");
+    expect(safe01Migration).toContain("volatile");
+    expect(safe01Migration).toContain("for update");
+    expect(safe01Migration).toContain("if not found or v_studio is null");
+  });
+
+  it("makes V4.9 adoption explicitly null-safe before downstream adoption", () => {
+    expect(safe01Migration).toContain("adopt_solver_candidate_v49");
+    expect(safe01Migration).toContain("if not found or v_selected_role not in ('OWNER','EDITOR')");
+    expect(safe01Migration).toContain("errcode = '42501'");
+    expect(safe01Migration.indexOf("for update")).toBeLessThan(safe01Migration.lastIndexOf("adopt_solver_candidate_v44"));
+  });
+
+  it("runs a disposable two-connection authorization/revocation regression from test:db", () => {
+    expect(packageJson).toContain("test-safe01-db.mjs");
+    expect(safe01DbHarness).toContain("SAFE01_COMMAND_LOCKED");
+    expect(safe01DbHarness).toContain("SAFE01_REVOKE_LOCKED");
+    expect(safe01DbHarness).toContain("deleted membership");
+    expect(safe01DbHarness).toContain("SAFE-01 PASS:");
   });
 });
