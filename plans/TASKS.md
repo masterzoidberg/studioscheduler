@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **SET-01**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02 and VERIFY-01 are DONE after CI-backed hardening and verification; their prompts are archived.
+Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **POL-01**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01 and SET-01 are DONE after CI-backed hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -15,9 +15,9 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | [SAFE-01](prompts/archive/SAFE-01.md) | Reject missing or revoked membership at commit | DONE | A | None | STANDARD IMPLEMENTATION |
 | [SAFE-02](prompts/archive/SAFE-02.md) | Make local configuration and verification safe | DONE | A | SAFE-01 | STANDARD IMPLEMENTATION |
 | [VERIFY-01](prompts/archive/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | DONE | A | SAFE-02 | STANDARD IMPLEMENTATION |
-| [SET-01](prompts/SET-01.md) | Add targeted setup review with room-capacity vertical slice | READY | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
-| [POL-01](prompts/POL-01.md) | Introduce bounded typed policy authoring authority | NOT_STARTED | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
-| [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | NOT_STARTED | A | SET-01 | STANDARD IMPLEMENTATION |
+| [SET-01](prompts/archive/SET-01.md) | Add targeted setup review with room-capacity vertical slice | DONE | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
+| [POL-01](prompts/POL-01.md) | Introduce bounded typed policy authoring authority | READY | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
+| [SET-02](prompts/SET-02.md) | Create one Studio Setup entry and dashboard | READY | A | SET-01 | STANDARD IMPLEMENTATION |
 | [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | NOT_STARTED | A | POL-01 | STANDARD IMPLEMENTATION |
 | [SET-03](prompts/SET-03.md) | Manage studio hours and rooms through Setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | NOT_STARTED | A | SET-03 | STANDARD IMPLEMENTATION |
@@ -50,7 +50,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 ## Historical task mapping
 
-T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02 and VERIFY-01 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
+T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01 and SET-01 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
 
 | Superseded unfinished task | New owner |
 |---|---|
@@ -77,7 +77,7 @@ Former milestones/phase labels are superseded by A DWDE Operational, B Second-St
 
 | ID | Observation/evidence | Affected work | Owner/action and objective unblock |
 |---|---|---|---|
-| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; later VERIFY-01 CI run 371 also passed the disposable DB suite and authenticated browser harness. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
+| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI runs 324 and 327 subsequently passed `npm run test:db`; VERIFY-01 CI run 371 passed the disposable DB suite and authenticated browser harness; SET-01 CI run 395 passed the expanded DB chain and combined authenticated browser workflow. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
 | BLK-DWDE | No current complete manager-confirmed private dataset or independent workflow evidence established; replaces old BLK-014 | ACC-01 only | Studio manager completes in-app intake/review and supplies private acceptance references; full parity/solve/workflow evidence passes. Public toy fixtures cannot unblock. |
 | EXT-RELEASE | Deployed environment migration/config/restore acceptance not inspected | OPS-01/ACC-01 operational criteria | Owner authorizes environment validation/release separately; operator supplies exact deployed versions and restore evidence. |
 | EXT-STUDIO2 | Independent participant/data not established | GEN-05 | Owner supplies participant and supported dataset; frozen-SHA checklist passes without source patches. |
@@ -125,6 +125,21 @@ Private evidence may already exist outside Git; “not established here” is no
 - No deployment, real DWDE certification, customer-data mutation or external-service write was performed or implied.
 - Result: VERIFY-01 DONE; SET-01 becomes READY and is the sole NEXT task.
 
+### SET-01 — DONE
+
+- Starting implementation HEAD: `c427820d4aa6eed886aba6ba248d321fa7cfda40`.
+- Accepted implementation head before planning closeout: `2403f6f21e029e43a438eaef731b73967e5d6fc2`.
+- Changed implementation/test surface: additive `supabase/migrations/20260908035000_set01_room_capacity_review_v51.sql`; `app/api/setup/review/room-capacity/route.ts`; `lib/setup-review-client.ts`; `components/room-capacity-review-panel.tsx`; `app/people/page.tsx`; `scripts/test-set01-db.mjs`; `scripts/run-disposable-db-regression.mjs`; `tests/e2e/set01-room-capacity-review.spec.mjs`; the `test:db` chain in `package.json`; and a narrowly disambiguated existing VERIFY room assertion.
+- Authority model: room capacity remains canonical PlanningDatasetVersion data. `setup_review_attestations` is append-only supplemental evidence and does not duplicate or overwrite the reviewed capacity value. Current status is derived from immutable planning history plus a deterministic room-capacity slice fingerprint.
+- Review behavior: manager UI exposes Needs review, Capacity missing, Changed since review, Reviewed and blocked states without exposing hashes or RPC/version mechanics. Missing/non-positive capacity cannot be attested as reviewed. OWNER/EDITOR can confirm the current value; history remains readable after archive.
+- Invalidation behavior: changing only the reviewed room capacity invalidates that room's capacity review; unrelated planning changes do not. Returning a room to a formerly reviewed capacity after an intervening different capacity does not resurrect the old review because immutable PlanningDatasetVersion history proves the intervening semantic change.
+- Transaction/rejection behavior: exact tenant and current human role are rechecked at the server and database command boundary; stale PlanningDatasetVersion/fingerprint, archived/nonexistent room, cross-tenant actor and insufficient role reject without review/audit success writes.
+- Database evidence: `scripts/test-set01-db.mjs` executes the V5.1 migration against disposable PostgreSQL and covers initial review, unrelated-edit stability, capacity-only invalidation, old-value non-resurrection, missing/archived/nonexistent/cross-tenant/stale rejection, no-write witnesses, and archived-history readability. A transport-only disposable Postgres retry helper was added after CI exposed a missing-socket startup race; it retries only that startup signature and never retries SQL/assertion failures.
+- Browser evidence: the synthetic authenticated OWNER journey renders the Room Capacity review, confirms the existing room, observes Reviewed/history in the UI, and verifies the authoritative persisted attestation. The pre-existing VERIFY workflow runs first in the same disposable harness and remains green after its inventory-heading selector was narrowed to the inventory card.
+- CI evidence at SHA `2403f6f`: PR #55, CI run **395** success and Solver CI run **114** success. Ubuntu passed planning integrity, lint, typecheck, 358 unit tests, build, expanded disposable DB integration and route smoke tests; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed both VERIFY-01 and SET-01 workflows; Solver CI passed CP-SAT/service pytest, production solver container build, and TypeScript/Python runtime parity.
+- No global readiness/certification switch, availability-policy schema, deployment, private DWDE certification, customer-data mutation or external-service write was performed or implied.
+- Result: SET-01 DONE. POL-01 and SET-02 are dependency-ready; ledger order selects POL-01 as the sole NEXT task.
+
 ## Audit completion record
 
-Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02 and VERIFY-01 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with SET-01.
+Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01 and SET-01 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with POL-01.
