@@ -153,9 +153,10 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
 
   const blocker = holdStudioCommitLock();
   await blocker.acquired;
-  const moveResponsePromise = page.waitForResponse((response) =>
-    response.url().includes('/api/schedule/move') && response.request().method() === 'POST');
+  const moveRequestPromise = page.waitForRequest((request) =>
+    request.url().includes('/api/schedule/move') && request.method() === 'POST', { timeout: 15_000 });
   await page.getByRole('button', { name: 'Save new schedule version' }).click();
+  const moveRequest = await moveRequestPromise;
   await delay(750);
 
   const lockUpdate = await admin
@@ -169,7 +170,8 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   expect(lockUpdate.data.locked).toBe(true);
 
   await blocker.done;
-  const moveResponse = await moveResponsePromise;
+  const moveResponse = await moveRequest.response();
+  expect(moveResponse).not.toBeNull();
   expect(moveResponse.status()).toBe(409);
   const movePayload = await moveResponse.json();
   expect(movePayload.code).toBe('MANUAL_MOVE_CONTEXT_CHANGED_RETRY');
