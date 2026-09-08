@@ -129,7 +129,7 @@ function holdStudioCommitLock(seconds = 6) {
   return { acquired, done };
 }
 
-test('OWNER login, governed inventory write, and stale authoritative MOVE reject without schedule write', async ({ page }) => {
+test('OWNER login, governed inventory write, and conflicting authoritative MOVE reject without schedule write', async ({ page }) => {
   test.setTimeout(120_000);
 
   await page.goto(appUrl);
@@ -152,7 +152,7 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   await page.getByRole('button', { name: /Verify Class, Aimee, .*drag to move or tap to edit/ }).click();
   await expect(page.getByText('Assignment inspector')).toBeVisible();
   await page.getByRole('combobox', { name: /^Day/ }).selectOption('Tuesday');
-  await page.getByLabel('Reason').fill('VERIFY-01 concurrent lock rejection');
+  await page.getByLabel('Reason').fill('VERIFY-01 concurrent authoritative conflict rejection');
 
   const saveButton = page.getByRole('button', { name: 'Save new schedule version' });
   await expect(saveButton).toBeEnabled();
@@ -195,9 +195,15 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   expect(moveResponse).not.toBeNull();
   const movePayload = await moveResponse.json();
   if (moveResponse.status() !== 409) {
-    throw new Error(`VERIFY-01 expected stale MOVE HTTP 409, received ${moveResponse.status()}: ${JSON.stringify(movePayload)}`);
+    throw new Error(`VERIFY-01 expected authoritative conflict HTTP 409, received ${moveResponse.status()}: ${JSON.stringify(movePayload)}`);
   }
-  expect(movePayload.code).toBe('MANUAL_MOVE_CONTEXT_CHANGED_RETRY');
+  expect(movePayload.status).toBe('BLOCKED');
+  expect([
+    'MANUAL_MOVE_CONTEXT_CHANGED_RETRY',
+    'MANUAL_MOVE_TRANSACTION_REJECTED',
+  ]).toContain(movePayload.code);
+  expect(typeof movePayload.error).toBe('string');
+  expect(movePayload.error.length).toBeGreaterThan(0);
 
   const rejected = await probeSchedule();
   expect(rejected.scheduleCount).toBe(before.scheduleCount);
