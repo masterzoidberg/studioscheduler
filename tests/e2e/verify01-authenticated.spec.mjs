@@ -151,12 +151,41 @@ test('OWNER login, governed inventory write, and stale authoritative MOVE reject
   await page.getByRole('combobox', { name: /^Day/ }).selectOption('Tuesday');
   await page.getByLabel('Reason').fill('VERIFY-01 concurrent lock rejection');
 
+  const saveButton = page.getByRole('button', { name: 'Save new schedule version' });
+  await expect(saveButton).toBeEnabled();
+  const saveEnabledBeforeClick = await saveButton.isEnabled();
+  const observedScheduleRequests = [];
+  const recordScheduleRequest = (request) => {
+    if (request.url().includes('/api/schedule/')) {
+      observedScheduleRequests.push(`${request.method()} ${request.url()}`);
+    }
+  };
+  page.on('request', recordScheduleRequest);
+
   const blocker = holdStudioCommitLock();
   await blocker.acquired;
   const moveRequestPromise = page.waitForRequest((request) =>
-    request.url().includes('/api/schedule/move') && request.method() === 'POST', { timeout: 15_000 });
-  await page.getByRole('button', { name: 'Save new schedule version' }).click();
+    request.url().includes('/api/schedule/move') && request.method() === 'POST', { timeout: 5_000 }).catch(() => null);
+  await saveButton.click();
   const moveRequest = await moveRequestPromise;
+  if (!moveRequest) {
+    await delay(300);
+    const saveEnabledAfterClick = await saveButton.isEnabled().catch(() => false);
+    const visibleSections = (await page.locator('section').allTextContents())
+      .map((text) => text.replace(/\s+/g, ' ').trim())
+      .filter((text) => /Schedule v|Move blocked|Change blocked|Revalidate|Scheduling context|Saved as|Moving|HARD/i.test(text))
+      .slice(0, 12);
+    page.off('request', recordScheduleRequest);
+    await blocker.done;
+    throw new Error(
+      `VERIFY-01 Save emitted no POST /api/schedule/move. ` +
+      `saveEnabledBeforeClick=${saveEnabledBeforeClick}; ` +
+      `saveEnabledAfterClick=${saveEnabledAfterClick}; ` +
+      `observedScheduleRequests=${JSON.stringify(observedScheduleRequests)}; ` +
+      `visibleSections=${JSON.stringify(visibleSections)}`,
+    );
+  }
+  page.off('request', recordScheduleRequest);
   await delay(750);
 
   const lockUpdate = await admin
