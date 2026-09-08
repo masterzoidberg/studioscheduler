@@ -79,9 +79,11 @@ function addIds(
 function referencesForNode(node: ConstraintIRNode): PendingReference[] {
   const references: PendingReference[] = [];
 
+  addIds(references, "CLASS", node.selector.classIds ?? [], "selector.classIds");
   addNames(references, "CLASS", node.selector.classNames ?? [], "selector.classNames");
   addIds(references, "TEACHER", node.selector.teacherIds ?? [], "selector.teacherIds");
   addNames(references, "TEACHER", node.selector.teacherNames ?? [], "selector.teacherNames");
+  addIds(references, "ROOM", node.selector.roomIds ?? [], "selector.roomIds");
   addNames(references, "ROOM", node.selector.roomNames ?? [], "selector.roomNames");
   addNames(references, "STUDENT", node.selector.studentNames ?? [], "selector.studentNames");
 

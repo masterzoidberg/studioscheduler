@@ -12,18 +12,26 @@ export type ConstraintIRKind =
   | "REQUIRED_LOWER_LEVEL"
   | "TEACHER_SUBJECT_DOMAIN"
   | "TEACHER_DAY_WINDOW"
+  | "STUDIO_OPERATING_WINDOWS"
+  | "ROOM_UNAVAILABLE_WINDOWS"
+  | "TEACHER_CLASS_DOMAIN"
+  | "ROOM_REQUIRED_FEATURES"
   | "DIRECTLY_AFTER"
   | "FIXED_ASSIGNMENT"
   | "ROOM_CAPACITY"
   | "RELATIONSHIP_START_WINDOW";
 
 export interface ConstraintSelectorIR {
+  /** Stable-ID class targets for typed policy. */
+  classIds?: string[];
   classNames?: string[];
   subjects?: string[];
   levels?: string[];
   /** Stable-ID target for typed teacher policy. Legacy static policy may still use teacherNames during transition. */
   teacherIds?: string[];
   teacherNames?: string[];
+  /** Stable-ID room targets for typed policy. */
+  roomIds?: string[];
   roomNames?: string[];
   studentNames?: string[];
   studentRelation?: string;
