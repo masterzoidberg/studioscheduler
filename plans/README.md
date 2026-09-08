@@ -1,8 +1,8 @@
 # Studio Scheduler — canonical planning entry
 
-Audit baseline: `91204390d8c025789e6af871a5939eb22decd517` on `feat/pre-cami-hardening`, 2026-09-07. Local and fetched origin matched; no synchronization was needed. T01–T13 remain accepted foundation history, not proof of product completion.
+Audit baseline: `91204390d8c025789e6af871a5939eb22decd517` on `feat/pre-cami-hardening`, 2026-09-07. T01–T13 remain accepted foundation history. SAFE-01 was accepted on 2026-09-07/08 at implementation SHA `51fd92e35eaa3129f237f91c196e4ad603d58547` after CI run 324 and Solver CI run 43 passed, including disposable two-connection PostgreSQL authorization/revocation coverage.
 
-**Current milestone: A — DWDE Operational. Exact next task: SAFE-01 — Reject missing or revoked membership at commit. Execution class: STANDARD IMPLEMENTATION.** Read [NEXT](NEXT.md) and [the prompt](prompts/SAFE-01.md). No owner architecture decision blocks starting. Local DB verification requires an available Docker daemon; the audit could not execute it.
+**Current milestone: A — DWDE Operational. Exact next task: SAFE-02 — Make local configuration and verification safe. Execution class: STANDARD IMPLEMENTATION.** Read [NEXT](NEXT.md) and [the prompt](prompts/SAFE-02.md). No owner architecture decision blocks starting.
 
 The product path is safety → manager setup/review → generation/editing/locks/recovery/export → actual DWDE acceptance → independent studio → supported pilot → next-cycle Product v1. The former blocked T14 no longer blocks setup engineering.
 
@@ -20,7 +20,6 @@ The product path is safety → manager setup/review → generation/editing/locks
 | [Audit verification](AUDIT_VERIFICATION.md) | Current audit results and limitations |
 | [UX](AUDIT_UX.md), [architecture](AUDIT_ARCHITECTURE.md), [history](AUDIT_HISTORY.md) | Dated evidence appendices; never execution queues |
 
-Do not load the complete archive for ordinary implementation. Files ending _OLD, prompts/archive and plans_OLD.zip are historical, not current instructions. Completed prompts T01–T13 are archived; incomplete T14–T29 are preserved as superseded _OLD prompts.
+Do not load the complete archive for ordinary implementation. Files ending _OLD, prompts/archive and plans_OLD.zip are historical, not current instructions. Completed prompts T01–T13 and SAFE-01 are archived; incomplete T14–T29 are preserved as superseded _OLD prompts.
 
 Read AGENTS → this file → NEXT → assigned prompt. Inspect current code before editing, follow targeted decisions and run required checks. TASKS owns status; README/NEXT are derived views. After accepted completion update those views and select one next dependency-satisfied task. No deployment or customer-data mutation follows merely from a roadmap entry.
-

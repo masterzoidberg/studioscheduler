@@ -1,10 +1,9 @@
 # Implementation prompts
 
-[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one task. Current: **SAFE-01**. Read the assigned bounded prompt rather than every file below. All 33 prompts describe future work; no newly planned behavior is claimed implemented.
+[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one task. Current: **SAFE-02**. Read the assigned bounded prompt rather than every file below. SAFE-01 is completed and archived; the 32 prompts below remain active planned work and do not claim implementation merely by existing.
 
 | Prompt | Execution class |
 |---|---|
-| [SAFE-01 — Reject missing or revoked membership at commit](SAFE-01.md) | STANDARD IMPLEMENTATION |
 | [SAFE-02 — Make local configuration and verification safe](SAFE-02.md) | STANDARD IMPLEMENTATION |
 | [SET-01 — Add targeted setup review with room-capacity vertical slice](SET-01.md) | STANDARD IMPLEMENTATION |
 | [VERIFY-01 — Create shared parity and authenticated workflow harnesses](VERIFY-01.md) | STANDARD IMPLEMENTATION |
@@ -38,5 +37,4 @@
 | [CYCLE-01 — Support next season and safe archive lifecycle](CYCLE-01.md) | STANDARD IMPLEMENTATION |
 | [V1-01 — Close product v1 acceptance](V1-01.md) | STANDARD IMPLEMENTATION |
 
-Completed T01–T13 are [historical archive](archive/README.md). T14–T29 ending _OLD remain superseded/incomplete, not completed history or active work. Their replacement mapping is in TASKS. Prompt README from the former queue is superseded by this index.
-
+Completed T01–T13 and SAFE-01 are in the [historical archive](archive/README.md). T14–T29 ending _OLD remain superseded/incomplete, not completed history or active work. Their replacement mapping is in TASKS. Prompt README from the former queue is superseded by this index.

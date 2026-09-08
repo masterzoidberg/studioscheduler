@@ -1,10 +1,10 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **SAFE-01**. All new tasks below are unimplemented at this audit; code predecessors are evidence, not proof of new acceptance. Historical T01–T13 remain DONE as bounded foundation work; SAFE-01 records a newly found defect without erasing history.
+Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **SAFE-02**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01 is DONE after additive commit-time membership hardening and CI-backed two-connection PostgreSQL verification; its prompt is archived.
 
 ## Status and execution contract
 
-READY = dependencies accepted and implementation may begin; NOT_STARTED = dependency waiting; IN_PROGRESS = active work; BLOCKED = concrete impediment to acceptance recorded; DONE = every criterion verified; DEFERRED = intentionally outside release. Missing local verification infrastructure must be reported and prevents DONE; it does not prohibit independent implementation. External acceptance needs are recorded now, but tasks become BLOCKED only when they are otherwise executable and that input prevents completion.
+READY = dependencies accepted and implementation may begin; NOT_STARTED = dependency waiting; IN_PROGRESS = active work; BLOCKED = concrete impediment to acceptance recorded; DONE = every criterion verified; DEFERRED = intentionally outside release. Missing local verification infrastructure must be reported and prevents DONE when no equivalent required evidence exists; it does not prohibit independent implementation. External acceptance needs are recorded now, but tasks become BLOCKED only when they are otherwise executable and that input prevents completion.
 
 Use ledger order among dependency-satisfied unfinished tasks, with NEXT selecting exactly one. Do not stop the project merely because one later acceptance gate is unavailable. A/B/C/D milestone criteria live only in MASTER_PLAN. Full scope, tests, UX and escalation are in the linked prompt. Each task is a coherent slice; sequential implementation checkpoints under its ID are allowed without architectural rediscovery.
 
@@ -12,8 +12,8 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 | ID / prompt | Outcome | Status | Milestone | Dependencies | Execution class |
 |---|---|---|---|---|---|
-| [SAFE-01](prompts/SAFE-01.md) | Reject missing or revoked membership at commit | READY | A | None | STANDARD IMPLEMENTATION |
-| [SAFE-02](prompts/SAFE-02.md) | Make local configuration and verification safe | NOT_STARTED | A | SAFE-01 | STANDARD IMPLEMENTATION |
+| [SAFE-01](prompts/archive/SAFE-01.md) | Reject missing or revoked membership at commit | DONE | A | None | STANDARD IMPLEMENTATION |
+| [SAFE-02](prompts/SAFE-02.md) | Make local configuration and verification safe | READY | A | SAFE-01 | STANDARD IMPLEMENTATION |
 | [SET-01](prompts/SET-01.md) | Add targeted setup review with room-capacity vertical slice | NOT_STARTED | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
 | [VERIFY-01](prompts/VERIFY-01.md) | Create shared parity and authenticated workflow harnesses | NOT_STARTED | A | SAFE-02 | STANDARD IMPLEMENTATION |
 | [POL-01](prompts/POL-01.md) | Introduce bounded typed policy authoring authority | NOT_STARTED | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
@@ -50,7 +50,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 ## Historical task mapping
 
-T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). T13 is completed for its recorded scope; the missing-member regression is separately SAFE-01. Do not infer complete production safety from historical acceptance.
+T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01 is also archived with its current completion record below. Do not infer complete production safety from bounded task acceptance.
 
 | Superseded unfinished task | New owner |
 |---|---|
@@ -77,7 +77,7 @@ Former milestones/phase labels are superseded by A DWDE Operational, B Second-St
 
 | ID | Observation/evidence | Affected work | Owner/action and objective unblock |
 |---|---|---|---|
-| ENV-DB | 2026-09-07 npm run test:db exit 1: Docker Linux pipe/daemon unavailable | Local DB verification, beginning SAFE-01 | Existing local Docker operator starts daemon; disposable command passes with real transaction assertions. Not a product architecture blocker. |
+| ENV-DB | Audit machine Docker Linux daemon was unavailable on 2026-09-07. GitHub Actions Linux CI run 324 subsequently passed `npm run test:db`, including SAFE-01's focused disposable two-connection regression. | Future local DB verification if Docker remains unavailable | Local operator starts Docker Desktop when local DB execution is required; CI evidence may satisfy a task only when that task's specified required regression actually runs there. Never substitute production. |
 | BLK-DWDE | No current complete manager-confirmed private dataset or independent workflow evidence established; replaces old BLK-014 | ACC-01 only | Studio manager completes in-app intake/review and supplies private acceptance references; full parity/solve/workflow evidence passes. Public toy fixtures cannot unblock. |
 | EXT-RELEASE | Deployed environment migration/config/restore acceptance not inspected | OPS-01/ACC-01 operational criteria | Owner authorizes environment validation/release separately; operator supplies exact deployed versions and restore evidence. |
 | EXT-STUDIO2 | Independent participant/data not established | GEN-05 | Owner supplies participant and supported dataset; frozen-SHA checklist passes without source patches. |
@@ -85,11 +85,20 @@ Former milestones/phase labels are superseded by A DWDE Operational, B Second-St
 
 Private evidence may already exist outside Git; “not established here” is not an assertion that it does not exist. No new owner architectural question is required to begin. No roadmap entry authorizes contacting people, deployment, paid provisioning or live customer-data changes.
 
-## Completion record template
+## Completion records
 
-Task/child; starting HEAD; files changed; acceptance criterion → test/artifact; exact commands/exit codes and disposable environment; commit/reference or uncommitted; limitations; deviations; blocker/action/unblock evidence; resulting status; newly ready dependencies; update README/NEXT. Keep private evidence as access-controlled references with deidentified summaries. DONE requires the task-specific evidence, not only old tests.
+### SAFE-01 — DONE
+
+- Starting implementation HEAD: `2b589f1106a127142e41c3ee0f3e737c8a9b082a`.
+- Implementation commits: `d76c9aad13d35c9a93dacd0c01a788326e776af8` and corrective narrowing `51fd92e35eaa3129f237f91c196e4ad603d58547`.
+- Changed implementation/test surface: additive `20260908010000_safe01_commit_membership_authorization_v50.sql`, `scripts/test-safe01-db.mjs`, `tests/legacy-write-bypass-closure.test.ts`, and the `test:db` script chain in `package.json`.
+- Authorization behavior: `private.assert_editor_context()` now locks the legacy resolved membership only at editor write boundaries; the shared STABLE read resolver is unchanged. V4.9 adoption locks the exact selected `(studio_id,user_id)` row with `FOR UPDATE` and rejects `NOT FOUND`, VIEWER and wrong-tenant actors with SQLSTATE 42501 before downstream adoption.
+- Race semantics: command-first holds the membership row through commit and revocation waits; revocation-first holds the row, adoption waits, then re-evaluates the committed VIEWER/deleted state and rejects.
+- Rejection evidence: focused disposable regression verifies never-member, deleted-member, VIEWER and wrong-tenant rejection; OWNER and EDITOR success; unchanged schedule/model/audit witness state; no downstream adoption write on rejection; both two-connection orderings.
+- CI evidence at implementation SHA `51fd92e`: PR #55, CI run **324** success (Ubuntu lint/typecheck/test/build/disposable DB/smoke and Windows matrix), Solver CI run **43** success. The Ubuntu disposable database step completed successfully with the SAFE-01 regression in the `npm run test:db` chain.
+- Historical migrations and production data were not modified. No deployment was performed or implied by task acceptance.
+- Result: SAFE-01 DONE; dependency SAFE-02 becomes READY and is the sole NEXT task.
 
 ## Audit completion record
 
-Planning-only rebuild; no new implementation task marked DONE. Existing code tests and limitations are in [AUDIT_VERIFICATION](AUDIT_VERIFICATION.md). Source/history audits informed completed-prompt archiving and the new matrix; runtime database authorization defect remains to be corrected by SAFE-01.
-
+Planning rebuild established the new queue without claiming implementation. SAFE-01 is the first post-rebuild accepted implementation slice. Remaining product work follows the active dependency graph above.

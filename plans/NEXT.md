@@ -1,21 +1,22 @@
 # Next implementation session
 
-**SAFE-01 — Reject missing or revoked membership at commit**  
+**SAFE-02 — Make local configuration and verification safe**  
 **Execution class: STANDARD IMPLEMENTATION**  
 **Milestone: A — DWDE Operational**  
-**Status: READY for implementation; local database validation prerequisite unavailable during audit.**
+**Status: READY for implementation.**
 
-Work on `feat/pre-cami-hardening`. Latest accepted implementation baseline is `91204390d8c025789e6af871a5939eb22decd517` (T13 handoff); audit fetched origin at the same SHA. Planning rebuild is uncommitted. Inspect status/HEAD/fetched remote again before editing; preserve untracked Python caches and other user work.
+Work on `feat/pre-cami-hardening`. Latest accepted implementation baseline is `51fd92e35eaa3129f237f91c196e4ad603d58547` (SAFE-01). PR #55 CI run 324 and Solver CI run 43 passed at that SHA, including the disposable PostgreSQL authorization/revocation race regression. Inspect status/HEAD/fetched remote again before editing and preserve unrelated work.
 
-Read [SAFE-01 implementation prompt](prompts/SAFE-01.md). This is the only selected next task. Dependencies: none beyond existing T13 foundation. No manager data is needed.
+Read [SAFE-02 implementation prompt](prompts/SAFE-02.md). This is the only selected next task. Dependency SAFE-01 is accepted. No manager data is needed.
 
-Why first: in V49 adoption, SELECT of a missing studio membership leaves a NULL role; `IF role NOT IN (...)` does not reject it. Earlier route authorization cannot prove membership still exists at commit. Implement an additive, null-safe, transactionally serialized membership check and missing-member regression before expanding product behavior.
+Why next: `lib/supabase.ts` still has an implicit fallback to the real production Supabase project when configuration is absent. Local/dev verification must fail closed into a useful configuration-required state instead of silently making external requests. The same task also closes a solver-CI path gap for shared TypeScript IR/compiler/gateway/fixture changes and documents the disposable authenticated test setup.
 
 Inspect:
-- `supabase/migrations/20260907190000_close_legacy_write_bypasses_v49.sql` (read-only historical definition);
-- `app/api/solver/adopt/route.ts`;
-- effective V44/V33 successor definitions;
-- `scripts/test-db.mjs` T13 role tests and `tests/legacy-write-bypass-closure.test.ts`.
+- `lib/supabase.ts` and all callers that assume a client always exists;
+- `.env.example` and build/runtime configuration handling;
+- `.github/workflows/ci.yml` and `.github/workflows/solver-ci.yml` path triggers;
+- `scripts/test-db.mjs` plus current configuration-related tests;
+- AI/scenario normal-navigation exposure called out in the SAFE-02 containment section.
 
 Required commands from root:
 ```powershell
@@ -27,12 +28,10 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
-npm run test:db
 ```
 
-The audit's DB command failed because Docker Desktop's Linux daemon was unavailable. Bring up the existing disposable local Docker environment when safe and authorized; never fall back to any external database. If unavailable, implement and run independent checks, record verification BLOCKED, and do not mark SAFE-01 DONE. No test:parity/test:e2e script exists yet; SAFE-01 does not require the future interfaces.
+Acceptance must prove unset and partial configuration produce zero external requests, explicit loopback configuration still works, and a build without secrets succeeds with an actionable configuration state. A shared fixture-only PR must trigger the solver checks. Do not change package versions. No production fallback may be used for verification.
 
-Non-goals: no new setup features, tenant provisioning, solver rewrite, policy genericization, deployment or live data changes. Preserve historical SQL bytes, service-only grants, deterministic validation, snapshot/version checks, exact tenant authorization and unrelated working-tree changes. Escalate only if the current function chain differs materially or the fix would require widening authority. Follow the prompt for concurrency ordering and no-write evidence.
+Non-goals: no deployment/configuration mutation in live environments, tenant provisioning, setup feature expansion, solver rewrite, policy genericization, or full AI reconstruction. SAFE-02 may hide legacy enforcement-based AI/scenario affordances from normal manager navigation, but canonical AI redesign remains later work. Preserve the four versioned authorities and deterministic legality path.
 
-After accepted completion, update [TASKS](TASKS.md), archive the completed prompt, and derive the next task (normally SAFE-02). BLK-DWDE affects later ACC-01, not this task.
-
+After accepted completion, update [TASKS](TASKS.md), archive the completed prompt, derive README/NEXT, and select the next dependency-satisfied task according to the ledger. BLK-DWDE affects later ACC-01, not this task.
