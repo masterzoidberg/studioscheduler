@@ -237,7 +237,7 @@ test('OWNER login, governed inventory write, and conflicting authoritative MOVE 
   await page.getByLabel('Features', { exact: true }).fill('sprung floor');
   await page.getByRole('button', { name: 'Add room' }).last().click();
   await expect(page.getByText(/Room added\. Planning Dataset advanced to v\d+/)).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('heading', { name: 'Verify Overflow Room' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Verify Overflow Room', level: 2 })).toBeVisible();
 
   const persistedRoom = await admin
     .from('rooms')
