@@ -414,7 +414,7 @@ async function runHarness() {
     const appEnv = {
       ...process.env,
       NEXT_PUBLIC_SUPABASE_URL: status.apiUrl,
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: status.anonKey,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: status.anonKey,
       SUPABASE_URL: status.apiUrl,
       SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
     };
@@ -448,7 +448,7 @@ async function runHarness() {
     process.stderr.write(testRun.stderr);
   } finally {
     await stopChild(nextProcess);
-    if (nextLogFd !== null) closeSync(nextLogFd);
+    if (nextLogFd !== null) closeSync(nextLogPath);
     if (supabaseStarted) {
       const stopped = spawnSync('supabase', ['stop', '--no-backup'], {
         cwd: tempRoot,
