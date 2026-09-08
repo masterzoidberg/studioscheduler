@@ -15,7 +15,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 const titles: Record<string, { eyebrow: string; title: string }> = {
   "/": { eyebrow: "DWDE Studio", title: "Home" },
   "/setup": { eyebrow: "Studio setup", title: "Setup" },
-  "/schedule": { eyebrow: "Weekly plan", title: "Schedule" },
+  "/schedule": { eyebrow: "Weekly plan", title: "Weekly schedule" },
   "/people": { eyebrow: "Setup deep link", title: "People & rooms" },
   "/classes": { eyebrow: "Setup deep link", title: "Classes" },
   "/planning-repairs": { eyebrow: "Setup deep link", title: "Requirements" },

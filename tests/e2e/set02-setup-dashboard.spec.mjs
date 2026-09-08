@@ -139,7 +139,7 @@ export function registerSet02SetupDashboardTest() {
 
     await page.goto(`${appUrl}/settings#advanced-diagnostics`);
     await expect(page.getByRole('heading', { name: 'Technical scheduling diagnostics' })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Rulebook/ })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Readiness diagnostics/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /^Rulebook\b/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /^Readiness diagnostics\b/ })).toBeVisible();
   });
 }
