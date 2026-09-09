@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServerAdminSupabase, getServerSupabase } from "@/lib/supabase";
-import { loadCanonicalSolverStudioState } from "@/lib/server-studio-state";
+import { loadCanonicalSolverSnapshot, type CanonicalSolverSnapshot } from "@/lib/server-studio-state";
 import { prepareFeasibilitySolve } from "@/lib/solver-problem";
+import {
+  buildReviewedSolverCandidateContext,
+  parseReviewedSolverCandidateContext,
+  reviewedSolverCandidateContextFromSnapshot,
+  reviewedSolverCandidateContextsMatch,
+} from "@/lib/solver-candidate-context";
 import { constraintModelDefinition } from "@/lib/constraint-model-version";
 import { legacySafetyBridgeReport } from "@/lib/legacy-safety-bridge";
 import {
@@ -26,12 +32,7 @@ type AuthorizedWorkspace = {
 };
 
 type AdoptionRequest = {
-  context?: {
-    studioId?: string;
-    rulebookVersion?: number;
-    planningDatasetVersion?: number;
-    compilerVersion?: string;
-  };
+  candidateContext?: unknown;
   assignments?: SolverAssignmentCandidate[];
   reason?: string;
 };
@@ -58,35 +59,23 @@ async function authorizeWorkspace(request: NextRequest): Promise<AuthorizedWorks
   };
 }
 
-async function loadPublishedConstraintModel(supabase: SupabaseClient): Promise<PublishedConstraintModelRecord | null> {
-  const query = await supabase
-    .from("constraint_model_versions")
-    .select("version,rulebook_version,compiler_version,snapshot,complete_hard_constraint_compilation")
-    .eq("studio_id", STUDIO_ID)
-    .eq("status", "CURRENT")
-    .maybeSingle();
-  if (query.error) throw query.error;
-  if (!query.data) return null;
-  return {
-    version: Number(query.data.version),
-    rulebookVersion: Number(query.data.rulebook_version),
-    compilerVersion: String(query.data.compiler_version),
-    complete: Boolean(query.data.complete_hard_constraint_compilation),
-    snapshot: query.data.snapshot as PublishedConstraintModelRecord["snapshot"],
-  };
+function publishedModel(snapshot: CanonicalSolverSnapshot): PublishedConstraintModelRecord | null {
+  const published = snapshot.publishedConstraintModel;
+  return published ? {
+    version: published.version,
+    rulebookVersion: published.rulebookVersion,
+    compilerVersion: published.compilerVersion,
+    complete: published.complete,
+    snapshot: published.snapshot,
+  } : null;
 }
 
-function contextsMatch(expected: AdoptionRequest["context"], actual: {
-  studioId: string;
-  rulebookVersion: number;
-  planningDatasetVersion: number;
-  compilerVersion: string;
-}) {
-  return Boolean(expected
-    && expected.studioId === actual.studioId
-    && Number(expected.rulebookVersion) === actual.rulebookVersion
-    && Number(expected.planningDatasetVersion) === actual.planningDatasetVersion
-    && expected.compilerVersion === actual.compilerVersion);
+function staleReviewResponse() {
+  return NextResponse.json({
+    status: "BLOCKED",
+    code: "SOLVER_ADOPTION_REVIEW_CONTEXT_STALE",
+    error: "The schedule, locks, policy, planning data, or model changed after this candidate was generated. Generate a fresh candidate and review it again before adoption.",
+  }, { status: 409 });
 }
 
 export async function POST(request: NextRequest) {
@@ -102,8 +91,27 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(body.assignments)) {
       return NextResponse.json({ error: "Candidate assignments are required." }, { status: 400 });
     }
+    const reviewedContext = parseReviewedSolverCandidateContext(body.candidateContext);
+    if (!reviewedContext) {
+      return NextResponse.json({
+        error: "A complete versioned candidate review context is required. Generate the candidate again with the current solver gateway.",
+        code: "SOLVER_ADOPTION_REVIEW_CONTEXT_REQUIRED",
+      }, { status: 400 });
+    }
+    if (reviewedContext.solverContextToken.studioId !== STUDIO_ID) return staleReviewResponse();
 
-    const state = await loadCanonicalSolverStudioState(authorized.supabase, STUDIO_ID);
+    const snapshot = await loadCanonicalSolverSnapshot(authorized.supabase, STUDIO_ID);
+    const currentPublished = snapshot.publishedConstraintModel;
+    if (!currentPublished) return staleReviewResponse();
+    const currentReviewedContext = reviewedSolverCandidateContextFromSnapshot(
+      snapshot.contextToken,
+      currentPublished.compilerVersion,
+    );
+    if (!reviewedSolverCandidateContextsMatch(reviewedContext, currentReviewedContext)) {
+      return staleReviewResponse();
+    }
+
+    const state = snapshot.state;
     const preparation = prepareFeasibilitySolve(state);
     if (!preparation.ok) {
       return NextResponse.json({
@@ -112,16 +120,12 @@ export async function POST(request: NextRequest) {
         blockers: preparation.blockers,
       }, { status: 409 });
     }
-
-    if (!contextsMatch(body.context, preparation.problem.context)) {
-      return NextResponse.json({
-        status: "BLOCKED",
-        code: "SOLVER_ADOPTION_CONTEXT_STALE",
-        error: "The candidate was solved against a different canonical Rulebook, Planning Dataset, compiler, or studio context.",
-      }, { status: 409 });
+    const preparedReviewedContext = buildReviewedSolverCandidateContext(preparation.problem, snapshot.contextToken);
+    if (!reviewedSolverCandidateContextsMatch(reviewedContext, preparedReviewedContext)) {
+      return staleReviewResponse();
     }
 
-    const published = await loadPublishedConstraintModel(authorized.supabase);
+    const published = publishedModel(snapshot);
     const publishedBlockers = publishedConstraintModelBlockers(preparation.problem, published);
     if (publishedBlockers.length || !published) {
       return NextResponse.json({
@@ -141,8 +145,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Reconstitute the solver response boundary and independently validate the
-    // browser-supplied candidate against freshly loaded canonical state. The
-    // browser's prior validation result is deliberately ignored.
+    // browser-supplied candidate against the exact coherent state the manager
+    // reviewed. The browser's prior validation result is deliberately ignored.
     const syntheticPayload: SolverServicePayload = {
       serviceVersion: "adoption-revalidation",
       context: { ...preparation.problem.context },
@@ -165,16 +169,6 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
 
-    const currentSchedule = state.scheduleVersions.find((version) => version.isCurrent);
-    const currentEnforcement = state.enforcementVersions.find((version) => version.status === "CURRENT");
-    if (!currentSchedule || !currentEnforcement) {
-      return NextResponse.json({
-        status: "BLOCKED",
-        code: "SOLVER_ADOPTION_VERSION_CONTEXT_INCOMPLETE",
-        error: "Current schedule or EnforcementVersion is missing.",
-      }, { status: 409 });
-    }
-
     let admin: SupabaseClient;
     try {
       admin = getServerAdminSupabase();
@@ -189,24 +183,26 @@ export async function POST(request: NextRequest) {
       sessionId: assignment.sessionId,
       day: assignment.day,
       startTime: assignment.startTime,
+      endTime: assignment.endTime,
       teacherId: assignment.teacherId,
       roomId: assignment.roomId,
     }));
 
-    const result = await admin.rpc("adopt_solver_candidate_v33", {
+    // Critical T08 boundary: pass the manager-reviewed context into the database
+    // unchanged. Do not substitute versions from a fresh server read here.
+    const result = await admin.rpc("adopt_solver_candidate_v49", {
       p_studio_id: STUDIO_ID,
       p_actor_user_id: authorized.userId,
       p_actor_label: authorized.actorLabel,
       p_reason: reason,
-      p_expected_schedule_version: currentSchedule.version,
-      p_expected_rulebook_version: preparation.problem.context.rulebookVersion,
-      p_expected_enforcement_version: currentEnforcement.version,
-      p_expected_planning_dataset_version: preparation.problem.context.planningDatasetVersion,
-      p_expected_constraint_model_version: published.version,
+      p_expected_context: reviewedContext,
       p_candidate: canonicalAssignments,
       p_application_validation: candidate.validation,
     });
-    if (result.error) throw result.error;
+    if (result.error) {
+      if (result.error.message?.includes("STALE_SOLVER_CANDIDATE_CONTEXT")) return staleReviewResponse();
+      throw result.error;
+    }
 
     return NextResponse.json({
       status: "ADOPTED",

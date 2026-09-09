@@ -98,6 +98,29 @@ def _resolve_unique_by_name(items: dict[str, dict[str, Any]], name: str, kind: s
     return matches[0]
 
 
+def _resolve_teacher_selector(
+    teachers: dict[str, dict[str, Any]], selector: dict[str, Any], constraint_id: str
+) -> list[str]:
+    teacher_ids = [str(value) for value in (selector.get("teacherIds") or [])]
+    teacher_names = [str(value) for value in (selector.get("teacherNames") or [])]
+    if teacher_ids:
+        if len(set(teacher_ids)) != len(teacher_ids):
+            raise ValueError(f"Constraint {constraint_id} repeats a stable teacher ID")
+        for teacher_id in teacher_ids:
+            teacher = teachers.get(teacher_id)
+            if teacher is None:
+                raise ValueError(f"Constraint {constraint_id} references missing teacher ID {teacher_id!r}")
+            if teacher_names and not _text_matches(str(teacher.get("name", "")), teacher_names):
+                raise ValueError(
+                    f"Constraint {constraint_id} teacher ID {teacher_id!r} does not match its legacy teacherNames selector"
+                )
+        return teacher_ids
+    return [
+        _resolve_unique_by_name(teachers, teacher_name, "teacher", constraint_id)
+        for teacher_name in teacher_names
+    ]
+
+
 def _and_literal(model: cp_model.CpModel, literals: list[Any], name: str):
     result = model.new_bool_var(name)
     if not literals:
@@ -199,6 +222,7 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
         class_name_to_ids.setdefault(_normalize(str(item["name"])), []).append(item["id"])
 
     session_vars: dict[str, SessionVars] = {}
+    assumptions: dict[int, str] = {}
     teacher_intervals: dict[str, list[cp_model.IntervalVar]] = {item: [] for item in teachers}
     room_intervals: dict[str, list[cp_model.IntervalVar]] = {item: [] for item in rooms}
     student_intervals: dict[str, list[cp_model.IntervalVar]] = {item: [] for item in students}
@@ -242,7 +266,7 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
             if student_id in student_intervals:
                 student_intervals[student_id].append(interval)
 
-        session_vars[session["id"]] = SessionVars(
+        item = SessionVars(
             session=session,
             klass=klass,
             duration_slots=duration,
@@ -255,6 +279,46 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
             teacher=teacher_bools,
             room=room_bools,
         )
+        session_vars[session["id"]] = item
+
+        # Runtime locks are schedule state, not policy IR. Bind them directly to
+        # this stable session ID so one weekly meeting can be frozen without
+        # anchoring sibling meetings that share the same class/display name.
+        if session.get("locked") is True:
+            placement = session.get("lockedPlacement")
+            session_id = str(session.get("id", ""))
+            if not isinstance(placement, dict):
+                raise ValueError(f"Runtime lock {session_id or '<missing>'} has no canonical placement")
+
+            day_name = str(placement.get("day", ""))
+            start_text = str(placement.get("startTime", ""))
+            teacher_id = str(placement.get("teacherId", ""))
+            room_id = str(placement.get("roomId", ""))
+            if day_name not in DAY_INDEX:
+                raise ValueError(f"Runtime lock {session_id} has invalid day {day_name!r}")
+            try:
+                start_slot = _slot(start_text)
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"Runtime lock {session_id} has invalid startTime {start_text!r}") from error
+            if start_slot < 0 or start_slot + duration > SLOTS_PER_DAY:
+                raise ValueError(f"Runtime lock {session_id} startTime {start_text!r} cannot preserve canonical duration")
+            if teacher_id not in teachers:
+                raise ValueError(f"Runtime lock {session_id} references missing teacher {teacher_id!r}")
+            if room_id not in rooms:
+                raise ValueError(f"Runtime lock {session_id} references missing room {room_id!r}")
+
+            literal = model.new_bool_var(f"assume__runtime_lock__{session_id}")
+            if diagnostic:
+                model.add_assumption(literal)
+                assumptions[literal.index] = f"runtime-lock:{session_id}"
+            else:
+                model.add(literal == 1)
+            model.add(item.day == DAY_INDEX[day_name]).only_enforce_if(literal)
+            model.add(item.start == start_slot).only_enforce_if(literal)
+            model.add(item.teacher[teacher_id] == 1).only_enforce_if(literal)
+            model.add(item.room[room_id] == 1).only_enforce_if(literal)
+        elif session.get("lockedPlacement") is not None:
+            raise ValueError(f"Unlocked session {session.get('id', '<missing>')} must not carry lockedPlacement")
 
     teacher_day_presence_cache: dict[tuple[str, str, int], cp_model.BoolVar] = {}
 
@@ -267,8 +331,6 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
                 f"teacher_day__{item.session['id']}__{teacher_id}__{day_index}",
             )
         return teacher_day_presence_cache[key]
-
-    assumptions: dict[int, str] = {}
 
     overrides_by_base: dict[str, list[dict[str, Any]]] = {}
     for candidate in constraints:
@@ -446,15 +508,14 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
         elif kind == "TEACHER_DAY_WINDOW":
             if params.get("inheritStudioOperatingWindows") is True and params.get("mayExtendOperatingHours") is False:
                 continue
-            teacher_names = selector.get("teacherNames") or []
+            teacher_ids = _resolve_teacher_selector(teachers, selector, constraint["id"])
             allowed_days = params.get("allowedDays")
             one_day = params.get("day")
             start_limit = params.get("start")
             end_limit = params.get("end")
             if one_day:
                 allowed_days = [one_day]
-            for teacher_name in teacher_names:
-                teacher_id = _resolve_unique_by_name(teachers, str(teacher_name), "teacher", constraint["id"])
+            for teacher_id in teacher_ids:
                 for item in session_vars.values():
                     present = item.teacher[teacher_id]
                     if allowed_days:

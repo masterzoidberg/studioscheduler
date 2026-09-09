@@ -12,16 +12,26 @@ export type ConstraintIRKind =
   | "REQUIRED_LOWER_LEVEL"
   | "TEACHER_SUBJECT_DOMAIN"
   | "TEACHER_DAY_WINDOW"
+  | "STUDIO_OPERATING_WINDOWS"
+  | "ROOM_UNAVAILABLE_WINDOWS"
+  | "TEACHER_CLASS_DOMAIN"
+  | "ROOM_REQUIRED_FEATURES"
   | "DIRECTLY_AFTER"
   | "FIXED_ASSIGNMENT"
   | "ROOM_CAPACITY"
   | "RELATIONSHIP_START_WINDOW";
 
 export interface ConstraintSelectorIR {
+  /** Stable-ID class targets for typed policy. */
+  classIds?: string[];
   classNames?: string[];
   subjects?: string[];
   levels?: string[];
+  /** Stable-ID target for typed teacher policy. Legacy static policy may still use teacherNames during transition. */
+  teacherIds?: string[];
   teacherNames?: string[];
+  /** Stable-ID room targets for typed policy. */
+  roomIds?: string[];
   roomNames?: string[];
   studentNames?: string[];
   studentRelation?: string;
@@ -36,11 +46,21 @@ export interface ConstraintIRNode {
   explanation: string;
 }
 
+export type TypedPreferenceIRKind = "PREFERRED_TEACHER" | "PREFERRED_ROOM" | "PREFERRED_DAY" | "AVOID_DAY";
+
 export interface ObjectivePriorityIR {
   ruleId: string;
   rank: number;
   title: string;
   description: string;
+  /** Dependency-closed baseline rule IDs owned by this typed preference. Legacy objective rows omit this field. */
+  ruleIds?: string[];
+  /** Present only for schema-backed preference records introduced by POL-02. */
+  kind?: TypedPreferenceIRKind;
+  selector?: ConstraintSelectorIR;
+  parameters?: Record<string, unknown>;
+  /** POL-02 records preference meaning only. OPT-01 owns deterministic scoring. */
+  scoringEnabled?: boolean;
 }
 
 export interface GovernanceAssertionIR {

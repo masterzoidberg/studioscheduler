@@ -2,59 +2,35 @@
 
 import { useState } from "react";
 import { LockKeyhole, RotateCcw, UnlockKeyhole } from "lucide-react";
-import { getBrowserSupabase } from "@/lib/supabase";
 import { useWorkspace } from "@/components/workspace-provider";
 import { useScheduleEditMode } from "@/components/schedule/schedule-edit-mode";
 
-function messageOf(error: unknown) {
-  if (error && typeof error === "object" && "message" in error) return String((error as { message?: unknown }).message || "Unknown error");
-  return String(error || "Unknown error");
-}
 
 export function ScheduleEditControls() {
   const {
     state,
     canEdit,
     currentScheduleVersion,
-    currentRulebookVersion,
-    currentEnforcementVersion,
-    currentPlanningDatasetVersion,
-    scheduleIsStale,
-    refresh,
+    undoSchedule,
   } = useWorkspace();
   const { editingEnabled, toggleEditing } = useScheduleEditMode();
   const [undoing, setUndoing] = useState(false);
   const [notice, setNotice] = useState("");
 
   const previous = state?.scheduleVersions.find((version) => version.version === currentScheduleVersion - 1);
-  const canUndo = Boolean(
-    canEdit
-    && !scheduleIsStale
-    && previous
-    && previous.rulebookVersion === currentRulebookVersion
-    && previous.enforcementVersion === currentEnforcementVersion
-    && previous.planningDatasetVersion === currentPlanningDatasetVersion,
-  );
+  const canUndo = Boolean(canEdit && previous);
 
   async function undoLastChange() {
     if (!canUndo || undoing) return;
     setUndoing(true);
     setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("undo_last_schedule_change_v25", {
-      p_expected_schedule_version: currentScheduleVersion,
-      p_expected_rulebook_version: currentRulebookVersion,
-      p_expected_enforcement_version: currentEnforcementVersion,
-      p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-      p_reason: `Undo Schedule v${currentScheduleVersion}`,
-    });
+    const result = await undoSchedule();
     setUndoing(false);
-    if (error) {
-      setNotice(`Undo unavailable: ${messageOf(error)}`);
+    if (!result.ok) {
+      setNotice(`Undo unavailable: ${result.error || "current policy rejected the previous placements."}`);
       return;
     }
-    const result = (data || {}) as Record<string, unknown>;
-    setNotice(`Restored the previous schedule as Schedule v${Number(result.scheduleVersion || currentScheduleVersion + 1)}.`);
-    await refresh();
+    setNotice(`Restored the previous placements under current policy as Schedule v${result.version || currentScheduleVersion + 1}.`);
   }
 
   return (
@@ -77,7 +53,7 @@ export function ScheduleEditControls() {
             onClick={() => void undoLastChange()}
             disabled={!canUndo || undoing}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            title={canUndo ? `Restore Schedule v${currentScheduleVersion - 1} as a new version` : "Nothing compatible to undo under the current scheduling context"}
+            title={canUndo ? `Re-evaluate Schedule v${currentScheduleVersion - 1} placements under current policy and save them as a new version` : "No immediately previous ScheduleVersion is available"}
           >
             <RotateCcw className="size-4" />{undoing ? "Undoing…" : "Undo last change"}
           </button>

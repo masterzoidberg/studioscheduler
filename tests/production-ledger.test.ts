@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -46,5 +47,28 @@ describe("production Supabase migration ledger archive", () => {
     const content = readFileSync(resolve(ledgerDir, entry.file));
     expect(content.length).toBe(entry.bytes);
     expect(gitBlobSha1(content)).toBe(entry.git_blob_sha1);
+  });
+
+  it("pins LF SQL checkout bytes in the clean Git tree", () => {
+    const trackedSqlPaths = execFileSync("git", ["ls-files", "--", "*.sql"], { encoding: "utf8" })
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+    expect(trackedSqlPaths.length).toBeGreaterThan(0);
+
+    const checkoutAttributes = execFileSync("git", ["check-attr", "eol", "--", ...trackedSqlPaths], { encoding: "utf8" })
+      .trim()
+      .split(/\r?\n/);
+    expect(checkoutAttributes).toHaveLength(trackedSqlPaths.length);
+    for (const [index, relativePath] of trackedSqlPaths.entries()) {
+      expect(checkoutAttributes[index]).toBe(`${relativePath}: eol: lf`);
+    }
+
+    for (const entry of manifest.entries) {
+      const relativePath = `supabase/production-ledger/${entry.file}`;
+      const cleanCheckoutContent = execFileSync("git", ["show", `HEAD:${relativePath}`]);
+      expect(cleanCheckoutContent.length).toBe(entry.bytes);
+      expect(gitBlobSha1(cleanCheckoutContent)).toBe(entry.git_blob_sha1);
+    }
   });
 });

@@ -1,0 +1,207 @@
+{
+  "schemaVersion": "1.0",
+  "cases": [
+    {
+      "id": "pol02-studio-window-endpoint-legal",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": true,
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Teacher Renamed" }],
+        "rooms": [{ "id": "room-a", "name": "Room Renamed", "capacity": 10, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-a", "name": "Class Renamed", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 2,
+          "hardConstraints": [
+            { "id": "studio-hours", "kind": "STUDIO_OPERATING_WINDOWS", "ruleIds": ["OPS-001"], "selector": {}, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }], "closedDays": [] }, "explanation": "Studio hours" },
+            { "id": "fixed-boundary", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "17:00", "end": "18:00", "lockType": "POLICY_FIXED" }, "explanation": "Boundary witness" }
+          ],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "pol02-studio-closed-day-rejected",
+      "expectedSolverStatus": "INFEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_CANDIDATE_HARD_VALIDATION_FAILED",
+      "probeCandidate": [{ "sessionId": "session-a", "day": "Tuesday", "startTime": "17:00", "endTime": "18:00", "teacherId": "teacher-a", "roomId": "room-a" }],
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Teacher Renamed" }],
+        "rooms": [{ "id": "room-a", "name": "Room Renamed", "capacity": 10, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-a", "name": "Class Renamed", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 2,
+          "hardConstraints": [
+            { "id": "studio-hours", "kind": "STUDIO_OPERATING_WINDOWS", "ruleIds": ["OPS-001"], "selector": {}, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }], "closedDays": ["Tuesday"] }, "explanation": "Tuesday closed" },
+            { "id": "fixed-closed-day", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Tuesday", "start": "17:00", "end": "18:00", "lockType": "POLICY_FIXED" }, "explanation": "Closed day witness" }
+          ],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "pol02-room-unavailable-touching-endpoint-legal",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": true,
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Teacher A" }],
+        "rooms": [{ "id": "room-a", "name": "Room A Renamed", "capacity": 10, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-a", "name": "Class Renamed", "subject": "Jazz", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 2,
+          "hardConstraints": [
+            { "id": "room-unavailable", "kind": "ROOM_UNAVAILABLE_WINDOWS", "ruleIds": ["ROOM-X"], "selector": { "roomIds": ["room-a"] }, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }] }, "explanation": "Room unavailable" },
+            { "id": "fixed-touch", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "16:00", "end": "17:00", "lockType": "POLICY_FIXED" }, "explanation": "Half-open endpoint witness" }
+          ],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "pol02-room-unavailable-overlap-rejected",
+      "expectedSolverStatus": "INFEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_CANDIDATE_HARD_VALIDATION_FAILED",
+      "probeCandidate": [{ "sessionId": "session-a", "day": "Monday", "startTime": "16:30", "endTime": "17:30", "teacherId": "teacher-a", "roomId": "room-a" }],
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Teacher A" }],
+        "rooms": [{ "id": "room-a", "name": "Room A Renamed", "capacity": 10, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-a", "name": "Class Renamed", "subject": "Jazz", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 2,
+          "hardConstraints": [
+            { "id": "room-unavailable", "kind": "ROOM_UNAVAILABLE_WINDOWS", "ruleIds": ["ROOM-X"], "selector": { "roomIds": ["room-a"] }, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }] }, "explanation": "Room unavailable" },
+            { "id": "fixed-overlap", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "16:30", "end": "17:30", "lockType": "POLICY_FIXED" }, "explanation": "Overlap witness" }
+          ],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "pol02-stable-id-qualification-survives-rename",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": true,
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Completely New Display Name" }],
+        "rooms": [{ "id": "room-a", "name": "Room A", "capacity": 10, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-a", "name": "Renamed Class", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 1,
+          "hardConstraints": [{ "id": "qualification", "kind": "TEACHER_CLASS_DOMAIN", "ruleIds": ["AIM-001"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": { "classIds": ["class-a"] }, "explanation": "Stable qualification" }],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [{ "ruleId": "CUR-007", "family": "QUALIFICATION", "assertion": "Default deny" }], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "pol02-empty-qualification-rejected",
+      "expectedSolverStatus": "INFEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_CANDIDATE_HARD_VALIDATION_FAILED",
+      "probeCandidate": [{ "sessionId": "session-a", "day": "Monday", "startTime": "17:00", "endTime": "18:00", "teacherId": "teacher-a", "roomId": "room-a" }],
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Teacher A" }],
+        "rooms": [{ "id": "room-a", "name": "Room A", "capacity": 10, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-a", "name": "Class A", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 1,
+          "hardConstraints": [{ "id": "qualification-empty", "kind": "TEACHER_CLASS_DOMAIN", "ruleIds": ["AIM-001"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": { "classIds": [] }, "explanation": "Explicit empty domain" }],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "pol02-required-room-stable-id-survives-rename",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": true,
+      "expectedAssignment": { "roomId": "room-b" },
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Teacher A" }],
+        "rooms": [{ "id": "room-a", "name": "Old Display", "capacity": 10, "features": [] }, { "id": "room-b", "name": "Required Room Renamed", "capacity": 10, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-a", "name": "Class A", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 1,
+          "hardConstraints": [{ "id": "required-room", "kind": "REQUIRED_ROOM", "ruleIds": ["ROOM-R"], "selector": { "classIds": ["class-a"], "roomIds": ["room-b"] }, "parameters": { "roomId": "room-b" }, "explanation": "Stable room requirement" }],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "pol02-missing-planning-capacity-rejected",
+      "expectedSolverStatus": "INFEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_CANDIDATE_HARD_VALIDATION_FAILED",
+      "probeCandidate": [{ "sessionId": "session-a", "day": "Monday", "startTime": "17:00", "endTime": "18:00", "teacherId": "teacher-a", "roomId": "room-a" }],
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Teacher A" }],
+        "rooms": [{ "id": "room-a", "name": "Capacity Unknown", "capacity": null, "features": [] }],
+        "students": [{ "id": "student-1", "name": "Student 1", "level": "Level 1", "cohortIds": [] }],
+        "classes": [{ "id": "class-a", "name": "Class A", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": ["student-1"], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 1,
+          "hardConstraints": [{ "id": "planning-capacity", "kind": "ROOM_CAPACITY", "ruleIds": ["ROOM-007", "ROOM-008"], "selector": { "roomIds": ["room-a"] }, "parameters": { "capacitySource": "PLANNING_DATASET", "exemptClassIds": [] }, "explanation": "Capacity from planning facts" }],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "pol02-required-feature-set-inclusion",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": true,
+      "expectedAssignment": { "roomId": "room-b" },
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "pol02-parity", "rulebookVersion": 5, "planningDatasetVersion": 9, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-a", "name": "Teacher A" }],
+        "rooms": [{ "id": "room-a", "name": "Incomplete", "capacity": 10, "features": ["mirrors"] }, { "id": "room-b", "name": "Complete", "capacity": 10, "features": ["barres", "mirrors", "sprung-floor"] }],
+        "students": [],
+        "classes": [{ "id": "class-a", "name": "Class A", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 1,
+          "hardConstraints": [{ "id": "required-features", "kind": "ROOM_REQUIRED_FEATURES", "ruleIds": ["ROOM-F"], "selector": { "classIds": ["class-a"] }, "parameters": { "requiredFeatures": ["mirrors", "sprung-floor"] }, "explanation": "Required feature subset" }],
+          "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    }
+  ]
+}

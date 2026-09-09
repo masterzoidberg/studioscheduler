@@ -211,6 +211,7 @@ export interface RulebookVersion {
   id: string; version: number; name: string; createdAt: string; actor: string; reason: string; changedRuleIds: string[];
   rulebookId?: string; status?: "CURRENT" | "HISTORICAL"; importedAt?: string; sourceHash?: string; sourceFileHash?: string;
   ruleCount?: number; parentVersion?: number; formatVersion?: string; documentType?: string; sourceMetadata?: Record<string, unknown>;
+  snapshot?: unknown[];
 }
 
 export interface RuleHistoryEntry { id: string; ruleId: string; rulebookVersion: number; changedAt: string; actor: string; reason: string; before: StudioRule | null; after: StudioRule | null; aiProposed?: boolean; }

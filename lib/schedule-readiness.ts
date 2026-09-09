@@ -2,6 +2,7 @@ import type { ClassDefinition, ClassSession, PlanningDatasetVersion, StudioState
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
 import { validateConstraintModelBindings, type ConstraintDataBindingReport } from "@/lib/constraint-data-binding";
 import { ruleExecutionCoverage } from "@/lib/rule-execution-registry";
+import { reviewedDwdePolicySupport } from "@/lib/dwde-policy-transition";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
 export type ScheduleReadinessSeverity = "BLOCKER" | "WARNING";
@@ -96,10 +97,6 @@ function effectiveDurations(klass: ClassDefinition, sessions: ClassSession[]) {
   return sorted(sessions.map((session) => sessionDurationMinutes(session, klass)));
 }
 
-// External source manifests are optional provenance/comparison baselines. DWDE's
-// working teachers, dancers, rooms, classes and rosters are intentionally fluid.
-// Solver provenance is established by confirming the immutable current
-// PlanningDatasetVersion after the manager has reviewed those working facts.
 function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatasetVersion | null, issues: ScheduleReadinessIssue[]) {
   const pin = currentPlanning?.snapshot.sourceManifest ?? null;
   if (!pin) {
@@ -394,6 +391,11 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
   }
 
   const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
+  const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? null;
+  const policySupport = reviewedDwdePolicySupport(currentRulebook, state.rules, state.rulebookVersions);
+  if (!policySupport.supported) {
+    add(issues, "UNSUPPORTED_REVIEWED_POLICY", policySupport.message, policySupport.ruleIds);
+  }
   const currentSchedule = state.scheduleVersions.find((version) => version.isCurrent) ?? null;
   const schedulePlanningVersion = currentSchedule?.planningDatasetVersion ?? null;
   const confirmedPlanning = planningConfirmation(currentPlanning);
