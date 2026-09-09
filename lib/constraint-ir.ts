@@ -46,11 +46,21 @@ export interface ConstraintIRNode {
   explanation: string;
 }
 
+export type TypedPreferenceIRKind = "PREFERRED_TEACHER" | "PREFERRED_ROOM" | "PREFERRED_DAY" | "AVOID_DAY";
+
 export interface ObjectivePriorityIR {
   ruleId: string;
   rank: number;
   title: string;
   description: string;
+  /** Dependency-closed baseline rule IDs owned by this typed preference. Legacy objective rows omit this field. */
+  ruleIds?: string[];
+  /** Present only for schema-backed preference records introduced by POL-02. */
+  kind?: TypedPreferenceIRKind;
+  selector?: ConstraintSelectorIR;
+  parameters?: Record<string, unknown>;
+  /** POL-02 records preference meaning only. OPT-01 owns deterministic scoring. */
+  scoringEnabled?: boolean;
 }
 
 export interface GovernanceAssertionIR {
