@@ -1,19 +1,21 @@
 # Next autonomous run
 
-**R1 — POL-04: close POL-02 typed SQL safeguard parity and no-write coverage**
+**R2 — SET-03: manage studio hours and rooms through Setup**
 **Execution class: STANDARD IMPLEMENTATION**
 **Milestone: A — DWDE Operational**
 **Status: SELECTED; the only READY task and next run.**
 
-Work on `feat/pre-cami-hardening` from implementation base `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`. R0 audited commits `9de8d07^..7f5c128` and adopted the reworked plan. The planning adoption commit adds no product code; `TASKS.md` records the final checkpoint head. PR #55 remains open and no merge, push or deployment is authorized.
+Execute R2 from implementation HEAD `15f5c79` on branch `feat/pre-cami-hardening`. R0 reconciled `9de8d07^..7f5c128` and adopted the reworked plan; R1/POL-04 then added the V54 forward SQL safeguard and disposable no-write regression, and POL-02 is DONE. PR #55 remains open; no merge, push or deployment is authorized.
 
-Read [POL-04](prompts/POL-04.md), [TASKS](TASKS.md), [MASTER_PLAN](MASTER_PLAN.md), [DECISIONS](DECISIONS.md), [CODEX_EXECUTION_RULES](CODEX_EXECUTION_RULES.md) and the effective SQL callers before editing. POL-02 remains BLOCKED/pending; do not archive `prompts/POL-02.md` or claim it DONE from the passing TypeScript/Python evidence.
+Authority: read [TASKS](TASKS.md), [MASTER_PLAN](MASTER_PLAN.md), [DECISIONS](DECISIONS.md), [CODEX_EXECUTION_RULES](CODEX_EXECUTION_RULES.md), [TEST_STRATEGY](TEST_STRATEGY.md), and the bounded [SET-03 prompt](prompts/SET-03.md). `TASKS.md` owns status and dependencies; this file selects exactly one run. SET-04 and SET-05 remain queued and must not be pulled into R2.
 
-Implement only the demonstrated SQL safeguard gap. Add a forward migration and executed disposable database regression for the supported POL-02 HARD families: operating windows/closed days, room unavailable windows, explicit qualification domains, required teacher/room, room capacity and required features. The safeguard must consume the pinned authoritative current model/context, not trust a caller-supplied `valid: true` application payload. Preserve stable IDs, PlanningDataset facts, Rulebook policy, ConstraintModelVersion meaning, ScheduleVersion history, exact membership/tenant checks, rejection/no-write behavior and all fixed POL-02 interval, qualification, capacity and feature semantics.
+Complete only SET-03: expose operating days and per-day windows through typed Rulebook policy; manage room identity, capacity and features through PlanningDataset commands; expose room unavailable windows and feature requirements through supported typed policy; and register room restriction review slices. Preserve the 15-minute grid and currently supported days until GEN-03. Reuse existing setup/forms/components and canonical authorities. Authorize the exact tenant/current role at server and transaction boundaries, validate entity membership and expected versions, preserve drafts on failure, and reject stale, conflicting, unsupported or unauthorized writes without canonical/version/audit success writes.
 
-Do not add unrelated setup/UI work, a second policy store, arbitrary DSL, relationship families, full baseline conversion, optimization, deployment, production access, private customer-data mutation, merge, push or external-service writes.
+Use manager-facing Setup language, actionable empty/loading/error states, retained typed entries after failure, keyboard support and a 390px tap layout. Keep hashes, IR, RPC and version identifiers under Advanced. Do not add a second setup/policy/schedule store, overnight or dated calendars, a recurrence engine, arbitrary time quantum, unrelated setup slices, deployment, production/private-data access, paid services, merge, push, external messages or destructive actions.
 
-Required verification from repository root with the isolated pinned Python environment:
+Add regressions for the demonstrated behavior, including closed-day/unavailable-period parity, unknown capacity blocking, explicit no-additional-restriction review, contradiction links, and failed-write/no-write behavior. Inspect effective callers and migrations before editing; add forward migrations only. Run focused checks before broad checks and preserve the first failed full-suite result. Continue only while dependencies, ownership and verification remain clear; stop on the mandatory conditions in [AUTONOMOUS_EXECUTION_RUNBOOK](plan-rework/AUTONOMOUS_EXECUTION_RUNBOOK.md).
+
+Required verification from the repository root with explicit disposable configuration:
 
 ```powershell
 npm run lint
@@ -22,7 +24,7 @@ npm test
 npm run build
 npm run test:db
 npm run test:parity
-$env:PYTHONPATH='solver'; & 'C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe' -m pytest solver/tests/test_pol02_typed_feasibility.py
+npm run test:e2e
 ```
 
-Run focused tests before the full commands. Preserve the first failed full-suite result, diagnose with focused tests, and do not weaken assertions. Stop on any mandatory runbook condition, including an authority conflict, overlapping changes, historical-byte rewrite, missing dependency, production/private-data access or a second independent gap. On success, mark POL-02 DONE only when every original criterion passes, archive its prompt, update the canonical ledger and derived views atomically, and select the next run.
+On acceptance, create one bounded SET-03 commit, record exact criteria/evidence/commands/exit codes/artifacts/limitations and start/final heads in `TASKS.md`, update derived planning views atomically, and select exactly one next run. Do not claim milestone A or external acceptance from this run alone.

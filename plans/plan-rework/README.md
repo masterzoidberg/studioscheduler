@@ -6,7 +6,7 @@ This directory proposes a faster, evidence-preserving route from the current imp
 
 ## Authority and adoption
 
-Adopted at R0 on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`. POL-02 reconciliation left the task pending/BLOCKED because effective SQL safeguard coverage is absent; the single bounded corrective task is POL-04 and R1 is the only selected next run. The adoption commit is planning-only and does not claim product completion.
+Adopted at R0 on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`. R0 correctly left POL-02 pending/BLOCKED because effective SQL safeguard coverage was absent. R1/POL-04 was then completed at implementation head `15f5c79`, adding the V54 forward safeguard and executed disposable no-write evidence; POL-02 is now DONE. R2/SET-03 is the sole selected next run. The R0 adoption commit was planning-only; the later corrective implementation and final status are recorded in the canonical ledger.
 
 - Current authority remains [`../TASKS.md`](../TASKS.md) for status, [`../MASTER_PLAN.md`](../MASTER_PLAN.md) for milestone exits, [`../DECISIONS.md`](../DECISIONS.md) for accepted design, and [`../NEXT.md`](../NEXT.md) for the one authorized next task.
 - This directory is **ADOPTED rationale and runbook material**, not a competing execution queue. Status and dependencies are authoritative only in [`../TASKS.md`](../TASKS.md); the selected run is authoritative only in [`../NEXT.md`](../NEXT.md).
@@ -22,6 +22,6 @@ Adopted at R0 on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8
 
 ## Recorded evidence versus assumptions
 
-Recorded: the single worktree and origin both resolved to `7f5c128` at R0 start; commits `9de8d07^..7f5c128` implement and test POL-02-related behavior; completed records through SET-02 remain in `TASKS.md`; the R0 rollback-only disposable witness demonstrated the missing typed SQL safeguard; current npm scripts expose lint, typecheck, unit, build, disposable DB, parity, and authenticated e2e checks.
+Recorded: the single worktree and origin both resolved to `7f5c128` at R0 start; commits `9de8d07^..7f5c128` implement and test POL-02-related behavior; completed records through SET-02 remain in `TASKS.md`; the R0 rollback-only disposable witness demonstrated the missing typed SQL safeguard; R1/POL-04 added V54 and the permanent disposable no-write regression; current npm scripts expose lint, typecheck, unit, build, disposable DB, parity, and authenticated e2e checks.
 
-Not yet established: POL-02 SQL transaction/no-write acceptance pending POL-04; current private DWDE acceptance; authorized deployment/restore evidence; independent second-studio evidence; commercial pilot evidence. These remain pending or external gates.
+Not yet established: current private DWDE acceptance; authorized deployment/restore evidence; independent second-studio evidence; commercial pilot evidence. These remain pending or external gates. POL-02 SQL transaction/no-write acceptance is established locally by the V54 disposable regression; no V54 CI artifact exists because the branch was not pushed.

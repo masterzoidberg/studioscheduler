@@ -2,9 +2,9 @@
 
 ## A. Current plan assessment
 
-The existing plan is safety-conscious and preserves the correct four authorities, but delivery is slowed by a mostly serial 27-task queue, repeated full-suite commands in nearly every prompt, and engineering mixed with human/deployment/commercial qualification. Several dependencies express narrative order rather than technical prerequisites. The result is a long critical path from SET-03 through UX-03 even where setup slices and schedule UX can be developed independently.
+The existing plan is safety-conscious and preserves the correct four authorities, but delivery is slowed by a mostly serial 27-task queue, repeated full-suite commands in nearly every prompt, and engineering mixed with human/deployment/commercial qualification. Several dependencies express narrative order rather than technical prerequisites. The result is a long critical path from SET-03 through UX-03 even where setup slices and schedule UX can be developed independently. This rework was adopted at R0; the R0/R1 checkpoint evidence below is now historical context for the currently selected R2 run.
 
-`TASKS.md` is the canonical status authority. At R0 start, audited HEAD `7f5c128` still said POL-02 was READY. The Git history after accepted SET-02 contains 27 POL-02 implementation/test commits and about 3,000 changed lines. R0 reconciled that implementation evidence against the prompt: typed application/runtime/compiler/solver/parity criteria pass, but the effective SQL safeguard criterion is a demonstrated gap. POL-02 remains **PENDING/BLOCKED** and POL-04 is the single bounded corrective task selected by R1.
+`TASKS.md` is the canonical status authority. At R0 start, audited HEAD `7f5c128` still said POL-02 was READY. The Git history after accepted SET-02 contains 27 POL-02 implementation/test commits and about 3,000 changed lines. R0 reconciled that implementation evidence against the prompt: typed application/runtime/compiler/solver/parity criteria passed, but the effective SQL safeguard criterion was a demonstrated gap. R1/POL-04 closed that gap at `15f5c79` with the V54 forward migration and executed disposable no-write coverage; POL-02 is now **DONE**. R2/SET-03 is the sole selected run.
 
 Primary recommendation: retain IDs, architectural decisions, acceptance strength, and completion history, but execute the remaining work as outcome-sized autonomous runs with narrow commit boundaries and milestone test checkpoints. This fits the repository because its immutable/versioned boundaries reward focused vertical slices, while its shared compiler, migration chain, workspace provider, and schedule UI make unconstrained parallel task execution risky.
 
@@ -22,8 +22,8 @@ Alternatives are less efficient here: preserving one session per task repeats se
 | Work | Classification | Disposition |
 |---|---|---|
 | T01–T13, SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02 | HISTORICAL/SUPERSEDED | Preserve DONE records and archives; never execute again. New defects get new IDs. |
-| POL-02 | CORE, PENDING/BLOCKED | Preserve the passing typed evidence; accept only after POL-04 closes SQL safeguard parity and executed no-write coverage. |
-| POL-04 | CORE, R1 SELECTED CORRECTIVE | Add the smallest forward SQL safeguard and disposable transaction/no-write evidence demonstrated as missing by R0. |
+| POL-02 | CORE, DONE AFTER R1/POL-04 | Preserve the passing typed evidence and V54 SQL safeguard/no-write evidence in TASKS. |
+| POL-04 | CORE, DONE / R1 CORRECTIVE | Added the smallest forward SQL safeguard and disposable transaction/no-write evidence demonstrated as missing by R0. |
 | SET-03, SET-04, SET-05 | CORE | Independent setup vertical slices after POL-02 contract is accepted; remove artificial SET-03→04→05 chain. |
 | POL-03 then SET-06 | CORE | Keep policy semantics before its manager UI; sequential security/semantic lane. |
 | SET-07 | CORE | Integration gate depending on all required setup/review slices, not on UX work. |
@@ -46,7 +46,7 @@ Alternatives are less efficient here: preserving one session per task repeats se
 
 ## B. Redundant, unnecessary, optional, or misclassified work
 
-- POL-02 is likely implemented and awaiting reconciliation; repeating it would be waste.
+- POL-02 was implemented and reconciled; its SQL boundary is accepted through POL-04. Repeating it would be waste.
 - ACC-01, GEN-05, PILOT-01, and much of V1-01 are qualifications, not feature phases.
 - OPS-01 currently combines executable rehearsal with unauthorized deployed-environment proof; split the checkpoint from the gate.
 - OPT-01/02 and CAND-01 are not prerequisites for a safe first release unless measured acceptance demonstrates unusable output.
@@ -101,9 +101,9 @@ Do not parallel-edit `TASKS.md`, `NEXT.md`, `package.json`, shared migration run
 
 ## F. Autonomous run sequence
 
-1. **R0 — Reconcile POL-02 and adopt the rework (COMPLETE CHECKPOINT).** Compare `9de8d07^..7f5c128` with every POL-02 criterion; preserve the first failed full run, record CI/local evidence, and open only the demonstrated POL-04 corrective.
-2. **R1 — Close POL-02 SQL safeguard parity (SELECTED).** POL-04 adds the forward migration and executed disposable transaction/no-write evidence; POL-02 is accepted only after every original criterion passes.
-3. **R2 — Core setup inputs.** SET-03, SET-04, SET-05 as bounded commits; parallel only with disjoint UI/client files and a single policy/migration integrator. Focused checks after each; lane DB/parity/e2e once after integration.
+1. **R0 — Reconcile POL-02 and adopt the rework (COMPLETE CHECKPOINT).** Compared `9de8d07^..7f5c128` with every POL-02 criterion, preserved the first failed full run, recorded CI/local evidence, and opened only the demonstrated POL-04 corrective.
+2. **R1 — Close POL-02 SQL safeguard parity (COMPLETE).** POL-04 added the forward migration and executed disposable transaction/no-write evidence; POL-02 is accepted because every original criterion now passes.
+3. **R2 — Core setup inputs (SELECTED).** SET-03 is the sole selected bounded task. SET-04 and SET-05 remain queued; later setup slices may be scheduled only by the canonical ledger after their dependencies and ownership are confirmed. Focused checks precede lane DB/parity/e2e integration.
 4. **R3 — Relationship policy and setup.** POL-03 then SET-06, one commit per ID. Full semantic parity and DB integration at lane end.
 5. **R4 — Generation/editing foundation.** UX-01 and UX-02, potentially parallel after shared contract freeze; integrate authenticated flows once.
 6. **R5 — Certification and schedule completion.** SET-07, LOCK-01, UX-03 in that dependency order. Run the complete isolated setup→generate→adopt→edit→lock→recover→export journey.
@@ -145,4 +145,4 @@ No architectural decision is needed to begin R0. Adoption of this proposal is re
 
 ## K. Exact next autonomous run
 
-**R1 — POL-04 SQL safeguard parity and no-write closure.** Start from implementation base `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` plus the planning-only R0 adoption commit recorded in the canonical ledger. Do not reimplement POL-02. Add only the demonstrated forward SQL safeguard and disposable transaction/no-write evidence, preserve the first failed full-suite result, and stop on the runbook conditions. `TASKS.md` is the sole status/dependency ledger and `NEXT.md` is the sole selected-run view.
+**R2 — SET-03 core setup inputs.** Start from implementation head `15f5c79` on `feat/pre-cami-hardening`. Complete only SET-03: expose operating days/windows through typed Rulebook policy, manage room facts through PlanningDataset commands, expose room unavailable windows and feature requirements, and register room restriction review slices. Preserve canonical version/context/tenant authority, add focused regressions, run the required lint/typecheck/unit/build/disposable DB/parity/authenticated E2E checks, and stop on the runbook conditions. `TASKS.md` is the sole status/dependency ledger and `NEXT.md` is the sole selected-run view.

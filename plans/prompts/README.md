@@ -1,11 +1,9 @@
 # Implementation prompts
 
-[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one run/task. Current selection: **R1 / POL-04**. Read the assigned bounded prompt rather than every file below. POL-02 remains pending/BLOCKED and is not archived. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are completed and archived; active prompts do not claim implementation merely by existing.
+[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one run/task. Current selection: **R2 / SET-03**. Read the assigned bounded prompt rather than every file below. POL-02 and POL-04 are completed and archived. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are also completed and archived; active prompts do not claim implementation merely by existing.
 
 | Prompt | Execution class |
 |---|---|
-| [POL-02 — Extend typed policy to studio and qualification families](POL-02.md) | STANDARD IMPLEMENTATION |
-| [POL-04 — Close POL-02 typed SQL safeguard parity and no-write coverage](POL-04.md) | STANDARD IMPLEMENTATION — selected by R1 |
 | [SET-03 — Manage studio hours and rooms through Setup](SET-03.md) | STANDARD IMPLEMENTATION |
 | [SET-04 — Manage teacher availability and qualifications](SET-04.md) | STANDARD IMPLEMENTATION |
 | [SET-05 — Complete class/session and roster setup](SET-05.md) | STANDARD IMPLEMENTATION |

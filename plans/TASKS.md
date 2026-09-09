@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. R0 plan adoption was completed at audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on 2026-09-09. Current milestone **A**; the sole selected next run is **R1 / POL-04 — close the demonstrated POL-02 SQL safeguard gap**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are DONE after CI-backed hardening and verification; their prompts are archived.
+Baseline `9120439`, 2026-09-07. R0 plan adoption was completed at audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on 2026-09-09. R1/POL-04 was accepted at implementation head `15f5c79` on 2026-09-09. Current milestone **A**; the sole selected next run is **R2 / SET-03 — core setup inputs**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02 and POL-04 are DONE after CI-backed hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -18,9 +18,9 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | [SET-01](prompts/archive/SET-01.md) | Add targeted setup review with room-capacity vertical slice | DONE | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
 | [POL-01](prompts/archive/POL-01.md) | Introduce bounded typed policy authoring authority | DONE | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
 | [SET-02](prompts/archive/SET-02.md) | Create one Studio Setup entry and dashboard | DONE | A | SET-01 | STANDARD IMPLEMENTATION |
-| [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | BLOCKED | A | POL-01, POL-04 | STANDARD IMPLEMENTATION |
-| [POL-04](prompts/POL-04.md) | Close POL-02 typed SQL safeguard parity and no-write coverage | READY | A | POL-01 | STANDARD IMPLEMENTATION |
-| [SET-03](prompts/SET-03.md) | Manage studio hours and rooms through Setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
+| [POL-02](prompts/archive/POL-02.md) | Extend typed policy to studio and qualification families | DONE | A | POL-01, POL-04 | STANDARD IMPLEMENTATION |
+| [POL-04](prompts/archive/POL-04.md) | Close POL-02 typed SQL safeguard parity and no-write coverage | DONE | A | POL-01 | STANDARD IMPLEMENTATION |
+| [SET-03](prompts/SET-03.md) | Manage studio hours and rooms through Setup | READY | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [SET-05](prompts/SET-05.md) | Complete class/session and roster setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [POL-03](prompts/POL-03.md) | Type linked attendance and sequencing policies | NOT_STARTED | A | POL-02 | STANDARD IMPLEMENTATION |
@@ -92,9 +92,9 @@ The reworked plan is adopted at R0. `TASKS.md` remains the only status and depen
 
 | Run | Contained work | State |
 |---|---|---|
-| R0 | POL-02 evidence reconciliation and plan adoption | COMPLETE CHECKPOINT; POL-02 remains pending |
-| R1 | POL-04 SQL safeguard parity and no-write closure | SELECTED; the only run authorized after this checkpoint |
-| R2 | SET-03, SET-04, SET-05 | NOT_STARTED; requires accepted POL-02 and SET-02 |
+| R0 | POL-02 evidence reconciliation and plan adoption | COMPLETE CHECKPOINT; POL-02 was left pending |
+| R1 | POL-04 SQL safeguard parity and no-write closure | COMPLETE; POL-02 accepted |
+| R2 | SET-03 core setup inputs | SELECTED; the only run authorized after this checkpoint; SET-04/SET-05 remain queued |
 | R3 | POL-03, SET-06 | NOT_STARTED; policy lane after R2 contracts |
 | R4 | SET-07, UX-01, UX-02, LOCK-01, UX-03 | NOT_STARTED; integration sequence follows the adopted graph |
 | R5 | OPS-01 engineering rehearsal and engineering release checkpoint | NOT_STARTED; no deployment or external acceptance implied |
@@ -102,10 +102,11 @@ The reworked plan is adopted at R0. `TASKS.md` remains the only status and depen
 
 ## Completion records
 
-### POL-02 — PENDING RECONCILIATION
+### POL-02 — DONE AFTER R1/POL-04
 
-- Reconciliation scope: inclusive commits `9de8d07^..7f5c128` (27 commits; 24 files; approximately 2,911 insertions and 185 deletions), starting at `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on branch `feat/pre-cami-hardening`. The changed surface contains TypeScript/Python policy, compiler, runtime, solver, parity fixtures and tests; it contains no `supabase/migrations` change.
-- Decision: POL-02 is not DONE. Its typed application/runtime work is evidenced, but the combined SQL safeguard criterion is not satisfied. POL-02 is BLOCKED on corrective task POL-04; no implementation completion is inferred from commit names or green non-DB tests.
+- Reconciliation scope: inclusive commits `9de8d07^..7f5c128` (27 commits; 24 files; approximately 2,911 insertions and 185 deletions), starting at `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on branch `feat/pre-cami-hardening`. The changed surface contained TypeScript/Python policy, compiler, runtime, solver, parity fixtures and tests; it contained no `supabase/migrations` change, so R0 correctly left POL-02 pending.
+- R1 implementation: commit `15f5c79` adds forward migration `supabase/migrations/20260909090000_pol04_typed_sql_safeguards_v54.sql`, replaces the effective typed SQL validator while preserving the legacy checks, and wires the executed rollback-only regression in `scripts/test-db.mjs` into normal `npm run test:db`.
+- Decision: POL-02 is DONE only after POL-04 closed the demonstrated SQL gap. No completion was inferred from commit names or existing tests; the forward migration and disposable transaction evidence were executed before acceptance.
 
 | POL-02 criterion | Disposition | Exact evidence and limitation |
 |---|---|---|
@@ -115,9 +116,9 @@ The reworked plan is adopted at R0. `TASKS.md` remains the only status and depen
 | TypeScript runtime semantics and explicit qualification governance/default-deny behavior | PASS in TypeScript scope | `tests/pol02-runtime-semantics.test.ts`, `tests/pol02-default-deny-governance.test.ts`, and `tests/pol02-preference-ir.test.ts` pass; preferences remain records and are not used for optimization. |
 | Pinned Python feasibility semantics | PASS | The isolated Python 3.12 environment with `ortools==9.15.6755` ran `solver/tests/test_pol02_typed_feasibility.py`: 9 passed. Solver CI also passed the pinned service/CP-SAT path and container build. |
 | TypeScript/Python runtime parity | PASS | Shared fixture `tests/fixtures/pol02-runtime-parity.json`; `npm run test:parity` with `PYTHON_BINARY` set to the isolated audit interpreter: 2 files, 3 tests passed, exit 0. |
-| Shared positive/negative/boundary coverage, including rename, missing IDs, duplicate references, closed days and interval endpoints | PASS for TS/Python fixtures; DB half not established | Focused suites passed: 7 files passed, 1 skipped; 47 tests passed, 1 skipped. The required executed SQL transaction/no-write counterpart is absent. |
-| Rejection/no-write at canonical database boundaries | NOT ESTABLISHED | The existing `npm run test:db` chain executes base DB, SAFE-01, SET-01 and POL-01 only; no POL-02 typed transaction or no-write regression is wired. |
-| Compiler accounting and SQL safeguard coverage agree; no unsupported family falls through | GAP DEMONSTRATED | The effective `validate_schedule_hard_v25` body delegates to V2.2 and adds only `CLASS_DURATION`; V47/V48/V49 wrappers carry application validation JSON but do not enforce POL-02 typed kinds. A rollback-only disposable witness appended an impossible `ROOM_REQUIRED_FEATURES` mapping and an occupied assignment, then returned no `POL02-SQL-AUDIT` violation; output was `POL-02 SQL GAP`, with `BEGIN`/`ROLLBACK`, exit 0. No permanent harness change remains. |
+| Shared positive/negative/boundary coverage, including rename, missing IDs, duplicate references, closed days and interval endpoints | PASS | The focused POL-04 disposable regression proves legal boundaries and violations for operating windows/closed days, half-open room unavailability, explicit and empty qualification domains, required teacher/room, PlanningDataset capacity/missing capacity, feature set inclusion, presentation renames, and missing/duplicate stable references. |
+| Rejection/no-write at canonical database boundaries | PASS | The same executed regression passes caller-claimed `valid:true` rejection/no-write checks for candidate adoption, authoritative MOVE and REBASE; it also proves incomplete model publication rejects before model/version/audit writes. Counts of ScheduleVersion, assignments, PlanningDatasetVersion, ConstraintModelVersion and audit rows remain unchanged after each rejected operation. |
+| Compiler accounting and SQL safeguard coverage agree; no unsupported family falls through | PASS for the supported POL-02 boundary | V54 independently reads the ScheduleVersion-pinned ConstraintModelVersion and PlanningDatasetVersion, returns typed violations/model errors, preserves legacy validation/duration checks, and reports typed coverage. The effective normal DB harness executes the regression and all prior DB suites; the caller-supplied application validation payload is never used as proof of legality. Unsupported families remain governed by the existing fail-closed coverage/accounting path. |
 | Non-goals: no relationship families, full baseline conversion, optimization, deployment, customer-data mutation or external-service write | PASS | The inclusive commit range is limited to typed TS/Python/runtime/test surfaces; no migration, deployment, production, private customer data or external service was used. |
 
 ### POL-02 verification record
@@ -125,13 +126,29 @@ The reworked plan is adopted at R0. `TASKS.md` remains the only status and depen
 - Focused TypeScript command: `npx vitest run tests/pol02-bundle-transition.test.ts tests/pol02-default-deny-governance.test.ts tests/pol02-ir-binding.test.ts tests/pol02-preference-ir.test.ts tests/pol02-runtime-parity.test.ts tests/pol02-runtime-semantics.test.ts tests/pol02-typed-policy-schema.test.ts tests/pol02-v5-compiler.test.ts` — exit 0; 7 files passed, 1 skipped; 47 tests passed, 1 skipped.
 - Focused Python command without `PYTHONPATH` — exit 1 at collection with `ModuleNotFoundError: No module named 'dwde_solver'`; this was an environment invocation failure, not a product result. Corrected command with `PYTHONPATH=solver` and the isolated pinned interpreter — exit 0; 9 passed.
 - `npm run test:parity` with the same pinned `PYTHON_BINARY` — exit 0; 2 files and 3 tests passed.
-- `npm run test:db` with the unmodified permanent harness — exit 0; base database replay, SAFE-01, SET-01 and POL-01 database regressions passed. A second disposable run temporarily added the rollback-only POL-02 SQL witness described above, then the hook was removed and `scripts/test-db.mjs` restored to its committed content; that run also exited 0. This green chain is not POL-02 SQL acceptance.
+- Focused SQL command: `node scripts/test-db.mjs --target=docker-local --allow-disposable --only-pol04` — exit 0; forward migrations replayed through V54 and the regression emitted `POL-04 PASS: typed SQL families, pinned facts, boundaries, model references, canonical rejection and no-write evidence`.
+- `npm run test:db` after V54 wiring — exit 0; the normal base DB harness emitted the POL-04 PASS result, then T02–T13, SAFE-01, SET-01 and POL-01 PASS results. The POL-04 fixture uses a disposable savepoint and rolls back before the existing integration chain.
+- `npm run lint` — exit 0; 0 errors and 4 existing warnings (Next internal navigation warning and three unused test-stub parameters).
+- `npm run typecheck` — exit 0.
+- `npm test` — exit 0; 76 test files passed, 2 skipped; 433 tests passed, 3 skipped.
+- `npm run build` — exit 0; Next.js 16.3.3 compiled, TypeScript completed, and 14/14 static pages generated.
+- `npm run test:parity` without `PYTHON_BINARY` — exit 1 with the expected pinned-dependency blocker because system Python could not import OR-Tools; this failed attempt is retained as a limitation, not counted as evidence.
+- `$env:PYTHON_BINARY='C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe'; $env:PYTHONPATH='solver'; npm run test:parity` — exit 0; 2 files and 3 tests passed.
+- `$env:PYTHONPATH='solver'; & 'C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe' -m pytest solver/tests/test_pol02_typed_feasibility.py` — exit 0; 9 passed.
 - Required repository checks were green in latest head CI run [34307660865](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865), PR [#55](https://github.com/masterzoidberg/studioscheduler/pull/55): Ubuntu quality job [102327600736](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865/job/102327600736) passed planning integrity, lint, typecheck, unit tests, build, disposable DB and route smoke; Windows quality job [102327600546](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865/job/102327600546) passed lint, typecheck, unit tests and build; authenticated E2E job [102327600771](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865/job/102327600771) passed.
 - Solver checks were green in [Solver CI run 34307660849](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660849), with CP-SAT/service pytest and solver container build job [102327600639](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660849/job/102327600639) passed and runtime parity job [102327600778](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660849/job/102327600778) passed.
 - First failed full-suite result retained: [CI run 34236506763](https://github.com/masterzoidberg/studioscheduler/actions/runs/34236506763) at `9de8d07` failed typecheck; later full-suite steps were skipped. Focused diagnosis/corrections were recorded in CI runs `34237245806` (lint `no-explicit-any`), `34238388294` (coverage test missing return), `34305473646`/`34305592705` (bundle-transition assertions), `34305848316` (compiler expectations), `34306778160` (POL-01 fixture), `34307025237` (parity endpoint mismatch) and `34307311945` (`objectivePolicies` typecheck) before the successful latest runs. No failure was discarded or used to weaken acceptance.
-- CI evidence does not contain a POL-02 SQL transaction/no-write artifact. No authenticated e2e journey is required to accept this solver/IR-only correction, although the latest E2E job passed. Private DWDE acceptance, deployed migration/configuration, restore, independent-studio and commercial evidence remain external gates.
+- CI evidence available at the accepted implementation base remains [CI run 34307660865](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865), [Solver CI run 34307660849](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660849) and [PR #55](https://github.com/masterzoidberg/studioscheduler/pull/55), all green before the unpushed V54 commit. Those CI artifacts do not contain V54 because the commit was not pushed; local disposable evidence is the authoritative V54 SQL artifact. Private DWDE acceptance, deployed migration/configuration, restore, independent-studio and commercial evidence remain external gates.
 
-Result: **POL-02 remains pending/BLOCKED** until POL-04 adds a forward SQL safeguard and executed typed rejection/no-write evidence. Do not archive `prompts/POL-02.md` or mark POL-02 DONE before that evidence exists.
+Result: **POL-02 DONE** after V54 forward SQL safeguard, executed disposable typed regression/no-write evidence, local full verification, pinned Python/parity evidence, and the preserved pre-R1 CI record. `prompts/POL-02.md` and `prompts/POL-04.md` are archived; no deployment, merge, push or external acceptance is implied.
+
+### POL-04 — DONE / R1 CORRECTIVE
+
+- Starting implementation HEAD: `5031e141cfee7d6493d39e33953d1ed8bbf0e122`; implementation base audited by R0 was `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`; final R1 implementation commit: `15f5c79` (`fix(pol-04): add typed SQL safeguards and disposable coverage`).
+- Forward SQL behavior: `private.validate_typed_schedule_v54(uuid)` evaluates the ScheduleVersion-pinned ConstraintModelVersion against the pinned PlanningDatasetVersion for operating windows/closed days, room unavailable windows, teacher class domains, required teacher, required room, room capacity and required features. It returns model errors for malformed/duplicate/missing references and uses half-open interval/set-inclusion semantics. `public.validate_schedule_hard_v25(uuid)` now composes this result with the existing legacy and duration checks; caller validation JSON is not trusted.
+- Executed regression: `scripts/test-db.mjs` runs the savepoint-isolated POL-04 fixture in both focused mode and normal `npm run test:db`. It proves legal boundaries, every supported typed violation, stable-ID rename invariance, empty qualification, missing/duplicate references, missing capacity, caller-claimed `valid:true` rejection, and unchanged schedule/assignment/planning/model/audit counts for rejected candidate adoption, MOVE and REBASE. Incomplete publication is also rejected with unchanged model/version count.
+- Verification: focused DB exit 0; normal `npm run test:db` exit 0; lint exit 0; typecheck exit 0; unit exit 0 (76/2 files, 433/3 tests); build exit 0; pinned parity exit 0 (2/3); pinned POL-02 Python exit 0 (9 passed). The unpinned parity dependency failure is recorded above.
+- Limitations: no V54 CI run exists because the branch was not pushed; CI/PR base evidence remains green and PR #55 is open. No production/private data, deployment, merge, push, paid service, external participant or destructive operation was used.
 
 ### SAFE-01 — DONE
 
