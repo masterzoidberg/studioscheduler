@@ -53,7 +53,6 @@ function model(defaultDeny: boolean): ConstraintModelSnapshotV1 {
     activeRuleCount: 0,
     hardConstraints: [],
     objectivePrioritySpine: [],
-    objectivePolicies: [],
     readinessRuleIds: [],
     governanceAssertions: defaultDeny ? [{
       ruleId: "CUR-007",
