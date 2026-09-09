@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from dwde_solver.feasibility import solve_feasibility
+from dwde_solver.typed_feasibility import solve_feasibility
 
 SERVICE_VERSION = "1.0"
 MAX_SOLVE_SECONDS = 30.0
