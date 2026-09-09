@@ -30,7 +30,12 @@ if (probe.error || probe.status !== 0) {
 }
 
 const vitestEntry = path.join(repoRoot, 'node_modules', 'vitest', 'vitest.mjs');
-run(process.execPath, [vitestEntry, 'run', 'tests/runtime-parity.test.ts'], {
+run(process.execPath, [
+  vitestEntry,
+  'run',
+  'tests/runtime-parity.test.ts',
+  'tests/pol02-runtime-parity.test.ts',
+], {
   ...process.env,
   STUDIO_SCHEDULER_PARITY: '1',
   PYTHON_BINARY: python,
