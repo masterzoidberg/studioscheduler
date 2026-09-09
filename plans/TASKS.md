@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. Current milestone **A**, selected next **POL-02**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are DONE after CI-backed hardening and verification; their prompts are archived.
+Baseline `9120439`, 2026-09-07. R0 plan adoption was completed at audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on 2026-09-09. Current milestone **A**; the sole selected next run is **R1 / POL-04 — close the demonstrated POL-02 SQL safeguard gap**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are DONE after CI-backed hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -18,35 +18,36 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | [SET-01](prompts/archive/SET-01.md) | Add targeted setup review with room-capacity vertical slice | DONE | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
 | [POL-01](prompts/archive/POL-01.md) | Introduce bounded typed policy authoring authority | DONE | A | SET-01, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
 | [SET-02](prompts/archive/SET-02.md) | Create one Studio Setup entry and dashboard | DONE | A | SET-01 | STANDARD IMPLEMENTATION |
-| [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | READY | A | POL-01 | STANDARD IMPLEMENTATION |
+| [POL-02](prompts/POL-02.md) | Extend typed policy to studio and qualification families | BLOCKED | A | POL-01, POL-04 | STANDARD IMPLEMENTATION |
+| [POL-04](prompts/POL-04.md) | Close POL-02 typed SQL safeguard parity and no-write coverage | READY | A | POL-01 | STANDARD IMPLEMENTATION |
 | [SET-03](prompts/SET-03.md) | Manage studio hours and rooms through Setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
-| [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | NOT_STARTED | A | SET-03 | STANDARD IMPLEMENTATION |
-| [SET-05](prompts/SET-05.md) | Complete class/session and roster setup | NOT_STARTED | A | SET-04 | STANDARD IMPLEMENTATION |
-| [POL-03](prompts/POL-03.md) | Type linked attendance and sequencing policies | NOT_STARTED | A | SET-05 | STANDARD IMPLEMENTATION |
+| [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
+| [SET-05](prompts/SET-05.md) | Complete class/session and roster setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
+| [POL-03](prompts/POL-03.md) | Type linked attendance and sequencing policies | NOT_STARTED | A | POL-02 | STANDARD IMPLEMENTATION |
 | [SET-06](prompts/SET-06.md) | Capture student restrictions and scheduling relationships | NOT_STARTED | A | POL-03 | STANDARD IMPLEMENTATION |
 | [SET-07](prompts/SET-07.md) | Unify readiness and manager certification | NOT_STARTED | A | SET-06 | STANDARD IMPLEMENTATION |
-| [UX-01](prompts/UX-01.md) | Make schedule generation and failures understandable | NOT_STARTED | A | VERIFY-01, SET-07 | STANDARD IMPLEMENTATION |
-| [UX-02](prompts/UX-02.md) | Complete editing, locks and recovery journey | NOT_STARTED | A | UX-01 | STANDARD IMPLEMENTATION |
+| [UX-01](prompts/UX-01.md) | Make schedule generation and failures understandable | NOT_STARTED | A | SET-07 | STANDARD IMPLEMENTATION |
+| [UX-02](prompts/UX-02.md) | Complete editing, locks and recovery journey | NOT_STARTED | A | VERIFY-01, POL-02 | STANDARD IMPLEMENTATION |
 | [LOCK-01](prompts/LOCK-01.md) | Expose governed session lock and unlock controls | NOT_STARTED | A | UX-02 | STANDARD IMPLEMENTATION |
-| [UX-03](prompts/UX-03.md) | Deliver usable schedule print/export and responsive review | NOT_STARTED | A | LOCK-01 | STANDARD IMPLEMENTATION |
+| [UX-03](prompts/UX-03.md) | Deliver usable schedule print/export and responsive review | NOT_STARTED | A | SET-03, UX-02 | STANDARD IMPLEMENTATION |
 | [ACC-01](prompts/ACC-01.md) | Prove DWDE operational with manager data | NOT_STARTED | A | UX-03, OPS-01 | STANDARD IMPLEMENTATION |
 | [GEN-01](prompts/GEN-01.md) | Replace remaining name-bound targets | NOT_STARTED | B | UX-03, VERIFY-01 | HIGH-REASONING IMPLEMENTATION |
 | [GEN-02](prompts/GEN-02.md) | Convert DWDE policy to tenant records | NOT_STARTED | B | GEN-01 | STANDARD IMPLEMENTATION |
 | [GEN-03](prompts/GEN-03.md) | Make every command explicitly tenant scoped | NOT_STARTED | B | GEN-02 | STANDARD IMPLEMENTATION |
 | [GEN-04](prompts/GEN-04.md) | Onboard an empty second workspace | NOT_STARTED | B | GEN-03 | STANDARD IMPLEMENTATION |
 | [IMPORT-01](prompts/IMPORT-01.md) | Add reviewed CSV intake | NOT_STARTED | B | GEN-04 | STANDARD IMPLEMENTATION |
-| [GEN-05](prompts/GEN-05.md) | Prove independent second-studio acceptance | NOT_STARTED | B | IMPORT-01 | STANDARD IMPLEMENTATION |
+| [GEN-05](prompts/GEN-05.md) | Prove independent second-studio acceptance | NOT_STARTED | B | GEN-04 | STANDARD IMPLEMENTATION |
 | [OPT-01](prompts/OPT-01.md) | Score schedule quality deterministically | NOT_STARTED | C | SET-07, VERIFY-01 | STANDARD IMPLEMENTATION |
 | [OPT-02](prompts/OPT-02.md) | Optimize within proven HARD feasibility | NOT_STARTED | C | OPT-01, UX-02 | STANDARD IMPLEMENTATION |
 | [CAND-01](prompts/CAND-01.md) | Persist candidate review without a second schedule model | NOT_STARTED | C | OPT-02 | STANDARD IMPLEMENTATION |
 | [OPS-01](prompts/OPS-01.md) | Verify deployment configuration and recovery | NOT_STARTED | A | SAFE-02, VERIFY-01 | STANDARD IMPLEMENTATION |
-| [OPS-02](prompts/OPS-02.md) | Finish account roles and privacy lifecycle | NOT_STARTED | C | GEN-05 | STANDARD IMPLEMENTATION |
+| [OPS-02](prompts/OPS-02.md) | Finish account roles and privacy lifecycle | NOT_STARTED | C | GEN-04, OPS-01 | STANDARD IMPLEMENTATION |
 | [OPS-03](prompts/OPS-03.md) | Add operational monitoring and manager help | NOT_STARTED | C | OPS-01, OPS-02 | STANDARD IMPLEMENTATION |
 | [PILOT-01](prompts/PILOT-01.md) | Accept a supported external commercial pilot | NOT_STARTED | C | CAND-01, OPS-03 | STANDARD IMPLEMENTATION |
 | [CYCLE-01](prompts/CYCLE-01.md) | Support next season and safe archive lifecycle | NOT_STARTED | D | PILOT-01 | STANDARD IMPLEMENTATION |
 | [V1-01](prompts/V1-01.md) | Close product v1 acceptance | NOT_STARTED | D | CYCLE-01 | STANDARD IMPLEMENTATION |
 
-31 STANDARD IMPLEMENTATION; two HIGH-REASONING IMPLEMENTATION (POL-01 and GEN-01); zero ARCHITECTURAL REVIEW REQUIRED. These two involve cross-runtime semantic transition, not unresolved product scope. Decisions in DECISIONS prevent reopening the authority architecture.
+32 STANDARD IMPLEMENTATION; two HIGH-REASONING IMPLEMENTATION (POL-01 and GEN-01); zero ARCHITECTURAL REVIEW REQUIRED. These two involve cross-runtime semantic transition, not unresolved product scope. Decisions in DECISIONS prevent reopening the authority architecture.
 
 ## Historical task mapping
 
@@ -85,7 +86,52 @@ Former milestones/phase labels are superseded by A DWDE Operational, B Second-St
 
 Private evidence may already exist outside Git; “not established here” is not an assertion that it does not exist. No new owner architectural question is required to begin. No roadmap entry authorizes contacting people, deployment, paid provisioning or live customer-data changes.
 
+## Adopted autonomous run map
+
+The reworked plan is adopted at R0. `TASKS.md` remains the only status and dependency ledger; `NEXT.md` selects the only run currently authorized.
+
+| Run | Contained work | State |
+|---|---|---|
+| R0 | POL-02 evidence reconciliation and plan adoption | COMPLETE CHECKPOINT; POL-02 remains pending |
+| R1 | POL-04 SQL safeguard parity and no-write closure | SELECTED; the only run authorized after this checkpoint |
+| R2 | SET-03, SET-04, SET-05 | NOT_STARTED; requires accepted POL-02 and SET-02 |
+| R3 | POL-03, SET-06 | NOT_STARTED; policy lane after R2 contracts |
+| R4 | SET-07, UX-01, UX-02, LOCK-01, UX-03 | NOT_STARTED; integration sequence follows the adopted graph |
+| R5 | OPS-01 engineering rehearsal and engineering release checkpoint | NOT_STARTED; no deployment or external acceptance implied |
+| R6+ | Generic expansion, quality, operations, cycle and qualification work | NOT_STARTED; see the derived MASTER_PLAN route |
+
 ## Completion records
+
+### POL-02 — PENDING RECONCILIATION
+
+- Reconciliation scope: inclusive commits `9de8d07^..7f5c128` (27 commits; 24 files; approximately 2,911 insertions and 185 deletions), starting at `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on branch `feat/pre-cami-hardening`. The changed surface contains TypeScript/Python policy, compiler, runtime, solver, parity fixtures and tests; it contains no `supabase/migrations` change.
+- Decision: POL-02 is not DONE. Its typed application/runtime work is evidenced, but the combined SQL safeguard criterion is not satisfied. POL-02 is BLOCKED on corrective task POL-04; no implementation completion is inferred from commit names or green non-DB tests.
+
+| POL-02 criterion | Disposition | Exact evidence and limitation |
+|---|---|---|
+| Operating windows, room unavailable windows, qualification domains, required teacher/room, capacity and required-feature policy schemas | PASS in typed application/solver scope | `tests/pol02-typed-policy-schema.test.ts`, `tests/pol02-runtime-semantics.test.ts`, and `solver/tests/test_pol02_typed_feasibility.py` cover the supported typed families and fixed half-open/set-inclusion/default-deny semantics. |
+| Stable-ID binding, canonical sorting/deduplication and PlanningDataset facts remaining separate from policy | PASS | `tests/pol02-ir-binding.test.ts` and schema/compiler tests cover rename invariance, missing IDs and canonical entity binding; capacity/features remain read from planning facts in the typed runtime. |
+| Dependency-closed V5 bundle ownership and residual/unsupported HARD fail-closed behavior | PASS in compiler scope | `tests/pol02-bundle-transition.test.ts` and `tests/pol02-v5-compiler.test.ts` cover duplicate ownership, incomplete consumption, residual drift, stable IDs and missing references. |
+| TypeScript runtime semantics and explicit qualification governance/default-deny behavior | PASS in TypeScript scope | `tests/pol02-runtime-semantics.test.ts`, `tests/pol02-default-deny-governance.test.ts`, and `tests/pol02-preference-ir.test.ts` pass; preferences remain records and are not used for optimization. |
+| Pinned Python feasibility semantics | PASS | The isolated Python 3.12 environment with `ortools==9.15.6755` ran `solver/tests/test_pol02_typed_feasibility.py`: 9 passed. Solver CI also passed the pinned service/CP-SAT path and container build. |
+| TypeScript/Python runtime parity | PASS | Shared fixture `tests/fixtures/pol02-runtime-parity.json`; `npm run test:parity` with `PYTHON_BINARY` set to the isolated audit interpreter: 2 files, 3 tests passed, exit 0. |
+| Shared positive/negative/boundary coverage, including rename, missing IDs, duplicate references, closed days and interval endpoints | PASS for TS/Python fixtures; DB half not established | Focused suites passed: 7 files passed, 1 skipped; 47 tests passed, 1 skipped. The required executed SQL transaction/no-write counterpart is absent. |
+| Rejection/no-write at canonical database boundaries | NOT ESTABLISHED | The existing `npm run test:db` chain executes base DB, SAFE-01, SET-01 and POL-01 only; no POL-02 typed transaction or no-write regression is wired. |
+| Compiler accounting and SQL safeguard coverage agree; no unsupported family falls through | GAP DEMONSTRATED | The effective `validate_schedule_hard_v25` body delegates to V2.2 and adds only `CLASS_DURATION`; V47/V48/V49 wrappers carry application validation JSON but do not enforce POL-02 typed kinds. A rollback-only disposable witness appended an impossible `ROOM_REQUIRED_FEATURES` mapping and an occupied assignment, then returned no `POL02-SQL-AUDIT` violation; output was `POL-02 SQL GAP`, with `BEGIN`/`ROLLBACK`, exit 0. No permanent harness change remains. |
+| Non-goals: no relationship families, full baseline conversion, optimization, deployment, customer-data mutation or external-service write | PASS | The inclusive commit range is limited to typed TS/Python/runtime/test surfaces; no migration, deployment, production, private customer data or external service was used. |
+
+### POL-02 verification record
+
+- Focused TypeScript command: `npx vitest run tests/pol02-bundle-transition.test.ts tests/pol02-default-deny-governance.test.ts tests/pol02-ir-binding.test.ts tests/pol02-preference-ir.test.ts tests/pol02-runtime-parity.test.ts tests/pol02-runtime-semantics.test.ts tests/pol02-typed-policy-schema.test.ts tests/pol02-v5-compiler.test.ts` — exit 0; 7 files passed, 1 skipped; 47 tests passed, 1 skipped.
+- Focused Python command without `PYTHONPATH` — exit 1 at collection with `ModuleNotFoundError: No module named 'dwde_solver'`; this was an environment invocation failure, not a product result. Corrected command with `PYTHONPATH=solver` and the isolated pinned interpreter — exit 0; 9 passed.
+- `npm run test:parity` with the same pinned `PYTHON_BINARY` — exit 0; 2 files and 3 tests passed.
+- `npm run test:db` with the unmodified permanent harness — exit 0; base database replay, SAFE-01, SET-01 and POL-01 database regressions passed. A second disposable run temporarily added the rollback-only POL-02 SQL witness described above, then the hook was removed and `scripts/test-db.mjs` restored to its committed content; that run also exited 0. This green chain is not POL-02 SQL acceptance.
+- Required repository checks were green in latest head CI run [34307660865](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865), PR [#55](https://github.com/masterzoidberg/studioscheduler/pull/55): Ubuntu quality job [102327600736](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865/job/102327600736) passed planning integrity, lint, typecheck, unit tests, build, disposable DB and route smoke; Windows quality job [102327600546](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865/job/102327600546) passed lint, typecheck, unit tests and build; authenticated E2E job [102327600771](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660865/job/102327600771) passed.
+- Solver checks were green in [Solver CI run 34307660849](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660849), with CP-SAT/service pytest and solver container build job [102327600639](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660849/job/102327600639) passed and runtime parity job [102327600778](https://github.com/masterzoidberg/studioscheduler/actions/runs/34307660849/job/102327600778) passed.
+- First failed full-suite result retained: [CI run 34236506763](https://github.com/masterzoidberg/studioscheduler/actions/runs/34236506763) at `9de8d07` failed typecheck; later full-suite steps were skipped. Focused diagnosis/corrections were recorded in CI runs `34237245806` (lint `no-explicit-any`), `34238388294` (coverage test missing return), `34305473646`/`34305592705` (bundle-transition assertions), `34305848316` (compiler expectations), `34306778160` (POL-01 fixture), `34307025237` (parity endpoint mismatch) and `34307311945` (`objectivePolicies` typecheck) before the successful latest runs. No failure was discarded or used to weaken acceptance.
+- CI evidence does not contain a POL-02 SQL transaction/no-write artifact. No authenticated e2e journey is required to accept this solver/IR-only correction, although the latest E2E job passed. Private DWDE acceptance, deployed migration/configuration, restore, independent-studio and commercial evidence remain external gates.
+
+Result: **POL-02 remains pending/BLOCKED** until POL-04 adds a forward SQL safeguard and executed typed rejection/no-write evidence. Do not archive `prompts/POL-02.md` or mark POL-02 DONE before that evidence exists.
 
 ### SAFE-01 — DONE
 
@@ -172,4 +218,4 @@ Private evidence may already exist outside Git; “not established here” is no
 
 ## Audit completion record
 
-Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are accepted post-rebuild implementation slices. Remaining product work follows the active dependency graph above, beginning with POL-02.
+Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are accepted post-rebuild implementation slices. R0 reconciled the subsequent POL-02 implementation evidence without inferring completion; the remaining product work follows the adopted dependency graph above, beginning with selected R1/POL-04.

@@ -1,6 +1,6 @@
 # POL-03 — Type linked attendance and sequencing policies
 
-Execution class: **STANDARD IMPLEMENTATION**. Milestone: **A**. Dependencies: **SET-05**.
+Execution class: **STANDARD IMPLEMENTATION**. Milestone: **A**. Dependencies: **POL-02**.
 Status is owned by [TASKS](../TASKS.md); do not infer readiness from this prompt existing.
 
 ## Outcome and current state

@@ -1,6 +1,6 @@
 # POL-02 — Extend typed policy to studio and qualification families
 
-Execution class: **STANDARD IMPLEMENTATION**. Milestone: **A**. Dependencies: **POL-01**.
+Execution class: **STANDARD IMPLEMENTATION**. Milestone: **A**. Dependencies: **POL-01, POL-04**.
 Status is owned by [TASKS](../TASKS.md); do not infer readiness from this prompt existing.
 
 ## Outcome and current state

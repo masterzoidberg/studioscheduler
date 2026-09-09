@@ -1,16 +1,18 @@
 # Studio Scheduler product completion plan
 
-Canonical baseline: `91204390d8c025789e6af871a5939eb22decd517`, 2026-09-07. Scope is a trustworthy weekly scheduling application that managers configure and operate independently. [TASKS](TASKS.md) owns task status; [NEXT](NEXT.md) selects one task. This plan supersedes prior release/generic/cutover roadmaps.
+Canonical baseline: `91204390d8c025789e6af871a5939eb22decd517`, 2026-09-07. Scope is a trustworthy weekly scheduling application that managers configure and operate independently. R0 plan rework adoption was completed on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`; POL-02 remains pending and POL-04 is the selected corrective run. [TASKS](TASKS.md) owns task status/dependencies; [NEXT](NEXT.md) selects one run. This plan supersedes prior release/generic/cutover roadmaps.
 
 ## What exists and what does not
 
-Current code implements versioned policy/planning/schedules, deterministic Constraint IR, CP-SAT feasibility, coherent candidate context, per-session solver locks, authoritative manual commands/recovery and restricted legacy writes. T01–T13 are accepted historical work. New P1 correctness finding: V49 adoption's nullable membership check fails to reject a missing row; SAFE-01 fixes this before new features.
+Current code implements versioned policy/planning/schedules, deterministic Constraint IR, CP-SAT feasibility, coherent candidate context, per-session solver locks, authoritative manual commands/recovery and restricted legacy writes. T01–T13 are accepted historical work. Typed POL-02 application/runtime/compiler/solver/parity evidence is present, but R0 demonstrated that the effective SQL safeguard still covers legacy semantics only; POL-04 is the bounded forward-migration and no-write corrective. New P1 correctness finding: V49 adoption's nullable membership check fails to reject a missing row; SAFE-01 fixes this before new features.
 
 The manager product is incomplete: inventory forms omit scheduling availability/qualification intake, readiness is DWDE-specific, review is global rather than scoped, onboarding is absent, normal UI exposes internal architecture, lock controls and schedule print/export are missing, all-room/mobile/duration behavior needs repair. Copilot still carries legacy authority assumptions. Tenant UUIDs, names, 178-rule accounting and calendar defaults prevent independent onboarding. Passing tests do not prove private data completeness, deployed migration state or independent manager use.
 
 Evidence: [architecture audit](AUDIT_ARCHITECTURE.md), [UX journey audit](AUDIT_UX.md), [history/instruction audit](AUDIT_HISTORY.md), [verification record](AUDIT_VERIFICATION.md). These are dated evidence appendices, not competing task queues.
 
 ## Delivery route
+
+The adopted execution route starts with R1/POL-04, which closes the demonstrated POL-02 SQL safeguard gap. R2 then unblocks the independent SET-03/04/05 setup slices; later runs follow the dependency graph in [TASKS](TASKS.md). This route is planning guidance only: no deployment, merge, external participant or private-data action is implied.
 
 1. SAFE-01 closes the missing-member authorization gap; SAFE-02 makes local configuration safe and contains misleading AI. VERIFY-01 provides parity and authenticated disposable verification.
 2. SET-01 adds narrow review state through one existing room-capacity workflow. POL-01/02/03 progressively support governed typed policy forms; SET-02–07 build a unified manager setup and certification journey.
@@ -40,7 +42,7 @@ Current statuses are evidence classifications, not delivery claims. “Verified�
 | Setup/teacher/student/room management | Basic inventory partial; scheduling intake absent | SET-01–07 complete | Empty neutral studio works | Repeated intake supported | Independent repeat |
 | Planning data/classes/sessions/rosters | Versioned CRUD/repair partial | Complete in-app review | Typed ID dependencies | Reviewed bulk intake | New-cycle reuse |
 | Qualifications/availability | Compiler semantics; no full forms | Explicit policy forms | No name bindings | Supported limits documented | Regression maintained |
-| Policy/rules/HARD validation | Guarded DWDE + IR verified; arbitrary prose unsupported | Typed supported bundles; fail closed | Tenant record accounting | Generic supported authoring | Stable documented vocabulary |
+| Policy/rules/HARD validation | Typed TS/Python IR verified; POL-02 SQL safeguard parity pending; arbitrary prose unsupported | Typed supported bundles; fail closed | Tenant record accounting | Generic supported authoring | Stable documented vocabulary |
 | Preferences | Priority metadata only | Record honestly; feasibility + manual finish accepted | Same | OPT-01/02 measured | Repeatable quality |
 | Completeness/certification | Global attestation partial | Scoped review + operation gates | Tenant-neutral | Supported | Cycle-aware |
 | Solver/generation | Feasibility/code tests verified | Whole actual dataset and failures proven | Independent fixture/manager | Bounded optimization | Operating reliability |
@@ -80,4 +82,3 @@ Underestimated work: static semantics appear in compiler, readiness, Python and 
 Most important unasked question: can the manager maintain the data next season without losing trusted history? CYCLE-01 and D acceptance now require this. Another first-season demo does not close v1.
 
 Deferred decisions have deadlines: exact private roster/availability facts are supplied inside Setup before ACC-01; actual solve budget/acceptable manual finishing is measured and accepted at ACC-01, no invented SLA; external studio chosen before GEN-05; backup/support response targets and retention terms supplied by operator before PILOT-01. If a customer's must-have semantic lies outside supported vocabulary, record a concrete generic extension before accepting that customer, rather than promise arbitrary rule support.
-

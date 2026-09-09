@@ -1,47 +1,20 @@
-# Next implementation session
+# Next autonomous run
 
-**POL-02 — Extend typed policy to studio and qualification families**  
-**Execution class: STANDARD IMPLEMENTATION**  
-**Milestone: A — DWDE Operational**  
-**Status: READY for implementation.**
+**R1 — POL-04: close POL-02 typed SQL safeguard parity and no-write coverage**
+**Execution class: STANDARD IMPLEMENTATION**
+**Milestone: A — DWDE Operational**
+**Status: SELECTED; the only READY task and next run.**
 
-Work on `feat/pre-cami-hardening`. Latest accepted implementation baseline is `86a4e8d719b62c9aeab3a11b1b604f628ffe0d24` (SET-02 accepted implementation head before planning closeout). PR #55 CI run **432** and Solver CI run **151** passed at that SHA. Ubuntu passed planning integrity, lint, typecheck, unit tests, build, the full disposable DB chain and route smoke tests; Windows passed lint, typecheck, unit tests and build; authenticated-e2e passed the preserved VERIFY-01 and SET-01 journeys plus the new SET-02 empty/returning-manager workflow; Solver CI passed CP-SAT/service pytest, the production solver container build and TypeScript/Python runtime parity. The disposable DB runner now retries only the recognized missing-Postgres-socket startup signature with fresh containers and still fails SQL/assertion errors immediately.
+Work on `feat/pre-cami-hardening` from implementation base `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`. R0 audited commits `9de8d07^..7f5c128` and adopted the reworked plan. The planning adoption commit adds no product code; `TASKS.md` records the final checkpoint head. PR #55 remains open and no merge, push or deployment is authorized.
 
-Read [POL-02 implementation prompt](prompts/POL-02.md). This is the only selected next task. Dependency POL-01 is accepted. SET-02 is now accepted and archived. No private DWDE manager dataset is required.
+Read [POL-04](prompts/POL-04.md), [TASKS](TASKS.md), [MASTER_PLAN](MASTER_PLAN.md), [DECISIONS](DECISIONS.md), [CODEX_EXECUTION_RULES](CODEX_EXECUTION_RULES.md) and the effective SQL callers before editing. POL-02 remains BLOCKED/pending; do not archive `prompts/POL-02.md` or claim it DONE from the passing TypeScript/Python evidence.
 
-Why next: POL-01 proved the bounded stable-ID typed-policy transition for one teacher-day-window family. POL-02 extends that same tested authority model to the remaining studio/resource/qualification families needed before Setup can manage operating hours, rooms and teacher qualifications without falling back to name-bound or static DWDE semantics.
+Implement only the demonstrated SQL safeguard gap. Add a forward migration and executed disposable database regression for the supported POL-02 HARD families: operating windows/closed days, room unavailable windows, explicit qualification domains, required teacher/room, room capacity and required features. The safeguard must consume the pinned authoritative current model/context, not trust a caller-supplied `valid: true` application payload. Preserve stable IDs, PlanningDataset facts, Rulebook policy, ConstraintModelVersion meaning, ScheduleVersion history, exact membership/tenant checks, rejection/no-write behavior and all fixed POL-02 interval, qualification, capacity and feature semantics.
 
-Implement the bounded policy-family expansion:
-- operating-day windows;
-- capacity enforcement and required-feature policy consuming PlanningDataset room capacity/features;
-- room unavailable windows;
-- explicit class-teacher qualification domains;
-- required teacher and required room policy;
-- basic preference records;
-- preserve existing family semantics unless an explicitly reviewed typed replacement consumes them;
-- keep stable IDs, dependency-closed replacement accounting and fail-closed unsupported HARD behavior;
-- do not add an arbitrary rules DSL, relationship families, or a second policy store.
+Do not add unrelated setup/UI work, a second policy store, arbitrary DSL, relationship families, full baseline conversion, optimization, deployment, production access, private customer-data mutation, merge, push or external-service writes.
 
-Fixed semantics from the accepted prompt:
-- room capacities/features remain PlanningDataset facts; policy only governs enforcement/required feature sets and closures;
-- intervals are half-open `[start,end)`; zero/negative/overnight windows reject;
-- multiple windows inside one allowed-window rule are a union; separate HARD allowed-window rules intersect;
-- required feature sets use set inclusion;
-- empty explicit qualification domain permits no classes; unresolved qualification is unreviewed;
-- a required teacher must also qualify;
-- missing required capacity cannot be waived as unrestricted;
-- canonical sorting/deduplication preserves stable IDs.
+Required verification from repository root with the isolated pinned Python environment:
 
-Inspect first:
-- `lib/constraint-ir.ts`;
-- `lib/constraint-compiler-v3.ts`;
-- `lib/constraint-data-binding.ts`;
-- `lib/constraint-engine.ts`;
-- `solver/dwde_solver/feasibility.py`;
-- `lib/schedule-readiness.ts`;
-- successor migrations, policy publication callers and existing POL-01 regression surfaces before editing.
-
-Required verification from repository root with explicit disposable configuration:
 ```powershell
 npm run lint
 npm run typecheck
@@ -49,10 +22,7 @@ npm test
 npm run build
 npm run test:db
 npm run test:parity
+$env:PYTHONPATH='solver'; & 'C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe' -m pytest solver/tests/test_pol02_typed_feasibility.py
 ```
 
-Because POL-02 changes solver/IR semantics, also run the pinned Python solver/service pytest path. Add positive, negative and boundary fixtures for each new family, including rename, missing IDs, duplicate references, closed day and interval endpoint behavior. Compiler accounting and SQL safeguard coverage must agree. Rejection/no-write behavior remains mandatory.
-
-Non-goals: no relationship families, no full DWDE baseline conversion, no optimization, no deployment, no customer-data mutation and no external-service write.
-
-After accepted completion, update [TASKS](TASKS.md), archive the completed prompt, derive README/NEXT, and select the next dependency-satisfied task according to ledger order.
+Run focused tests before the full commands. Preserve the first failed full-suite result, diagnose with focused tests, and do not weaken assertions. Stop on any mandatory runbook condition, including an authority conflict, overlapping changes, historical-byte rewrite, missing dependency, production/private-data access or a second independent gap. On success, mark POL-02 DONE only when every original criterion passes, archive its prompt, update the canonical ledger and derived views atomically, and select the next run.

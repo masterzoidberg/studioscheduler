@@ -1,6 +1,6 @@
 # OPS-02 — Finish account roles and privacy lifecycle
 
-Execution class: **STANDARD IMPLEMENTATION**. Milestone: **C**. Dependencies: **GEN-05**.
+Execution class: **STANDARD IMPLEMENTATION**. Milestone: **C**. Dependencies: **GEN-04, OPS-01**.
 Status is owned by [TASKS](../TASKS.md); do not infer readiness from this prompt existing.
 
 ## Outcome and current state
@@ -66,4 +66,3 @@ Record changed files, new test names, commands and exit codes, demonstrated beha
 ## Escalation conditions
 
 Escalate with a concrete reproducer if schema cannot preserve authority without duplicate truth; a required HARD semantic is unsupported; dependency-closed policy replacement cannot be proven; current code conflicts with accepted decisions; historical migrations would need rewriting; or this bounded scope expands materially. Resolve routine file/API uncertainty by inspection. Complete independent authorized work before asking for an external decision. No task prompt authorizes deployment, paid services, messages to others, or destructive customer-data operations.
-
