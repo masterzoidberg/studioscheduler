@@ -1,5 +1,5 @@
 import type { StudioRule, StudioState } from "@/lib/domain";
-import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
+import type { ConstraintIRNode, ConstraintModelSnapshotV1, ObjectivePriorityIR } from "@/lib/constraint-ir";
 import { compileConstraintModel as compileV01 } from "@/lib/constraint-compiler";
 import {
   reviewedDwdePolicySupport,
@@ -8,6 +8,7 @@ import {
   POL01_TYPED_RULE_IDS,
 } from "@/lib/dwde-policy-transition";
 import { RULE_EXECUTION_BY_ID } from "@/lib/rule-execution-registry";
+import { compileTypedPreferenceIR } from "@/lib/typed-preference-ir";
 import {
   isTeacherDayWindowPolicy,
   parseTypedPolicy,
@@ -154,7 +155,7 @@ function compileV4TypedPolicies(state: StudioState, ruleMap: Map<string, StudioR
   };
 }
 
-function hardPolicyStableIdsExist(state: StudioState, policy: TypedPolicyV1) {
+function policyStableIdsExist(state: StudioState, policy: TypedPolicyV1) {
   const teacherIds = new Set(state.teachers.map((teacher) => teacher.id));
   const roomIds = new Set(state.rooms.map((room) => room.id));
   const classIds = new Set(state.classes.map((klass) => klass.id));
@@ -169,11 +170,10 @@ function hardPolicyStableIdsExist(state: StudioState, policy: TypedPolicyV1) {
     case "REQUIRED_ROOM": return roomIds.has(policy.roomId) && allClassesExist(policy.classIds);
     case "ROOM_CAPACITY_POLICY": return roomIds.has(policy.roomId) && allClassesExist(policy.exemptClassIds || []);
     case "ROOM_REQUIRED_FEATURES": return allClassesExist(policy.classIds);
-    case "PREFERRED_TEACHER":
-    case "PREFERRED_ROOM":
+    case "PREFERRED_TEACHER": return teacherIds.has(policy.teacherId) && allClassesExist(policy.classIds);
+    case "PREFERRED_ROOM": return roomIds.has(policy.roomId) && allClassesExist(policy.classIds);
     case "PREFERRED_DAY":
-    case "AVOID_DAY":
-      return true;
+    case "AVOID_DAY": return allClassesExist(policy.classIds);
   }
 }
 
@@ -256,6 +256,7 @@ function compileV5TypedPolicies(
   state: StudioState,
   ruleMap: Map<string, StudioRule>,
   legacyNodes: ConstraintIRNode[],
+  legacyObjectives: ObjectivePriorityIR[],
 ) {
   const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? null;
   const manifest = typedPolicyBundleManifest(currentRulebook);
@@ -264,6 +265,7 @@ function compileV5TypedPolicies(
   const closureBlockedRuleIds = new Set<string>();
   const suppressedLegacyNodeIds = new Set<string>();
   const nodes: ConstraintIRNode[] = [];
+  const preferences: ObjectivePriorityIR[] = [];
 
   for (const node of legacyNodes) {
     const consumedOnNode = node.ruleIds.filter((ruleId) => consumedRuleIds.has(ruleId));
@@ -278,8 +280,15 @@ function compileV5TypedPolicies(
     for (const rule of ruleMap.values()) {
       if (parseTypedPolicy(rule).status !== "NONE") invalidHardRuleIds.add(rule.id);
     }
-    return { consumedRuleIds, invalidHardRuleIds, closureBlockedRuleIds, suppressedLegacyNodeIds, nodes };
+    return { consumedRuleIds, invalidHardRuleIds, closureBlockedRuleIds, suppressedLegacyNodeIds, nodes, preferences };
   }
+
+  const softOwnerIds = manifest.bundles
+    .map((bundle) => bundle.ownerRuleId)
+    .filter((ruleId) => RULE_EXECUTION_BY_ID.get(ruleId)?.disposition === "SOFT_OBJECTIVE")
+    .sort(compareCanonicalStrings);
+  const fallbackPreferenceRank = new Map(softOwnerIds.map((ruleId, index) => [ruleId, 1001 + index]));
+  const legacyRank = new Map(legacyObjectives.map((objective) => [objective.ruleId, objective.rank]));
 
   for (const bundle of manifest.bundles) {
     const rule = ruleMap.get(bundle.ownerRuleId);
@@ -289,13 +298,25 @@ function compileV5TypedPolicies(
     }
     const execution = RULE_EXECUTION_BY_ID.get(rule.id);
     const hard = execution?.disposition === "HARD_CONSTRAINT" || execution?.disposition === "EXCEPTION" || rule.strength === "HARD";
+    const soft = execution?.disposition === "SOFT_OBJECTIVE";
     const parsed = parseTypedPolicy(rule);
     if (parsed.status !== "VALID") {
       if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
       continue;
     }
+    if (!policyStableIdsExist(state, parsed.policy)) {
+      if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      continue;
+    }
+
+    if (soft) {
+      const rank = legacyRank.get(rule.id) ?? fallbackPreferenceRank.get(rule.id) ?? 1999;
+      const preference = compileTypedPreferenceIR(rule, parsed.policy, bundle.consumedRuleIds, rank);
+      if (preference) preferences.push(preference);
+      continue;
+    }
     if (!hard) continue;
-    if (bundle.consumedRuleIds.some((ruleId) => closureBlockedRuleIds.has(ruleId)) || !hardPolicyStableIdsExist(state, parsed.policy)) {
+    if (bundle.consumedRuleIds.some((ruleId) => closureBlockedRuleIds.has(ruleId))) {
       for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
       continue;
     }
@@ -313,6 +334,7 @@ function compileV5TypedPolicies(
     closureBlockedRuleIds,
     suppressedLegacyNodeIds,
     nodes: nodes.sort((a, b) => compareCanonicalStrings(a.id, b.id)),
+    preferences: preferences.sort((a, b) => a.rank - b.rank || compareCanonicalStrings(a.ruleId, b.ruleId)),
   };
 }
 
@@ -328,7 +350,7 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
   const legacyCandidates = [...legacyBase, ...legacyAdditions];
 
   if (currentRulebook?.version === DWDE_TYPED_POLICY_BUNDLE_VERSION) {
-    const typed = compileV5TypedPolicies(state, ruleMap, legacyCandidates);
+    const typed = compileV5TypedPolicies(state, ruleMap, legacyCandidates, base.objectivePrioritySpine);
     const candidateHardConstraints = [
       ...legacyCandidates.filter((node) => !typed.suppressedLegacyNodeIds.has(node.id)),
       ...typed.nodes,
@@ -350,11 +372,16 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
     ])]
       .filter((ruleId) => !representedRuleIds.has(ruleId))
       .sort(compareCanonicalStrings);
+    const objectivePrioritySpine = [
+      ...base.objectivePrioritySpine.filter((objective) => !typed.consumedRuleIds.has(objective.ruleId)),
+      ...typed.preferences,
+    ].sort((a, b) => a.rank - b.rank || compareCanonicalStrings(a.ruleId, b.ruleId));
 
     return {
       ...base,
       compilerVersion: POL02_CONSTRAINT_COMPILER_VERSION,
       hardConstraints,
+      objectivePrioritySpine,
       uncompiledConstraintRuleIds,
       completeHardConstraintCompilation: policySupport.supported && uncompiledConstraintRuleIds.length === 0,
     };
