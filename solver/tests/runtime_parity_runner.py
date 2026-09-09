@@ -8,7 +8,7 @@ SOLVER_ROOT = Path(__file__).resolve().parents[1]
 if str(SOLVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SOLVER_ROOT))
 
-from dwde_solver.feasibility import solve_feasibility
+from dwde_solver.typed_feasibility import solve_feasibility
 
 
 def main() -> int:
