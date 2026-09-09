@@ -137,15 +137,17 @@ export function validateConstraintModelSchedule(
   assignments: Assignment[],
 ): ConstraintEngineResult {
   const base = validateBase(state, model, assignments);
+  const defaultDenyQualification = model.governanceAssertions.some((assertion) => assertion.ruleId === "CUR-007");
   const typedQualificationTeacherIds = new Set(
     model.hardConstraints
       .filter((node) => node.kind === "TEACHER_CLASS_DOMAIN")
       .flatMap((node) => node.selector.teacherIds || []),
   );
-  const violations = base.violations.filter((violation) =>
-    violation.constraintId !== "teacher-qualification-default-deny"
-    || !violation.affectedEntityIds.some((entityId) => typedQualificationTeacherIds.has(entityId)),
-  );
+  const violations = base.violations.filter((violation) => {
+    if (violation.constraintId !== "teacher-qualification-default-deny") return true;
+    if (!defaultDenyQualification) return false;
+    return !violation.affectedEntityIds.some((entityId) => typedQualificationTeacherIds.has(entityId));
+  });
   const evaluated = new Set(base.evaluatedConstraintIds);
   const unsupported = new Set(base.unsupportedConstraintIds);
   const classesById = new Map(state.classes.map((klass) => [klass.id, klass]));
