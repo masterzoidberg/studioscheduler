@@ -122,7 +122,7 @@ describe("POL-02 V5 typed bundle transition", () => {
   it("rejects duplicate semantic ownership across bundles", () => {
     const value = fixture();
     const bundles = value.current.sourceMetadata!.typedPolicyBundles as Array<{ ownerRuleId: string; consumedRuleIds: string[] }>;
-    bundles.push({ ownerRuleId: "AIM-003", consumedRuleIds: ["ROOM-008"] });
+    bundles[1] = { ownerRuleId: "AIM-003", consumedRuleIds: ["AIM-003", "ROOM-008"] };
     expect(supportOf(value)).toMatchObject({ supported: false });
     expect(supportOf(value).message).toContain("exactly one");
   });
