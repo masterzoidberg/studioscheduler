@@ -86,6 +86,7 @@ function parseArgs(argv) {
     allowDisposable:
       argv.includes('--allow-disposable') || process.env.STUDIO_SCHEDULER_TEST_DB_ALLOW_DISPOSABLE === '1',
     checkTarget: argv.includes('--check-target'),
+    onlyPol04: argv.includes('--only-pol04'),
     target: targetArgument ? targetArgument.slice('--target='.length) : null,
   };
 }
@@ -1669,7 +1670,7 @@ async function waitForDatabase(container) {
   throw new DatabaseHarnessError('PostgreSQL did not become ready within 45 seconds. Check Docker Desktop and retry.');
 }
 
-async function runHarness() {
+async function runHarness(onlyPol04 = false) {
   const archiveDirectory = path.join(repoRoot, 'supabase', 'production-ledger');
   const migrationDirectory = path.join(repoRoot, 'supabase', 'migrations');
   const archiveFiles = sqlFiles(archiveDirectory);
@@ -1708,6 +1709,11 @@ async function runHarness() {
     }
 
     psql(container, 'postgres', transaction(fixtureSql), 'fixture seed');
+    const pol04Output = psql(container, 'postgres', transaction(pol04TypedSqlRegressionSql), 'POL-04 disposable regression');
+    process.stdout.write(pol04Output);
+    if (onlyPol04) {
+      return;
+    }
     const output = psql(container, 'authenticated', roleTestSql, 'owner/editor/viewer/nonmember integration tests');
     process.stdout.write(output);
     const constraintModelOutput = psql(container, 'postgres', constraintModelRoundTripSql, 'Constraint Model JSONB round-trip integration tests');
@@ -2093,6 +2099,564 @@ $block$;
 select 'T13 PASS: privilege enumeration leaves only current service authority; authenticated legacy schedule/model RPCs deny; downgraded actors fail publication/adoption; governed readers remain' as result;
 `;
 
+const pol04TypedSqlRegressionSql = String.raw`
+set search_path=public,extensions;
+set role postgres;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+savepoint pol04_regression;
+
+do $fixture$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_rulebook integer;
+  v_enforcement integer;
+  v_planning integer;
+  v_model jsonb;
+  v_model_version integer;
+  v_model_id uuid;
+  v_schedule_id uuid;
+  v_enforcement_row public.rule_enforcement_versions%rowtype;
+  v_enforcement_version integer;
+begin
+  if exists(select 1 from public.schedule_versions where studio_id=v_studio and is_current) then
+    raise exception 'POL04 fixture requires a studio without a current ScheduleVersion';
+  end if;
+
+  insert into public.teachers(id,studio_id,name)
+  values('pol04-teacher',v_studio,'POL04 Teacher'),
+        ('pol04-other-teacher',v_studio,'POL04 Other Teacher')
+  on conflict(id) do nothing;
+  insert into public.rooms(id,studio_id,name,capacity,features)
+  values('pol04-room',v_studio,'POL04 Room',2,'{mirrors,sprung-floor}'),
+        ('pol04-alt-room',v_studio,'POL04 Alternate Room',20,'{mirrors,sprung-floor}')
+  on conflict(id) do nothing;
+  insert into public.class_definitions(
+    id,studio_id,name,subject,level,duration_minutes,weekly_frequency,
+    roster_student_ids,eligible_teacher_ids
+  ) values
+    ('pol04-class',v_studio,'POL04 Canonical Interval','Ballet','POL04',90,1,
+      '{pol04-student-a,pol04-student-b}','{pol04-teacher}'),
+    ('pol04-other-class',v_studio,'POL04 Qualification Probe','Ballet','POL04',90,1,
+      '{}','{pol04-other-teacher}')
+  on conflict(id) do nothing;
+  insert into public.class_sessions(id,studio_id,class_id,ordinal,duration_minutes,locked)
+  values('pol04-session',v_studio,'pol04-class',1,90,false),
+        ('pol04-other-session',v_studio,'pol04-other-class',1,90,false)
+  on conflict(id) do nothing;
+
+  select version into v_rulebook from public.rulebook_versions
+  where studio_id=v_studio and status='CURRENT';
+  select * into v_enforcement_row
+  from public.rule_enforcement_versions
+  where studio_id=v_studio and status='CURRENT'
+  limit 1;
+  if v_rulebook is null or v_enforcement_row.id is null then
+    raise exception 'POL04 fixture requires current Rulebook and Enforcement versions';
+  end if;
+
+  -- Keep only the two fixture HARD mappings so the legacy validator is fully
+  -- covered while the typed SQL assertions isolate POL-04 semantics.
+  update public.rule_enforcement_versions
+  set status='HISTORICAL'
+  where id=v_enforcement_row.id;
+  select coalesce(max(version),0)+1 into v_enforcement_version
+  from public.rule_enforcement_versions where studio_id=v_studio;
+  insert into public.rule_enforcement_versions(
+    studio_id,version,rulebook_version,actor_label,reason,changed_rule_ids,snapshot,status
+  ) values(
+    v_studio,v_enforcement_version,v_rulebook,'POL-04 disposable fixture',
+    'Seed complete legacy HARD coverage for typed SQL regression',
+    array['ADV-004','OPS-002']::text[],
+    jsonb_build_array(
+      jsonb_build_object(
+        'ruleId','OPS-002','type','EARLIEST_START',
+        'parameters',jsonb_build_object('time','16:45','days',jsonb_build_array('Monday','Tuesday')),
+        'affectedEntityIds','[]'::jsonb,'exceptions','[]'::jsonb
+      ),
+      jsonb_build_object(
+        'ruleId','ADV-004','type','CLASS_DURATION',
+        'parameters','{}'::jsonb,'affectedEntityIds','[]'::jsonb,'exceptions','[]'::jsonb
+      )
+    ),'CURRENT'
+  );
+  v_enforcement:=v_enforcement_version;
+
+  select private.ensure_planning_dataset_version_v25(
+    v_studio,null,'POL-04 disposable fixture','Seed POL-04 typed SQL facts'
+  ) into v_planning;
+  v_model:=jsonb_build_object(
+    'schemaVersion','1.0','compilerVersion','dwde-ir-0.5',
+    'rulebookVersion',v_rulebook,'planningDatasetVersion',v_planning,'activeRuleCount',178,
+    'hardConstraints',jsonb_build_array(jsonb_build_object(
+      'id','pol04-operating-windows','kind','STUDIO_OPERATING_WINDOWS',
+      'ruleIds',jsonb_build_array('OPS-002'),'selector','{}'::jsonb,
+      'parameters',jsonb_build_object(
+        'windows',jsonb_build_array(
+          jsonb_build_object('day','Monday','start','17:00','end','18:30'),
+          jsonb_build_object('day','Tuesday','start','17:00','end','18:30'),
+          jsonb_build_object('day','Saturday','start','17:00','end','18:30')
+        ),'closedDays',jsonb_build_array('Saturday')
+      ),'explanation','POL04 operating window boundary'
+    ),jsonb_build_object(
+      'id','pol04-room-unavailable','kind','ROOM_UNAVAILABLE_WINDOWS',
+      'ruleIds',jsonb_build_array('POL04-ROOM-UNAVAILABLE'),
+      'selector',jsonb_build_object('roomIds',jsonb_build_array('pol04-room')),
+      'parameters',jsonb_build_object('windows',jsonb_build_array(
+        jsonb_build_object('day','Monday','start','18:30','end','19:00'),
+        jsonb_build_object('day','Tuesday','start','18:30','end','19:00')
+      )), 'explanation','POL04 half-open room-unavailable boundary'
+    ),jsonb_build_object(
+      'id','pol04-teacher-domain','kind','TEACHER_CLASS_DOMAIN',
+      'ruleIds',jsonb_build_array('POL04-TEACHER-DOMAIN'),
+      'selector',jsonb_build_object('teacherIds',jsonb_build_array('pol04-teacher')),
+      'parameters',jsonb_build_object('classIds',jsonb_build_array('pol04-class')),
+      'explanation','POL04 explicit qualification domain'
+    ),jsonb_build_object(
+      'id','pol04-required-teacher','kind','REQUIRED_TEACHER',
+      'ruleIds',jsonb_build_array('POL04-REQUIRED-TEACHER'),
+      'selector',jsonb_build_object(
+        'classIds',jsonb_build_array('pol04-class'),
+        'teacherIds',jsonb_build_array('pol04-teacher')
+      ),'parameters',jsonb_build_object('teacherId','pol04-teacher'),
+      'explanation','POL04 required teacher'
+    ),jsonb_build_object(
+      'id','pol04-required-room','kind','REQUIRED_ROOM',
+      'ruleIds',jsonb_build_array('POL04-REQUIRED-ROOM'),
+      'selector',jsonb_build_object(
+        'classIds',jsonb_build_array('pol04-class'),
+        'roomIds',jsonb_build_array('pol04-room')
+      ),'parameters',jsonb_build_object('roomId','pol04-room'),
+      'explanation','POL04 required room'
+    ),jsonb_build_object(
+      'id','pol04-room-capacity','kind','ROOM_CAPACITY',
+      'ruleIds',jsonb_build_array('ADV-004'),
+      'selector',jsonb_build_object('roomIds',jsonb_build_array('pol04-room')),
+      'parameters',jsonb_build_object('capacitySource','PLANNING_DATASET','exemptClassIds','[]'::jsonb),
+      'explanation','POL04 PlanningDataset capacity'
+    ),jsonb_build_object(
+      'id','pol04-room-features','kind','ROOM_REQUIRED_FEATURES',
+      'ruleIds',jsonb_build_array('POL04-ROOM-FEATURES'),
+      'selector',jsonb_build_object('classIds',jsonb_build_array('pol04-class')),
+      'parameters',jsonb_build_object('requiredFeatures',jsonb_build_array('mirrors','sprung-floor')),
+      'explanation','POL04 room feature set inclusion'
+    )),
+    'objectivePrioritySpine','[]'::jsonb,'readinessRuleIds','[]'::jsonb,
+    'governanceAssertions','[]'::jsonb,'uncompiledConstraintRuleIds','[]'::jsonb,
+    'completeHardConstraintCompilation',true
+  );
+  update public.constraint_model_versions
+  set status='HISTORICAL'
+  where studio_id=v_studio and status='CURRENT';
+  select coalesce(max(version),0)+1 into v_model_version
+  from public.constraint_model_versions where studio_id=v_studio;
+  insert into public.constraint_model_versions(
+    studio_id,version,rulebook_version,compiler_version,actor_user_id,actor_label,reason,
+    snapshot,snapshot_hash,complete_hard_constraint_compilation,status
+  ) values(
+    v_studio,v_model_version,v_rulebook,'dwde-ir-0.5',
+    '10000000-0000-4000-8000-000000000001','POL-04 disposable fixture',
+    'Seed POL-04 typed SQL model',v_model,private.constraint_model_hash_v27(v_model),true,'CURRENT'
+  ) returning id into v_model_id;
+  insert into public.schedule_versions(
+    studio_id,version,rulebook_version,enforcement_version,planning_dataset_version,
+    constraint_model_version,actor_user_id,actor_label,reason,is_current
+  ) values(
+    v_studio,coalesce((select max(version)+1 from public.schedule_versions where studio_id=v_studio),1),
+    v_rulebook,v_enforcement,v_planning,v_model_version,
+    '10000000-0000-4000-8000-000000000001','POL-04 disposable fixture',
+    'Seed POL-04 typed SQL schedule',true
+  ) returning id into v_schedule_id;
+  insert into public.assignments(
+    schedule_version_id,id,studio_id,session_id,day,start_time,end_time,teacher_id,room_id,locked,status
+  ) values
+    (v_schedule_id,'pol04-assignment',v_studio,'pol04-session','Monday','17:00','18:30',
+      'pol04-teacher','pol04-room',false,'NORMAL'),
+    (v_schedule_id,'pol04-other-assignment',v_studio,'pol04-other-session','Tuesday','17:00','18:30',
+      'pol04-other-teacher','pol04-room',false,'NORMAL');
+  update public.planning_dataset_versions
+  set confirmed_for_scheduling_at=now(),
+      confirmed_for_scheduling_by='10000000-0000-4000-8000-000000000001',
+      confirmed_for_scheduling_by_label='POL-04 disposable fixture',
+      scheduling_confirmation_note='POL-04 typed SQL regression fixture'
+  where studio_id=v_studio and version=v_planning;
+end
+$fixture$;
+
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_schedule public.schedule_versions%rowtype;
+  v_result jsonb;
+begin
+  select * into v_schedule
+  from public.schedule_versions
+  where studio_id=v_studio and is_current;
+  if v_schedule.id is null then
+    raise exception 'POL04 fixture requires current ScheduleVersion and ConstraintModelVersion';
+  end if;
+
+  select public.validate_schedule_hard_v25(v_schedule.id) into v_result;
+  if coalesce((v_result->>'valid')::boolean,false) is not true
+     or coalesce((v_result->>'fullyValidated')::boolean,false) is not true
+     or jsonb_array_length(coalesce(v_result->'violations','[]'::jsonb))<>0 then
+    raise exception 'POL04 legal boundary unexpectedly failed: %',v_result;
+  end if;
+end
+$block$;
+
+-- Stable-ID binding survives presentation-only renames; the PlanningDataset
+-- snapshot remains the authority for scheduling facts.
+do $block$
+declare v_result jsonb; v_schedule_id uuid;
+begin
+  select id into v_schedule_id from public.schedule_versions
+  where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+  update public.rooms set name='Renamed POL04 Room' where id='pol04-room';
+  update public.class_definitions set name='Renamed POL04 Class' where id='pol04-class';
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if coalesce((v_result->>'valid')::boolean,false) is not true
+     or jsonb_array_length(coalesce(v_result->'violations','[]'::jsonb))<>0 then
+    raise exception 'POL04 stable-ID rename boundary failed: %',v_result;
+  end if;
+end
+$block$;
+
+-- Closed days are rejected, while the exact end of an allowed operating window
+-- and the exact start of a room-unavailable window remain legal [start,end).
+do $block$
+declare v_result jsonb; v_schedule_id uuid;
+begin
+  select id into v_schedule_id from public.schedule_versions
+  where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+  update public.assignments set day='Saturday' where id='pol04-assignment';
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-operating-windows') then
+    raise exception 'POL04 closed-day violation was not rejected: %',v_result;
+  end if;
+  update public.assignments set day='Monday' where id='pol04-assignment';
+end
+$block$;
+
+do $block$
+declare v_result jsonb; v_schedule_id uuid;
+begin
+  select id into v_schedule_id from public.schedule_versions
+  where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-room-unavailable') then
+    raise exception 'POL04 half-open endpoint was incorrectly rejected: %',v_result;
+  end if;
+  update public.assignments
+  set start_time='17:30',end_time='19:00'
+  where id='pol04-assignment';
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-room-unavailable') then
+    raise exception 'POL04 overlapping unavailable window was accepted: %',v_result;
+  end if;
+  update public.assignments
+  set start_time='17:00',end_time='18:30'
+  where id='pol04-assignment';
+end
+$block$;
+
+-- Explicit qualification domains include an empty domain: the selected
+-- teacher may be present but no class is qualified by an empty list.
+do $block$
+declare v_result jsonb; v_schedule_id uuid;
+begin
+  select id into v_schedule_id from public.schedule_versions
+  where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+  update public.assignments set teacher_id='pol04-teacher' where id='pol04-other-assignment';
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-teacher-domain') then
+    raise exception 'POL04 qualification-domain violation was not rejected: %',v_result;
+  end if;
+  update public.assignments set teacher_id='pol04-other-teacher' where id='pol04-other-assignment';
+
+  update public.constraint_model_versions cm
+  set snapshot=jsonb_set(cm.snapshot,'{hardConstraints,2,parameters,classIds}','[]'::jsonb),
+      snapshot_hash=private.constraint_model_hash_v27(jsonb_set(cm.snapshot,'{hardConstraints,2,parameters,classIds}','[]'::jsonb))
+  where cm.version=(select constraint_model_version from public.schedule_versions where id=v_schedule_id)
+    and cm.studio_id='11111111-1111-4111-8111-111111111111';
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-teacher-domain') then
+    raise exception 'POL04 empty qualification domain was accepted: %',v_result;
+  end if;
+  update public.constraint_model_versions cm
+  set snapshot=jsonb_set(cm.snapshot,'{hardConstraints,2,parameters,classIds}',jsonb_build_array('pol04-class')),
+      snapshot_hash=private.constraint_model_hash_v27(jsonb_set(cm.snapshot,'{hardConstraints,2,parameters,classIds}',jsonb_build_array('pol04-class')))
+  where cm.version=(select constraint_model_version from public.schedule_versions where id=v_schedule_id)
+    and cm.studio_id='11111111-1111-4111-8111-111111111111';
+end
+$block$;
+
+do $block$
+declare v_result jsonb; v_schedule_id uuid;
+begin
+  select id into v_schedule_id from public.schedule_versions
+  where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+  update public.assignments set teacher_id='pol04-other-teacher' where id='pol04-assignment';
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-required-teacher') then
+    raise exception 'POL04 required-teacher violation was not rejected: %',v_result;
+  end if;
+  update public.assignments set teacher_id='pol04-teacher' where id='pol04-assignment';
+
+  update public.assignments set room_id='pol04-alt-room' where id='pol04-assignment';
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-required-room') then
+    raise exception 'POL04 required-room violation was not rejected: %',v_result;
+  end if;
+  update public.assignments set room_id='pol04-room' where id='pol04-assignment';
+end
+$block$;
+
+-- Required feature set semantics are subset inclusion. Refresh the pinned
+-- PlanningDatasetVersion after changing a scheduling fact; never read the
+-- mutable room row as a substitute for the pinned snapshot.
+do $block$
+declare v_result jsonb; v_schedule_id uuid; v_planning integer;
+begin
+  select id into v_schedule_id from public.schedule_versions
+  where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+  update public.rooms set features='{}' where id='pol04-room';
+  select private.ensure_planning_dataset_version_v25(
+    '11111111-1111-4111-8111-111111111111',null,'POL-04 disposable fixture','Test required feature inclusion'
+  ) into v_planning;
+  update public.schedule_versions set planning_dataset_version=v_planning where id=v_schedule_id;
+  update public.planning_dataset_versions set confirmed_for_scheduling_at=now()
+  where studio_id='11111111-1111-4111-8111-111111111111' and version=v_planning;
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-room-features') then
+    raise exception 'POL04 required-feature inclusion violation was not rejected: %',v_result;
+  end if;
+  update public.rooms set features='{mirrors,sprung-floor}' where id='pol04-room';
+  select private.ensure_planning_dataset_version_v25(
+    '11111111-1111-4111-8111-111111111111',null,'POL-04 disposable fixture','Restore required feature inclusion fixture'
+  ) into v_planning;
+  update public.schedule_versions set planning_dataset_version=v_planning where id=v_schedule_id;
+  update public.planning_dataset_versions set confirmed_for_scheduling_at=now()
+  where studio_id='11111111-1111-4111-8111-111111111111' and version=v_planning;
+end
+$block$;
+
+do $block$
+declare v_result jsonb; v_schedule_id uuid; v_planning integer;
+begin
+  select id into v_schedule_id from public.schedule_versions
+  where studio_id='11111111-1111-4111-8111-111111111111' and is_current;
+  update public.rooms set capacity=1 where id='pol04-room';
+  select private.ensure_planning_dataset_version_v25(
+    '11111111-1111-4111-8111-111111111111',null,'POL-04 disposable fixture','Test PlanningDataset capacity'
+  ) into v_planning;
+  update public.schedule_versions set planning_dataset_version=v_planning where id=v_schedule_id;
+  update public.planning_dataset_versions set confirmed_for_scheduling_at=now()
+  where studio_id='11111111-1111-4111-8111-111111111111' and version=v_planning;
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-room-capacity') then
+    raise exception 'POL04 room-capacity violation was not rejected: %',v_result;
+  end if;
+
+  update public.rooms set capacity=null where id='pol04-room';
+  select private.ensure_planning_dataset_version_v25(
+    '11111111-1111-4111-8111-111111111111',null,'POL-04 disposable fixture','Test missing PlanningDataset capacity'
+  ) into v_planning;
+  update public.schedule_versions set planning_dataset_version=v_planning where id=v_schedule_id;
+  update public.planning_dataset_versions set confirmed_for_scheduling_at=now()
+  where studio_id='11111111-1111-4111-8111-111111111111' and version=v_planning;
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol04-room-capacity') then
+    raise exception 'POL04 missing capacity was accepted: %',v_result;
+  end if;
+
+  update public.rooms set capacity=2 where id='pol04-room';
+  select private.ensure_planning_dataset_version_v25(
+    '11111111-1111-4111-8111-111111111111',null,'POL-04 disposable fixture','Restore PlanningDataset capacity'
+  ) into v_planning;
+  update public.schedule_versions set planning_dataset_version=v_planning where id=v_schedule_id;
+  update public.planning_dataset_versions set confirmed_for_scheduling_at=now()
+  where studio_id='11111111-1111-4111-8111-111111111111' and version=v_planning;
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if coalesce((v_result->>'valid')::boolean,false) is not true
+     or jsonb_array_length(coalesce(v_result->'violations','[]'::jsonb))<>0 then
+    raise exception 'POL04 restored legal capacity fixture failed: %',v_result;
+  end if;
+end
+$block$;
+
+-- Missing and duplicate stable references fail closed as model errors.
+do $block$
+declare v_result jsonb; v_schedule_id uuid; v_model_id uuid; v_original jsonb; v_bad jsonb;
+begin
+  select sv.id,cm.id into v_schedule_id,v_model_id
+  from public.schedule_versions sv
+  join public.constraint_model_versions cm
+    on cm.studio_id=sv.studio_id and cm.version=sv.constraint_model_version
+  where sv.studio_id='11111111-1111-4111-8111-111111111111' and sv.is_current;
+  select snapshot into v_original from public.constraint_model_versions where id=v_model_id;
+  v_bad:=jsonb_set(v_original,'{hardConstraints,4,selector,roomIds}',jsonb_build_array('pol04-missing-room'));
+  update public.constraint_model_versions
+  set snapshot=v_bad,snapshot_hash=private.constraint_model_hash_v27(v_bad) where id=v_model_id;
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if coalesce((v_result->>'valid')::boolean,true)
+     or not exists(select 1 from jsonb_array_elements(v_result->'typedSqlSafeguard'->'modelErrors') item where item #>> '{}' like '%missing PlanningDataset room%') then
+    raise exception 'POL04 missing model reference did not fail closed: %',v_result;
+  end if;
+  update public.constraint_model_versions
+  set snapshot=v_original,snapshot_hash=private.constraint_model_hash_v27(v_original) where id=v_model_id;
+
+  v_bad:=jsonb_set(v_original,'{hardConstraints,4,selector,classIds}',jsonb_build_array('pol04-class','pol04-class'));
+  update public.constraint_model_versions
+  set snapshot=v_bad,snapshot_hash=private.constraint_model_hash_v27(v_bad) where id=v_model_id;
+  select public.validate_schedule_hard_v25(v_schedule_id) into v_result;
+  if coalesce((v_result->>'valid')::boolean,true)
+     or not exists(select 1 from jsonb_array_elements(v_result->'typedSqlSafeguard'->'modelErrors') item where item #>> '{}' like '%repeats a stable class reference%') then
+    raise exception 'POL04 duplicate model reference did not fail closed: %',v_result;
+  end if;
+  update public.constraint_model_versions
+  set snapshot=v_original,snapshot_hash=private.constraint_model_hash_v27(v_original) where id=v_model_id;
+end
+$block$;
+
+-- Canonical candidate adoption, MOVE and REBASE all reject an illegal
+-- placement even when the caller claims valid:true, and each rejection leaves
+-- canonical/version/model/audit rows unchanged.
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_schedule public.schedule_versions%rowtype;
+  v_context jsonb;
+  v_candidate jsonb;
+  v_result jsonb;
+  v_rejected boolean:=false;
+  v_schedules bigint; v_assignments bigint; v_models bigint; v_planning bigint; v_audits bigint;
+begin
+  select * into v_schedule from public.schedule_versions where studio_id=v_studio and is_current;
+  select private.build_solver_candidate_context_v44(v_studio) into v_context;
+  v_candidate:=jsonb_build_array(
+    jsonb_build_object('sessionId','pol04-session','day','Monday','startTime','16:00','endTime','17:30','teacherId','pol04-teacher','roomId','pol04-room'),
+    jsonb_build_object('sessionId','pol04-other-session','day','Tuesday','startTime','17:00','endTime','18:30','teacherId','pol04-other-teacher','roomId','pol04-room')
+  );
+  select count(*) into v_schedules from public.schedule_versions where studio_id=v_studio;
+  select count(*) into v_assignments from public.assignments where studio_id=v_studio;
+  select count(*) into v_models from public.constraint_model_versions where studio_id=v_studio;
+  select count(*) into v_planning from public.planning_dataset_versions where studio_id=v_studio;
+  select count(*) into v_audits from public.audit_events where studio_id=v_studio;
+  begin
+    select public.adopt_solver_candidate_v49(
+      v_studio,'10000000-0000-4000-8000-000000000001','POL04 owner','POL04 candidate SQL safeguard',
+      v_context,v_candidate,'{"valid":true,"hardViolations":0,"fullyValidated":true}'::jsonb
+    ) into v_result;
+  exception when others then
+    if position('LEGACY_HARD_VALIDATION_FAILED' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'POL04 candidate adoption accepted caller-claimed valid:true'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_schedules
+     or (select count(*) from public.assignments where studio_id=v_studio)<>v_assignments
+     or (select count(*) from public.constraint_model_versions where studio_id=v_studio)<>v_models
+     or (select count(*) from public.planning_dataset_versions where studio_id=v_studio)<>v_planning
+     or (select count(*) from public.audit_events where studio_id=v_studio)<>v_audits then
+    raise exception 'POL04 candidate rejection changed canonical/version/audit rows';
+  end if;
+
+  v_rejected:=false;
+  select private.build_solver_context_token_v43(v_studio) into v_context;
+  select count(*) into v_schedules from public.schedule_versions where studio_id=v_studio;
+  select count(*) into v_assignments from public.assignments where studio_id=v_studio;
+  select count(*) into v_models from public.constraint_model_versions where studio_id=v_studio;
+  select count(*) into v_planning from public.planning_dataset_versions where studio_id=v_studio;
+  select count(*) into v_audits from public.audit_events where studio_id=v_studio;
+  begin
+    select public.apply_authoritative_move_v46(
+      v_studio,'10000000-0000-4000-8000-000000000001','pol04-assignment',
+      '{"startTime":"16:00"}'::jsonb,'POL04 MOVE SQL safeguard',v_context,
+      '{"valid":true,"hardViolations":0,"fullyValidated":true}'::jsonb,false
+    ) into v_result;
+  exception when others then
+    if position('HARD_VALIDATION_FAILED' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'POL04 MOVE accepted caller-claimed valid:true'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_schedules
+     or (select count(*) from public.assignments where studio_id=v_studio)<>v_assignments
+     or (select count(*) from public.constraint_model_versions where studio_id=v_studio)<>v_models
+     or (select count(*) from public.planning_dataset_versions where studio_id=v_studio)<>v_planning
+     or (select count(*) from public.audit_events where studio_id=v_studio)<>v_audits then
+    raise exception 'POL04 MOVE rejection changed canonical/version/audit rows';
+  end if;
+
+  v_rejected:=false;
+  update public.assignments
+  set start_time='16:00',end_time='17:30'
+  where id='pol04-assignment';
+  select private.build_solver_context_token_v43(v_studio) into v_context;
+  v_candidate:=jsonb_build_array(
+    jsonb_build_object('assignmentId','pol04-assignment','sessionId','pol04-session','day','Monday','startTime','16:00','endTime','17:30','teacherId','pol04-teacher','roomId','pol04-room','status','NORMAL'),
+    jsonb_build_object('assignmentId','pol04-other-assignment','sessionId','pol04-other-session','day','Tuesday','startTime','17:00','endTime','18:30','teacherId','pol04-other-teacher','roomId','pol04-room','status','NORMAL')
+  );
+  select count(*) into v_schedules from public.schedule_versions where studio_id=v_studio;
+  select count(*) into v_assignments from public.assignments where studio_id=v_studio;
+  select count(*) into v_models from public.constraint_model_versions where studio_id=v_studio;
+  select count(*) into v_planning from public.planning_dataset_versions where studio_id=v_studio;
+  select count(*) into v_audits from public.audit_events where studio_id=v_studio;
+  begin
+    select public.apply_authoritative_schedule_recovery_v48(
+      'REBASE',v_studio,'10000000-0000-4000-8000-000000000001',v_schedule.id,
+      'POL04 REBASE SQL safeguard',v_context,v_candidate,
+      '{"valid":true,"hardViolations":0,"fullyValidated":true}'::jsonb,
+      '{"scheduleComplete":true,"publishable":true,"unscheduledSessionIds":[],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[],"retiredAssignmentIds":[]}'::jsonb
+    ) into v_result;
+  exception when others then
+    if position('RECOVERY_PUBLISHABILITY_MISMATCH' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'POL04 REBASE accepted caller-claimed valid:true'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_schedules
+     or (select count(*) from public.assignments where studio_id=v_studio)<>v_assignments
+     or (select count(*) from public.constraint_model_versions where studio_id=v_studio)<>v_models
+     or (select count(*) from public.planning_dataset_versions where studio_id=v_studio)<>v_planning
+     or (select count(*) from public.audit_events where studio_id=v_studio)<>v_audits then
+    raise exception 'POL04 REBASE rejection changed canonical/version/audit rows';
+  end if;
+  update public.assignments
+  set start_time='17:00',end_time='18:30'
+  where id='pol04-assignment';
+end
+$block$;
+
+-- Publication still rejects incomplete models before any model/version/audit
+-- row is written.
+do $block$
+declare v_before bigint; v_rejected boolean:=false; v_result jsonb;
+begin
+  select count(*) into v_before from public.constraint_model_versions where studio_id='11111111-1111-4111-8111-111111111111';
+  begin
+    select public.publish_server_constraint_model_v49(
+      '11111111-1111-4111-8111-111111111111',
+      '10000000-0000-4000-8000-000000000001',
+      '{"schemaVersion":"1.0","compilerVersion":"pol04-invalid","hardConstraints":[],"uncompiledConstraintRuleIds":[],"completeHardConstraintCompilation":false}'::jsonb,
+      'POL04 incomplete publication rejection',
+      (select version from public.rulebook_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
+    ) into v_result;
+  exception when others then
+    if position('Only complete HARD Constraint IR models may be published' in sqlerrm)=0
+       and position('Constraint model Rulebook version does not match row' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'POL04 incomplete model publication was accepted'; end if;
+  if (select count(*) from public.constraint_model_versions where studio_id='11111111-1111-4111-8111-111111111111')<>v_before then
+    raise exception 'POL04 rejected publication changed model/version rows';
+  end if;
+end
+$block$;
+
+rollback to savepoint pol04_regression;
+release savepoint pol04_regression;
+reset role;
+select 'POL-04 PASS: typed SQL families, pinned facts, boundaries, model references, canonical rejection and no-write evidence' as result;
+`;
+
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const targetEnvironment = { ...process.env };
@@ -2107,7 +2671,7 @@ export async function main(argv = process.argv.slice(2)) {
       'Refusing to run without an explicit disposable opt-in. Use npm run test:db or pass --allow-disposable.',
     );
   }
-  await runHarness();
+  await runHarness(args.onlyPol04);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
