@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. R0 plan adoption was completed at audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on 2026-09-09. R1/POL-04 was accepted at implementation head `15f5c79` on 2026-09-09. SET-03 was accepted at implementation head `d46e68c43ae920e99be40c7bd61e8a7d6c563728` on 2026-09-09. SET-04 was accepted at implementation head `c165f4ac0f688ac5f104227052fea45ca09bb682` on 2026-09-09. SET-05 was accepted at implementation head `5f2aa78750db57ba602db2827d2f0ee6ceb4199c` on 2026-09-10. POL-03 was accepted at implementation head `e1a32d3a910d86b679515572ebc4ae85366bbc93` on 2026-09-10. Current milestone **A**; the sole selected next run is **R3 / SET-06 — student restrictions and scheduling relationships**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02, POL-03, POL-04, SET-03, SET-04 and SET-05 are DONE after recorded hardening and verification; their prompts are archived.
+Baseline `9120439`, 2026-09-07. R0 plan adoption was completed at audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on 2026-09-09. R1/POL-04 was accepted at implementation head `15f5c79` on 2026-09-09. SET-03 was accepted at implementation head `d46e68c43ae920e99be40c7bd61e8a7d6c563728` on 2026-09-09. SET-04 was accepted at implementation head `c165f4ac0f688ac5f104227052fea45ca09bb682` on 2026-09-09. SET-05 was accepted at implementation head `5f2aa78750db57ba602db2827d2f0ee6ceb4199c` on 2026-09-10. POL-03 was accepted at implementation head `e1a32d3a910d86b679515572ebc4ae85366bbc93` on 2026-09-10. SET-06 was accepted at implementation head `25a92a42842961a3c35e3506350ee97c5f14f872` on 2026-09-10. Current milestone **A**; the sole selected next run is **R4 / SET-07 — readiness and manager certification**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02, POL-03, POL-04, SET-03, SET-04, SET-05 and SET-06 are DONE after recorded hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -24,8 +24,8 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | [SET-04](prompts/archive/SET-04.md) | Manage teacher availability and qualifications | DONE | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [SET-05](prompts/archive/SET-05.md) | Complete class/session and roster setup | DONE | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [POL-03](prompts/archive/POL-03.md) | Type linked attendance and sequencing policies | DONE | A | POL-02 | STANDARD IMPLEMENTATION |
-| [SET-06](prompts/SET-06.md) | Capture student restrictions and scheduling relationships | READY | A | POL-03 | STANDARD IMPLEMENTATION |
-| [SET-07](prompts/SET-07.md) | Unify readiness and manager certification | NOT_STARTED | A | SET-06 | STANDARD IMPLEMENTATION |
+| [SET-06](prompts/archive/SET-06.md) | Capture student restrictions and scheduling relationships | DONE | A | POL-03 | STANDARD IMPLEMENTATION |
+| [SET-07](prompts/SET-07.md) | Unify readiness and manager certification | READY | A | SET-06 | STANDARD IMPLEMENTATION |
 | [UX-01](prompts/UX-01.md) | Make schedule generation and failures understandable | NOT_STARTED | A | SET-07 | STANDARD IMPLEMENTATION |
 | [UX-02](prompts/UX-02.md) | Complete editing, locks and recovery journey | NOT_STARTED | A | VERIFY-01, POL-02 | STANDARD IMPLEMENTATION |
 | [LOCK-01](prompts/LOCK-01.md) | Expose governed session lock and unlock controls | NOT_STARTED | A | UX-02 | STANDARD IMPLEMENTATION |
@@ -51,7 +51,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 ## Historical task mapping
 
-T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02, POL-04, SET-03, SET-04 and SET-05 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
+T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02, POL-03, POL-04, SET-03, SET-04, SET-05 and SET-06 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
 
 | Superseded unfinished task | New owner |
 |---|---|
@@ -95,8 +95,8 @@ The reworked plan is adopted at R0. `TASKS.md` remains the only status and depen
 | R0 | POL-02 evidence reconciliation and plan adoption | COMPLETE CHECKPOINT; POL-02 was left pending |
 | R1 | POL-04 SQL safeguard parity and no-write closure | COMPLETE; POL-02 accepted |
 | R2 | SET-03 core setup inputs followed by the next dependency-satisfied setup slice | COMPLETE; SET-03, SET-04 and SET-05 accepted |
-| R3 | POL-03, SET-06 | POL-03 COMPLETE; SET-06 SELECTED as the only next run |
-| R4 | SET-07, UX-01, UX-02, LOCK-01, UX-03 | NOT_STARTED; integration sequence follows the adopted graph |
+| R3 | POL-03, SET-06 | COMPLETE; POL-03 and SET-06 accepted |
+| R4 | SET-07, UX-01, UX-02, LOCK-01, UX-03 | SET-07 SELECTED as the only next run; integration sequence follows the adopted graph |
 | R5 | OPS-01 engineering rehearsal and engineering release checkpoint | NOT_STARTED; no deployment or external acceptance implied |
 | R6+ | Generic expansion, quality, operations, cycle and qualification work | NOT_STARTED; see the derived MASTER_PLAN route |
 
@@ -293,6 +293,19 @@ Result: **POL-02 DONE** after V54 forward SQL safeguard, executed disposable typ
 - Review verdict: APPROVE after correctness, readability, architecture, security and performance review. The change keeps one Rulebook/ConstraintModel/PlanningDataset/Schedule authority, introduces no dependency or generic relation graph, and bounds SQL work to current schedule-sized snapshots/assignments.
 - Result: POL-03 DONE. This does not claim milestone A or external acceptance. SET-06 is dependency-satisfied and selected as the sole next run.
 
+### SET-06 — DONE
+
+- Starting implementation HEAD: `cdb601cd97b46af84799f91e84f3bd145bd90409` on `feat/pre-cami-hardening`; final bounded implementation commit: `25a92a42842961a3c35e3506350ee97c5f14f872` (`Complete SET-06 student restrictions and relationships`). The implementation commit contains 21 authorized files spanning the Setup UI/client/helpers, typed policy/compiler/IR/TS runtime/preflight, Python solver/parity coverage, V59 forward migration, disposable DB/E2E registration and focused regressions.
+- Authoring criterion: PASS. Setup now authors latest-finish, maximum attendance days, participant no-overlap, directional direct-after and linked-arrival/attendance requirements with explicit stable participant, teacher and session IDs. Direct-after displays same-day exact end/start timing; linked arrival displays signed inclusive offset and participants. Cohort/household membership remains a fact only and creates no HARD rule without an explicit manager policy.
+- Runtime/parity criterion: PASS. `LATEST_FINISH_BY_PARTICIPANT` is compiled and evaluated by stable ID in TypeScript and pinned CP-SAT, with delegated preflight coverage. Existing POL-03 families are reused. The shared parity cases cover latest-finish end-time boundaries and prior participant/attendance/relationship semantics; unsupported policy meaning remains fail-closed.
+- Completeness/authority criterion: PASS. The V59 forward migration keeps RulebookVersion, PlanningDatasetVersion, ConstraintModelVersion and ScheduleVersion authority intact; scopes the writer to SET-06 owners, rejects missing active entities, malformed/cyclic relationships and missing review targets, preserves exact OWNER/EDITOR/tenant/version checks, and proves stale, unauthorized, unsupported and arbitrary-owner no-write rejection. Review fingerprints are derived from the current planning/policy slice and persisted as append-only attestations.
+- UX criterion: PASS for this bounded slice. Setup uses manager-facing restriction/relationship language, explicit direction/timing/participant controls, loading/error/success feedback, retained input on rejected save, native keyboard controls and the authenticated 390px browser journey. The final E2E assertion observes both the save notice and persisted Rulebook/review rows.
+- Focused evidence: `npx vitest run tests/set06-student-policy.test.ts` — exit 0; 1 file, 3 tests passed. `node scripts/test-set06-db.mjs --target=docker-local --allow-disposable` — exit 0; `SET-06 DB PASS` covering explicit policy, direction/timing, review stability, stale/missing/unsupported/unauthorized no-write. `git diff --check` — exit 0.
+- Required local verification: `npm run lint` — exit 0, 0 errors and 4 existing warnings; `npm run typecheck` — exit 0; `npm test` — exit 0, 83 files passed and 3 skipped, 467 tests passed and 4 skipped; `npm run build` — exit 0, Next.js 16.3.3 compiled and 14/14 static pages generated; `npm run test:db` — exit 0, the complete disposable migration/regression chain passed including SET-06; `$env:PYTHON_BINARY='C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe'; npm run test:parity` — exit 0, 3 files and 4 tests passed; pinned Python with `$env:PYTHONPATH='solver'; Push-Location solver; & 'C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe' -m pytest -q -p no:cacheprovider; Pop-Location` — exit 0, 49 passed and 2 dependency deprecation warnings; `npm run test:e2e` — exit 0, all 7 disposable authenticated journeys passed.
+- Preserved failures and limitations: the first unconfigured parity invocation correctly refused to run without the pinned interpreter; the explicit pinned rerun passed. The first E2E run exposed a SET-06 success-notice remount bug after the authoritative refresh; removing the version-based form remount fixed it, and both subsequent 7-journey runs passed. No CI artifact exists because no push was authorized. Generated `test-results/`, solver cache and Supabase temporary entries remain untracked and were not included in the implementation commit. Private DWDE acceptance, deployed migration/configuration, restore, independent-studio and commercial evidence remain external gates.
+- Review verdict: APPROVE after correctness, readability, architecture, security and performance review. No new dependency, service, configuration variable, production/private-data access, deployment, merge, push, external message or destructive customer-data action occurred.
+- Result: SET-06 DONE. This does not claim milestone A or external acceptance. Ledger order selects R4 / SET-07 as the sole next run.
+
 ## Audit completion record
 
-Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, SET-03, SET-04, SET-05 and POL-03 are accepted post-rebuild implementation slices. R0 reconciled the subsequent POL-02 implementation evidence without inferring completion; R1/POL-04 closed the demonstrated SQL gap and POL-02 is DONE. The remaining product work follows the adopted dependency graph above, with SET-06 now selected as the sole next run.
+Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, SET-03, SET-04, SET-05, POL-03 and SET-06 are accepted post-rebuild implementation slices. R0 reconciled the subsequent POL-02 implementation evidence without inferring completion; R1/POL-04 closed the demonstrated SQL gap and POL-02 is DONE. The remaining product work follows the adopted dependency graph above, with SET-07 now selected as the sole next run.
