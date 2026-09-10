@@ -21,7 +21,8 @@ export type ConstraintIRKind =
   | "ROOM_CAPACITY"
   | "RELATIONSHIP_START_WINDOW"
   | "PARTICIPANT_NO_OVERLAP"
-  | "LINKED_ARRIVAL";
+  | "LINKED_ARRIVAL"
+  | "LATEST_FINISH_BY_PARTICIPANT";
 
 export interface ConstraintSelectorIR {
   /** Stable-ID class targets for typed policy. */

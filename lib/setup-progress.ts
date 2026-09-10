@@ -128,11 +128,11 @@ export function buildSetupProgress(state: StudioState): SetupProgress {
       id: "students",
       title: "Students",
       description: state.students.length > 0
-        ? `${plural(state.students.length, "student")} are in the working inventory. Student restrictions and scheduling relationships will move here later.`
+        ? `${plural(state.students.length, "student")} are in the working inventory. Set latest finish, attendance-day limits and explicit relationships below.`
         : "No students are recorded yet. You can add them when the current season's roster is available.",
       status: "READY_FOR_NOW",
-      href: "/people",
-      actionLabel: "Review students",
+      href: "#setup-student-policies",
+      actionLabel: "Set student requirements",
     };
 
   const repairCount = structureRepairs.length + rosterRepairs.length;

@@ -162,6 +162,28 @@ export function validateConstraintModelSchedule(
   const roomsById = new Map(state.rooms.map((room) => [room.id, room]));
 
   for (const node of model.hardConstraints) {
+    if (node.kind === "LATEST_FINISH_BY_PARTICIPANT") {
+      unsupported.delete(node.id);
+      evaluated.add(node.id);
+      const participantIds = node.selector.participantIds || [];
+      const selected = new Set(participantIds);
+      const latestFinish = String(node.parameters.latestFinish || "");
+      for (const assignment of assignments) {
+        const klass = classesBySession.get(assignment.sessionId);
+        if (!klass || minutes(assignment.endTime) <= minutes(latestFinish)) continue;
+        const affected = klass.rosterStudentIds.filter((studentId) => selected.has(studentId));
+        if (!affected.length) continue;
+        pushAssignmentViolation(
+          violations,
+          node,
+          `${affected.map((id) => state.students.find((student) => student.id === id)?.name || id).join(", ")} must finish by ${latestFinish}.`,
+          assignment,
+          affected,
+        );
+      }
+      continue;
+    }
+
     if (node.kind === "PARTICIPANT_NO_OVERLAP") {
       unsupported.delete(node.id);
       evaluated.add(node.id);

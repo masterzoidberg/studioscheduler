@@ -66,6 +66,7 @@ function node(kind: ConstraintIRKind): ConstraintIRNode {
     case "MAX_GAP": return { ...base, parameters: { resource: "TEACHER", minutes: 60 } };
     case "MAX_WORKDAYS": return { ...base, selector: { teacherNames: ["Teacher"] }, parameters: { maxDays: 4 } };
     case "LATEST_FINISH_BY_LEVEL": return { ...base, selector: { levels: ["Level 1"] }, parameters: { latestFinish: "21:00" } };
+    case "LATEST_FINISH_BY_PARTICIPANT": return { ...base, selector: { participantIds: ["student-1"] }, parameters: { latestFinish: "21:00" } };
     case "MAX_ATTENDANCE_DAYS": return { ...base, selector: { levels: ["Level 1"] }, parameters: { maxDays: 3 } };
     case "REQUIRED_ROOM": return { ...base, selector: { classNames: ["Fixture Class"], roomNames: ["Studio A"] }, parameters: { roomName: "Studio A" } };
     case "REQUIRED_TEACHER": return { ...base, selector: { classNames: ["Fixture Class"], teacherNames: ["Teacher"] }, parameters: { teacherName: "Teacher" } };

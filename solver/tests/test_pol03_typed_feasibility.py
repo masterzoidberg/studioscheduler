@@ -79,3 +79,11 @@ def test_missing_or_absent_stable_relationship_references_fail_closed():
         assert False, "absent roster participant must fail"
     except ValueError as error:
         assert "absent from every class roster" in str(error)
+
+
+def test_participant_latest_finish_uses_stable_roster_identity_and_end_time():
+    latest = {"id": "latest", "kind": "LATEST_FINISH_BY_PARTICIPANT", "ruleIds": ["LATEST"], "selector": {"participantIds": ["student-a"]}, "parameters": {"latestFinish": "20:30"}, "explanation": "latest"}
+    boundary = _problem([latest, _fixed("a", "Class A", "Monday", "19:45", "20:30")])
+    outside = _problem([latest, _fixed("a", "Class A", "Monday", "20:00", "20:45")])
+    assert solve_feasibility(boundary)["status"] == "FEASIBLE"
+    assert solve_feasibility(outside)["status"] == "INFEASIBLE"

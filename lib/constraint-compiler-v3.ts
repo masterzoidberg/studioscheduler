@@ -20,6 +20,7 @@ export const LEGACY_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
 export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.4";
 export const POL02_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.5";
 export const POL03_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.6";
+export const SET06_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.7";
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const POL01_TYPED_RULE_ID_SET = new Set<string>(POL01_TYPED_RULE_IDS);
 
@@ -181,6 +182,7 @@ function policyStableIdsExist(state: StudioState, policy: TypedPolicyV1) {
     case "MAX_ATTENDANCE_DAYS": return policy.participantIds.every((id) => participantIds.has(id));
     case "DIRECT_AFTER": return sessionIds.has(policy.predecessorSessionId) && sessionIds.has(policy.successorSessionId);
     case "LINKED_ARRIVAL": return teacherIds.has(policy.teacherId) && participantIds.has(policy.participantId);
+    case "PARTICIPANT_LATEST_FINISH": return policy.participantIds.every((id) => participantIds.has(id));
   }
 }
 
@@ -287,6 +289,14 @@ function v5HardNode(rule: StudioRule, policy: TypedPolicyV1, ruleIds: string[]):
         kind: "LINKED_ARRIVAL",
         selector: { teacherIds: [policy.teacherId], participantIds: [policy.participantId] },
         parameters: { teacherId: policy.teacherId, participantId: policy.participantId, minOffsetMinutes: policy.minOffsetMinutes, maxOffsetMinutes: policy.maxOffsetMinutes },
+      };
+    case "PARTICIPANT_LATEST_FINISH":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-participant-latest-finish`,
+        kind: "LATEST_FINISH_BY_PARTICIPANT",
+        selector: { participantIds: policy.participantIds },
+        parameters: { latestFinish: policy.latestFinish },
       };
   }
 }
@@ -453,9 +463,11 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
 
     return {
       ...base,
-      compilerVersion: typed.nodes.some((node) => ["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "DIRECTLY_AFTER", "LINKED_ARRIVAL"].includes(node.kind))
-        ? POL03_CONSTRAINT_COMPILER_VERSION
-        : POL02_CONSTRAINT_COMPILER_VERSION,
+      compilerVersion: typed.nodes.some((node) => node.kind === "LATEST_FINISH_BY_PARTICIPANT")
+        ? SET06_CONSTRAINT_COMPILER_VERSION
+        : typed.nodes.some((node) => ["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "DIRECTLY_AFTER", "LINKED_ARRIVAL"].includes(node.kind))
+          ? POL03_CONSTRAINT_COMPILER_VERSION
+          : POL02_CONSTRAINT_COMPILER_VERSION,
       hardConstraints,
       objectivePrioritySpine,
       uncompiledConstraintRuleIds,

@@ -14,6 +14,7 @@ POL02_UNIQUE_KINDS = {
     "ROOM_REQUIRED_FEATURES",
     "PARTICIPANT_NO_OVERLAP",
     "LINKED_ARRIVAL",
+    "LATEST_FINISH_BY_PARTICIPANT",
 }
 
 
@@ -410,6 +411,21 @@ def _apply_max_attendance_days(
         built.model.add(sum(day_used) <= maximum).only_enforce_if(active)
 
 
+def _apply_participant_latest_finish(
+    built: legacy.BuiltModel,
+    node: dict[str, Any],
+    participants: dict[str, dict[str, Any]],
+    active: Any,
+) -> None:
+    participant_ids = set(_stable_ids((node.get("selector") or {}).get("participantIds"), set(participants), "participantIds", str(node["id"])))
+    latest = legacy._slot(str((node.get("parameters") or {}).get("latestFinish", "")))
+    sessions = [item for item in built.sessions.values() if participant_ids.intersection(item.klass.get("rosterStudentIds", []))]
+    if not sessions:
+        raise ValueError(f"Constraint {node['id']} has no rostered sessions for its participants")
+    for item in sessions:
+        built.model.add(item.start + item.duration_slots <= latest).only_enforce_if(active)
+
+
 def _apply_direct_after(
     built: legacy.BuiltModel,
     node: dict[str, Any],
@@ -503,6 +519,8 @@ def _apply_typed_constraints(
             _apply_direct_after(built, node, active)
         elif kind == "LINKED_ARRIVAL":
             _apply_linked_arrival(built, node, teachers, participants, active)
+        elif kind == "LATEST_FINISH_BY_PARTICIPANT":
+            _apply_participant_latest_finish(built, node, participants, active)
         else:
             raise ValueError(f"Unsupported typed Constraint IR node: {constraint_id}")
 

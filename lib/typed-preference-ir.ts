@@ -52,6 +52,7 @@ export function compileTypedPreferenceIR(
     case "MAX_ATTENDANCE_DAYS":
     case "DIRECT_AFTER":
     case "LINKED_ARRIVAL":
+    case "PARTICIPANT_LATEST_FINISH":
       return null;
   }
 }

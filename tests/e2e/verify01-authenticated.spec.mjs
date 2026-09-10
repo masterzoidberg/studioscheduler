@@ -6,6 +6,7 @@ import { registerSet02SetupDashboardTest } from './set02-setup-dashboard.spec.mj
 import { registerSet03SetupPolicyTest } from './set03-setup-policies.spec.mjs';
 import { registerSet04TeacherSetupTest } from './set04-teacher-setup.spec.mjs';
 import { registerSet05ClassSetupTest } from './set05-class-setup.spec.mjs';
+import { registerSet06StudentSetupTest } from './set06-student-setup.spec.mjs';
 
 const appUrl = process.env.E2E_APP_URL;
 const supabaseUrl = process.env.E2E_SUPABASE_URL;
@@ -262,4 +263,5 @@ registerSet01RoomCapacityReviewTest();
 registerSet03SetupPolicyTest();
 registerSet04TeacherSetupTest();
 registerSet05ClassSetupTest();
+registerSet06StudentSetupTest();
 registerSet02SetupDashboardTest();

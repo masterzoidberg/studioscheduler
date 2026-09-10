@@ -164,7 +164,7 @@ export function validateDelegatedSolverPreconditions(
   for (const session of state.sessions) sessionsByClass.set(session.classId, [...(sessionsByClass.get(session.classId) || []), session]);
   for (const constraint of model.hardConstraints) {
     const participantIds = constraint.selector.participantIds || [];
-    if (["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "LINKED_ARRIVAL"].includes(constraint.kind)) {
+    if (["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "LINKED_ARRIVAL", "LATEST_FINISH_BY_PARTICIPANT"].includes(constraint.kind)) {
       for (const participantId of participantIds) {
         const rostered = state.classes.filter((klass) => klass.rosterStudentIds.includes(participantId));
         if (!rostered.length) {
