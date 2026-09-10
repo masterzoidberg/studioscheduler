@@ -1,19 +1,17 @@
 # Next autonomous run
 
-**R2 — SET-05: complete class/session and roster setup**
+**R3 — POL-03: type linked attendance and sequencing policies**
 **Execution class: STANDARD IMPLEMENTATION**
 **Milestone: A — DWDE Operational**
 **Status: SELECTED; the only READY task and next run.**
 
-Execute R2 from implementation HEAD `c165f4ac0f688ac5f104227052fea45ca09bb682` on branch `feat/pre-cami-hardening`. R0 reconciled `9de8d07^..7f5c128` and adopted the reworked plan; R1/POL-04 closed the demonstrated POL-02 SQL safeguard gap; SET-03 and SET-04 then completed the studio-hours, room-policy, room-restriction review, teacher-availability and qualification slices. PR #55 remains open; no merge, push or deployment is authorized.
+Execute R3 from implementation HEAD `5f2aa78750db57ba602db2827d2f0ee6ceb4199c` on branch `feat/pre-cami-hardening`. R2 completed SET-03, SET-04 and SET-05 with local disposable database, parity, pinned Python and authenticated browser evidence. PR #55 remains open; no merge, push or deployment is authorized.
 
-Authority: read [TASKS](TASKS.md), [MASTER_PLAN](MASTER_PLAN.md), [DECISIONS](DECISIONS.md), [CODEX_EXECUTION_RULES](CODEX_EXECUTION_RULES.md), [TEST_STRATEGY](TEST_STRATEGY.md), and the bounded [SET-05 prompt](prompts/SET-05.md). `TASKS.md` owns status and dependencies; this file selects exactly one run. SET-04 is complete; SET-05 is the only selected task and POL-03 remains queued.
+Authority: read [TASKS](TASKS.md), [MASTER_PLAN](MASTER_PLAN.md), [DECISIONS](DECISIONS.md), [CODEX_EXECUTION_RULES](CODEX_EXECUTION_RULES.md), [TEST_STRATEGY](TEST_STRATEGY.md), and the bounded [POL-03 prompt](prompts/POL-03.md). `TASKS.md` owns status and dependencies; this file selects exactly one run. SET-05 is complete; POL-03 is the only selected task and SET-06 remains queued behind it.
 
-Complete only SET-05: absorb reviewed class structure and roster repairs into class details; expose frequency and ordinal-specific durations, roster bulk selection, required/preferred teacher and room, and explicit class scope. Derive eligibility from typed policy rather than a second writable eligibleTeacherIds authority. Preserve canonical version/context/tenant authority, authorize the exact tenant/current role at server and transaction boundaries, validate entity membership and expected versions, preserve drafts on failure, and reject stale, conflicting, unsupported or unauthorized writes without canonical/version/audit success writes.
+Complete only POL-03: use the established bundle-replacement protocol to promote stable-ID no-overlap participant groups, maximum attendance days, direct-after predecessor/successor sessions, and the linked-arrival allowed offset interval. Directly-after means same day with successor start equal to predecessor end. Arrival delta is teacher first teaching start minus linked participant first attended session start per day, inclusive of the configured minimum and maximum. Preserve the fixed missing-session, absent-roster, self-edge, cycle, ambiguity and non-vacuous dependency behavior in the prompt.
 
-Use manager-facing Setup language, actionable empty/loading/error states, retained typed entries after failure, keyboard support and a 390px tap layout. Keep hashes, IR, RPC and version identifiers under Advanced. Do not add a second setup/policy/schedule store, private-life narrative fields, overnight or dated calendars, a recurrence engine, arbitrary time quantum, unrelated setup slices, deployment, production/private-data access, paid services, merge, push, external messages or destructive actions.
-
-Add regressions for class-structure invalidation, roster-review stability, explicit-scope/empty-roster behavior, stale-write/no-write behavior and persisted review state. Inspect effective callers and migrations before editing; add forward migrations only. Run focused checks before broad checks and preserve the first failed full-suite result. Continue only while dependencies, ownership and verification remain clear; stop on the mandatory conditions in [AUTONOMOUS_EXECUTION_RUNBOOK](plan-rework/AUTONOMOUS_EXECUTION_RUNBOOK.md).
+Preserve canonical Rulebook/ConstraintModel/PlanningDataset/Schedule version authority, exact tenant/current-role authorization, deterministic HARD legality, dependency-closed policy replacement and stale/no-write rejection. Do not add a generic relation graph, prose parser, invented minimum-attendance family, full-presence semantics without evidence, deployment, production/private-data access, paid services, merge, push, external messages or destructive actions.
 
 Required verification from the repository root with explicit disposable configuration:
 
@@ -23,8 +21,8 @@ npm run typecheck
 npm test
 npm run build
 npm run test:db
-npm run test:parity
-npm run test:e2e
+$env:PYTHON_BINARY='C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe'; npm run test:parity
+$env:PYTHONPATH='solver'; Push-Location solver; & 'C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe' -m pytest -q -p no:cacheprovider; Pop-Location
 ```
 
-On acceptance, create one bounded SET-05 commit, record exact criteria/evidence/commands/exit codes/artifacts/limitations and start/final heads in `TASKS.md`, update derived planning views atomically, and select exactly one next run. Do not claim milestone A or external acceptance from this run alone.
+On acceptance, create one bounded POL-03 commit, record exact criteria/evidence/commands/exit codes/artifacts/limitations and start/final heads in `TASKS.md`, update derived planning views atomically, and select exactly one next run. Do not claim milestone A or external acceptance from this run alone.
