@@ -298,12 +298,16 @@ function compileV5TypedPolicies(
     }
     const execution = RULE_EXECUTION_BY_ID.get(rule.id);
     const hard = execution?.disposition === "HARD_CONSTRAINT" || execution?.disposition === "EXCEPTION" || rule.strength === "HARD";
-    const soft = execution?.disposition === "SOFT_OBJECTIVE";
     const parsed = parseTypedPolicy(rule);
     if (parsed.status !== "VALID") {
       if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
       continue;
     }
+    const soft = execution?.disposition === "SOFT_OBJECTIVE"
+      || parsed.policy.kind === "PREFERRED_TEACHER"
+      || parsed.policy.kind === "PREFERRED_ROOM"
+      || parsed.policy.kind === "PREFERRED_DAY"
+      || parsed.policy.kind === "AVOID_DAY";
     if (!policyStableIdsExist(state, parsed.policy)) {
       if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
       continue;

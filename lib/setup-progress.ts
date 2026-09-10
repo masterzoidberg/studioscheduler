@@ -103,16 +103,16 @@ export function buildSetupProgress(state: StudioState): SetupProgress {
       title: "Classes",
       description: "Add the classes that need weekly schedule time.",
       status: "NEEDS_ACTION",
-      href: "/classes",
+      href: "#setup-class-details",
       actionLabel: "Add classes",
     }
     : {
       id: "classes",
       title: "Classes",
-      description: `${plural(state.classes.length, "class", "classes")} are in the working catalog. Weekly structure and rosters remain editable in the current Classes editor.`,
+      description: `${plural(state.classes.length, "class", "classes")} are in the working catalog. Review weekly structure, rosters, scope and class assignment policy below.`,
       status: "READY_FOR_NOW",
-      href: "/classes",
-      actionLabel: "Review classes",
+      href: "#setup-class-details",
+      actionLabel: "Review class setup",
     };
 
   const students: SetupSectionProgress = state.students.length === 0 && state.classes.length > 0

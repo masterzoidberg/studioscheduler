@@ -52,6 +52,7 @@ describe("SET-02 setup progress", () => {
     expect(progress.sections.find((section) => section.id === "studio")?.status).toBe("READY_FOR_NOW");
     expect(progress.sections.find((section) => section.id === "teachers")?.status).toBe("READY_FOR_NOW");
     expect(progress.nextAction?.id).toBe("classes");
+    expect(progress.nextAction?.href).toBe("#setup-class-details");
   });
 
   it("keeps unavailable Preferences explicitly coming later rather than actionable", () => {

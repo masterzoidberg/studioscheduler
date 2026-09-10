@@ -5,6 +5,7 @@ import { registerSet01RoomCapacityReviewTest } from './set01-room-capacity-revie
 import { registerSet02SetupDashboardTest } from './set02-setup-dashboard.spec.mjs';
 import { registerSet03SetupPolicyTest } from './set03-setup-policies.spec.mjs';
 import { registerSet04TeacherSetupTest } from './set04-teacher-setup.spec.mjs';
+import { registerSet05ClassSetupTest } from './set05-class-setup.spec.mjs';
 
 const appUrl = process.env.E2E_APP_URL;
 const supabaseUrl = process.env.E2E_SUPABASE_URL;
@@ -260,4 +261,5 @@ test('OWNER login, governed inventory write, and conflicting authoritative MOVE 
 registerSet01RoomCapacityReviewTest();
 registerSet03SetupPolicyTest();
 registerSet04TeacherSetupTest();
+registerSet05ClassSetupTest();
 registerSet02SetupDashboardTest();

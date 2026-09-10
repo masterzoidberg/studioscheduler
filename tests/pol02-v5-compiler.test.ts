@@ -169,4 +169,36 @@ describe("POL-02 V5 bundle-aware compiler", () => {
     expect(model.completeHardConstraintCompilation).toBe(true);
     expect(model.hardConstraints).toContainEqual(expect.objectContaining({ id: "typed-room-007-room-capacity" }));
   });
+
+  it("keeps a SET-05 generated preferred-room policy in the typed preference model", () => {
+    const value = fixture();
+    const ruleId = "SET05-CLASS-PREFERRED-ROOM-class-ballet";
+    const preferred = {
+      ...rule(ruleId),
+      strength: "VERY_STRONG" as const,
+      classificationRaw: "VERY STRONG",
+      parameters: { policy: { schemaVersion: "1.0", kind: "PREFERRED_ROOM", roomId: "room-c", classIds: ["class-ballet"] } },
+      affectedEntityIds: ["class-ballet", "room-c"],
+    };
+    value.rules.push(preferred);
+    const current = value.rulebookVersions.find((version) => version.status === "CURRENT")!;
+    current.version = 6;
+    current.parentVersion = 5;
+    current.formatVersion = "2.4";
+    current.changedRuleIds = [ruleId];
+    current.snapshot = [...(current.snapshot as StudioRule[]), structuredClone(preferred)];
+    current.sourceMetadata = {
+      ...current.sourceMetadata,
+      provenance: "TYPED_POLICY_BUNDLE_EDIT",
+      previousTypedPolicyVersion: 5,
+      typedPolicyRuleIds: [...current.sourceMetadata!.typedPolicyRuleIds as string[], ruleId],
+      introducedTypedPolicyRuleIds: [ruleId],
+      typedPolicyBundles: [...current.sourceMetadata!.typedPolicyBundles as Array<{ ownerRuleId: string; consumedRuleIds: string[] }>, { ownerRuleId: ruleId, consumedRuleIds: [ruleId] }],
+    };
+
+    const model = compileConstraintModel(value);
+    expect(model.objectivePrioritySpine).toContainEqual(expect.objectContaining({ ruleId, kind: "PREFERRED_ROOM" }));
+    expect(model.completeHardConstraintCompilation).toBe(true);
+    expect(model.uncompiledConstraintRuleIds).not.toContain(ruleId);
+  });
 });

@@ -19,13 +19,17 @@ export const DWDE_TYPED_POLICY_BUNDLE_FORMAT_VERSION = "2.3";
 export const DWDE_TYPED_POLICY_BUNDLE_PROVENANCE = "TYPED_POLICY_BUNDLE_MIGRATION";
 export const DWDE_TYPED_POLICY_EDIT_MIN_VERSION = 6;
 
-const SET04_GENERATED_OWNER_PREFIXES = [
+const SETUP_GENERATED_OWNER_PREFIXES = [
   "SET04-TEACHER-AVAILABILITY-",
   "SET04-TEACHER-QUALIFICATION-",
+  "SET05-CLASS-REQUIRED-TEACHER-",
+  "SET05-CLASS-PREFERRED-TEACHER-",
+  "SET05-CLASS-REQUIRED-ROOM-",
+  "SET05-CLASS-PREFERRED-ROOM-",
 ] as const;
 
-function isSet04GeneratedOwner(ruleId: string) {
-  return SET04_GENERATED_OWNER_PREFIXES.some((prefix) => ruleId.startsWith(prefix) && ruleId.length > prefix.length);
+function isSetupGeneratedOwner(ruleId: string) {
+  return SETUP_GENERATED_OWNER_PREFIXES.some((prefix) => ruleId.startsWith(prefix) && ruleId.length > prefix.length);
 }
 
 export interface TypedPolicyBundleDeclaration {
@@ -328,14 +332,14 @@ function v5Support(
 
     if (currentSnapshot && baselineSnapshot) {
       const consumed = new Set(manifest.consumedRuleIds);
-      const baselineExcluded = new Set([...consumed, ...manifest.ownerRuleIds.filter(isSet04GeneratedOwner)]);
+      const baselineExcluded = new Set([...consumed, ...manifest.ownerRuleIds.filter(isSetupGeneratedOwner)]);
       const residualMismatch = mismatchIds(currentSnapshot, baselineSnapshot, baselineExcluded);
       if (residualMismatch.length) issue(`residual reviewed V3 policy changed for ${residualMismatch.join(", ")}`, residualMismatch);
 
       for (const bundle of manifest.bundles) {
         const currentOwner = currentSnapshot.find((value) => comparableRule(value).id === bundle.ownerRuleId);
         const baselineOwner = baselineSnapshot.find((value) => comparableRule(value).id === bundle.ownerRuleId);
-        if (isSet04GeneratedOwner(bundle.ownerRuleId)) {
+        if (isSetupGeneratedOwner(bundle.ownerRuleId)) {
           continue;
         }
         if (!currentOwner || !baselineOwner) {
@@ -374,10 +378,10 @@ function v5Support(
 
       const execution = RULE_EXECUTION_BY_ID.get(rule.id);
       const softPolicy = isSoftTypedPolicy(parsed.policy);
-      if (softPolicy && execution?.disposition !== "SOFT_OBJECTIVE") {
+      if (softPolicy && !isSetupGeneratedOwner(rule.id) && execution?.disposition !== "SOFT_OBJECTIVE") {
         issue(`${rule.id} uses a soft typed policy kind but is not a SOFT_OBJECTIVE rule`, [rule.id]);
       }
-      if (!softPolicy && execution?.disposition === "SOFT_OBJECTIVE") {
+      if (!softPolicy && !isSetupGeneratedOwner(rule.id) && execution?.disposition === "SOFT_OBJECTIVE") {
         issue(`${rule.id} uses a HARD typed policy kind but is registered as SOFT_OBJECTIVE`, [rule.id]);
       }
     }

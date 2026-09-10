@@ -77,6 +77,6 @@ describe("Classes Rulebook repair UI", () => {
     expect(classesView).toContain("readOnly={Boolean(activeRepair)} value={editing.name}");
     expect(classesView).toContain("readOnly={Boolean(activeRepair)} value={editing.weeklyFrequency}");
     expect(classesView).toContain("disabled={Boolean(activeRepair)} checked={selected}");
-    expect(classesView).toContain("disabled={Boolean(activeRepair)} checked={Boolean(editing.companyOnly)}");
+    expect(classesView).toContain("disabled={Boolean(activeRepair)} value={scopeDraft}");
   });
 });
