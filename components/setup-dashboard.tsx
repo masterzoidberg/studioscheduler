@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
 import { buildSetupProgress, type SetupSectionId, type SetupSectionStatus } from "@/lib/setup-progress";
+import { StudioSetupForm } from "@/components/studio-setup-form";
+import { RoomRestrictionReviewPanel } from "@/components/room-restriction-review-panel";
 
 const icons: Record<SetupSectionId, typeof Building2> = {
   studio: Building2,
@@ -137,6 +139,9 @@ export function SetupDashboard() {
           })}
         </div>
       </section>
+
+      <StudioSetupForm />
+      <RoomRestrictionReviewPanel />
 
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600 sm:p-5">
         <strong className="text-slate-900">What moved?</strong> Setup is now the normal entry point. The existing People, Classes and Planning Repairs screens remain available as deep links while their editing controls are folded into these sections over the next setup tasks. Detailed Rulebook, readiness and version diagnostics live under Settings → Advanced.

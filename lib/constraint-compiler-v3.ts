@@ -349,7 +349,7 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
   const legacyAdditions = v3Constraints(ruleMap);
   const legacyCandidates = [...legacyBase, ...legacyAdditions];
 
-  if (currentRulebook?.version === DWDE_TYPED_POLICY_BUNDLE_VERSION) {
+  if (currentRulebook && currentRulebook.version >= DWDE_TYPED_POLICY_BUNDLE_VERSION) {
     const typed = compileV5TypedPolicies(state, ruleMap, legacyCandidates, base.objectivePrioritySpine);
     const candidateHardConstraints = [
       ...legacyCandidates.filter((node) => !typed.suppressedLegacyNodeIds.has(node.id)),

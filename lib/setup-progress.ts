@@ -73,7 +73,7 @@ export function buildSetupProgress(state: StudioState): SetupProgress {
       : {
         id: "studio",
         title: "Studio",
-        description: `${plural(state.rooms.length, "room")} are recorded with capacity. Operating hours will move into this section in a later setup step.`,
+        description: `${plural(state.rooms.length, "room")} are recorded with capacity. Set operating hours and room restrictions in Studio Setup below.`,
         status: "READY_FOR_NOW",
         href: "/people",
         actionLabel: "Review rooms",

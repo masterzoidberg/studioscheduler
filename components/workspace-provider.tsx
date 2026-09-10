@@ -26,6 +26,8 @@ import type {
 } from "@/lib/domain";
 import { emptyValidation, validateSchedule } from "@/lib/validator";
 import { getBrowserSupabase } from "@/lib/supabase";
+import { applySetupTypedPolicies as applySetupTypedPoliciesClient } from "@/lib/setup-policy-client";
+import type { SetupTypedPolicyMutationResult, SetupTypedPolicyPatch } from "@/lib/setup-policy";
 
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -56,6 +58,7 @@ interface WorkspaceContextValue {
   signInWithEmail: (email: string) => Promise<{ ok: boolean; message: string }>;
   signOut: () => Promise<void>;
   applyRulePatch: (patch: RulePatch) => Promise<MutationResult>;
+  applySetupTypedPolicies: (policies: SetupTypedPolicyPatch[], reason: string) => Promise<SetupTypedPolicyMutationResult>;
   applySchedulePatch: (patch: SchedulePatch) => Promise<MutationResult>;
   rebaseSchedule: () => Promise<MutationResult>;
   undoSchedule: () => Promise<MutationResult>;
@@ -313,6 +316,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (caught) { return fail(caught); }
   }
 
+  async function applySetupTypedPolicies(policies: SetupTypedPolicyPatch[], reason: string): Promise<SetupTypedPolicyMutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required." };
+    const result = await applySetupTypedPoliciesClient({
+      policies,
+      reason,
+      expectedRulebookVersion: currentRulebookVersion,
+      expectedEnforcementVersion: currentEnforcementVersion,
+      expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
+    });
+    if (result.ok) await load();
+    return result;
+  }
+
   async function applySchedulePatch(patch: SchedulePatch): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
@@ -546,7 +562,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
     currentPlanningDatasetVersion,currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,currentSchedulePlanningDatasetVersion,
     scheduleIsStale,validation,
-    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySchedulePatch,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
+    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySetupTypedPolicies,applySchedulePatch,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
     updateTeacher,updateRoom,updateClass,createScenario,inviteMember,setMemberRole,removeMember,cancelInvite,
   };
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

@@ -185,4 +185,35 @@ describe("POL-02 V5 typed bundle transition", () => {
     expect(supportOf(value)).toMatchObject({ supported: false });
     expect(supportOf(value).ruleIds).toContain("AIM-001");
   });
+
+  it("accepts an immutable SET-03 Rulebook successor while preserving the V5 bundle proof", () => {
+    const value = fixture();
+    value.current.version = 6;
+    value.current.parentVersion = 5;
+    value.current.formatVersion = "2.4";
+    value.current.changedRuleIds = ["AIM-001", "ROOM-007"];
+    value.current.sourceHash = "6".repeat(64);
+    value.current.sourceMetadata = {
+      ...value.current.sourceMetadata,
+      provenance: "TYPED_POLICY_BUNDLE_EDIT",
+      previousTypedPolicyVersion: 5,
+      transition: "SET-03 manager setup typed policy edit",
+    };
+    expect(supportOf(value)).toMatchObject({ recognized: true, supported: true, ruleIds: [] });
+  });
+
+  it("rejects a SET-03 edit that is not an immutable successor of its parent", () => {
+    const value = fixture();
+    value.current.version = 6;
+    value.current.parentVersion = 3;
+    value.current.formatVersion = "2.4";
+    value.current.sourceHash = "6".repeat(64);
+    value.current.sourceMetadata = {
+      ...value.current.sourceMetadata,
+      provenance: "TYPED_POLICY_BUNDLE_EDIT",
+      previousTypedPolicyVersion: 3,
+    };
+    expect(supportOf(value)).toMatchObject({ recognized: true, supported: false });
+    expect(supportOf(value).message).toContain("expected 5");
+  });
 });

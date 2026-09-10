@@ -17,6 +17,7 @@ export const POL01_TYPED_RULE_IDS = ["AIM-003"] as const;
 export const DWDE_TYPED_POLICY_BUNDLE_VERSION = 5;
 export const DWDE_TYPED_POLICY_BUNDLE_FORMAT_VERSION = "2.3";
 export const DWDE_TYPED_POLICY_BUNDLE_PROVENANCE = "TYPED_POLICY_BUNDLE_MIGRATION";
+export const DWDE_TYPED_POLICY_EDIT_MIN_VERSION = 6;
 
 export interface TypedPolicyBundleDeclaration {
   ownerRuleId: string;
@@ -208,7 +209,7 @@ function v4Support(
 }
 
 export function typedPolicyBundleManifest(current: RulebookVersion | null): TypedPolicyBundleManifest | null {
-  if (!current || current.version !== DWDE_TYPED_POLICY_BUNDLE_VERSION) return null;
+  if (!current || current.version < DWDE_TYPED_POLICY_BUNDLE_VERSION) return null;
   const ownerRuleIds = canonicalStringArray(current.sourceMetadata?.typedPolicyRuleIds);
   const introducedOwnerRuleIds = canonicalStringArray(current.sourceMetadata?.introducedTypedPolicyRuleIds);
   const rawBundles = current.sourceMetadata?.typedPolicyBundles;
@@ -392,6 +393,42 @@ function v5Support(
   };
 }
 
+function v6Support(
+  current: RulebookVersion,
+  rules: StudioRule[],
+  versions: RulebookVersion[],
+): ReviewedDwdePolicySupport {
+  const transitionIssues: string[] = [];
+  if (current.parentVersion !== current.version - 1) transitionIssues.push(`Rulebook edit parent version is ${current.parentVersion ?? "missing"}, expected ${current.version - 1}`);
+  if (current.sourceMetadata?.provenance !== "TYPED_POLICY_BUNDLE_EDIT") transitionIssues.push("typed policy edit provenance is missing");
+  if (current.sourceMetadata?.previousTypedPolicyVersion !== current.parentVersion) transitionIssues.push("previous typed policy version must match the edit parent");
+  // SET-03 edits are immutable Rulebook successors of the first V5 bundle.
+  // Normalize the edit metadata to the certified V5 shape for the shared
+  // residual/ownership checks; the live version remains visible to callers.
+  const ownerRuleIds = canonicalStringArray(current.sourceMetadata?.typedPolicyRuleIds) ?? [];
+  const normalized: RulebookVersion = {
+    ...current,
+    version: DWDE_TYPED_POLICY_BUNDLE_VERSION,
+    parentVersion: 4,
+    formatVersion: DWDE_TYPED_POLICY_BUNDLE_FORMAT_VERSION,
+    sourceMetadata: {
+      ...current.sourceMetadata,
+      provenance: DWDE_TYPED_POLICY_BUNDLE_PROVENANCE,
+      previousTypedPolicyVersion: 4,
+      introducedTypedPolicyRuleIds: ownerRuleIds,
+    },
+    changedRuleIds: ownerRuleIds,
+  };
+  const support = v5Support(normalized, rules, versions);
+  if (transitionIssues.length === 0) return support;
+  return {
+    ...support,
+    supported: false,
+    ruleIds: [...new Set([...support.ruleIds, ...(current.changedRuleIds || [])])].sort(),
+    message: `DWDE typed-policy edit is unsupported: ${transitionIssues.join("; ")}. ${support.message}`,
+  };
+}
+
 /**
  * Accept the immutable reviewed V3 baseline, the bounded POL-01 V4 transition,
  * or the dependency-closed POL-02 V5 bundle transition. Each newer version is
@@ -413,6 +450,7 @@ export function reviewedDwdePolicySupport(
 
   if (current.version === DWDE_TYPED_POLICY_VERSION) return v4Support(current, rules, versions);
   if (current.version === DWDE_TYPED_POLICY_BUNDLE_VERSION) return v5Support(current, rules, versions);
+  if (current.version >= DWDE_TYPED_POLICY_EDIT_MIN_VERSION) return v6Support(current, rules, versions);
 
   return {
     recognized: true,

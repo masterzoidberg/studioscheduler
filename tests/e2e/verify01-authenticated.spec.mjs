@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { expect, test } from '@playwright/test';
 import { registerSet01RoomCapacityReviewTest } from './set01-room-capacity-review.spec.mjs';
+import { registerSet03SetupPolicyTest } from './set03-setup-policies.spec.mjs';
 
 const appUrl = process.env.E2E_APP_URL;
 const supabaseUrl = process.env.E2E_SUPABASE_URL;
@@ -255,3 +256,4 @@ test('OWNER login, governed inventory write, and conflicting authoritative MOVE 
 });
 
 registerSet01RoomCapacityReviewTest();
+registerSet03SetupPolicyTest();

@@ -28,6 +28,18 @@ function executable(name) {
   return process.platform === 'win32' ? `${name}.cmd` : name;
 }
 
+function supabaseInvocation() {
+  return {
+    command: executable('npx'),
+    args: ['--yes', `supabase@${requiredSupabaseCliVersion}`],
+  };
+}
+
+function runSupabase(args, options = {}) {
+  const invocation = supabaseInvocation();
+  return run(invocation.command, [...invocation.args, ...args], options);
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? repoRoot,
@@ -37,6 +49,7 @@ function run(command, args, options = {}) {
     maxBuffer: 64 * 1024 * 1024,
     timeout: options.timeout ?? 10 * 60 * 1000,
     windowsHide: true,
+    shell: process.platform === 'win32' && command.toLowerCase().endsWith('.cmd'),
   });
   if (result.error) throw new E2EHarnessError(`${command} could not be started: ${result.error.message}`);
   if (result.status !== 0) {
@@ -78,7 +91,7 @@ function assertExistingEnvironmentIsSafe(env = process.env) {
 }
 
 function ensureSupabaseCli() {
-  const result = run('supabase', ['--version']);
+  const result = runSupabase(['--version']);
   const version = result.stdout.trim().replace(/^v/, '');
   if (version !== requiredSupabaseCliVersion) {
     throw new E2EHarnessError(
@@ -93,7 +106,7 @@ function ensurePlaywright() {
   const installed = existsSync(packagePath) ? JSON.parse(readFileSync(packagePath, 'utf8')).version : null;
   if (installed !== playwrightVersion) {
     run(executable('npm'), [
-      'install', '--no-save', '--package-lock=false', '--ignore-scripts', '--no-audit', '--no-fund',
+      'install', '--no-save', '--package-lock=false', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps',
       `@playwright/test@${playwrightVersion}`,
     ]);
   }
@@ -253,19 +266,60 @@ function replayRepositorySchema(dbContainer) {
 
 function syntheticFixtureSql(ownerUserId) {
   const qualificationDescription = 'Synthetic qualification domain for the disposable VERIFY-01 teacher.';
-  const model = JSON.stringify({
-    schemaVersion: '1.0',
-    compilerVersion: 'dwde-ir-0.3',
-    rulebookVersion: 1,
-    activeRuleCount: 1,
-    hardConstraints: [{
-      id: 'aimee-subject-domain',
-      kind: 'TEACHER_SUBJECT_DOMAIN',
-      ruleIds: ['AIM-001'],
-      selector: { teacherNames: ['Aimee'] },
-      parameters: { allowedSubjects: ['Ballet', 'Pre-Pointe', 'Pointe'], balletLevels: 'ALL' },
-      explanation: qualificationDescription,
-    }],
+    const model = JSON.stringify({
+      schemaVersion: '1.0',
+      compilerVersion: 'dwde-ir-0.4',
+      rulebookVersion: 4,
+      activeRuleCount: 8,
+      hardConstraints: [
+        {
+          id: 'aimee-subject-domain',
+          kind: 'TEACHER_SUBJECT_DOMAIN',
+          ruleIds: ['AIM-001'],
+          selector: { teacherNames: ['Aimee'] },
+          parameters: { allowedSubjects: ['Ballet', 'Pre-Pointe', 'Pointe'], balletLevels: 'ALL' },
+          explanation: qualificationDescription,
+        },
+        {
+          id: 'ballet-levels-studio-a',
+          kind: 'REQUIRED_ROOM',
+          ruleIds: ['CUR-008', 'ROOM-002'],
+          selector: { classNames: ['Ballet 1', 'Ballet 2', 'Ballet 3', 'Ballet 4A', 'Ballet 4A/4B', 'Ballet 4B/5', 'Ballet 5'] },
+          parameters: { roomName: 'Studio A' },
+          explanation: 'Synthetic room-unavailable setup policy owner. Synthetic curriculum room requirement.',
+        },
+        {
+          id: 'elementary-ballet-studio-c',
+          kind: 'REQUIRED_ROOM',
+          ruleIds: ['ROOM-009'],
+          selector: { classNames: ['Elementary Ballet 1', 'Elementary Ballet 2'] },
+          parameters: { roomName: 'Studio C' },
+          explanation: 'Synthetic room-feature setup policy owner.',
+        },
+        {
+          id: 'studio-c-capacity',
+          kind: 'ROOM_CAPACITY',
+          ruleIds: ['ROOM-007', 'ROOM-008'],
+          selector: { roomNames: ['Studio C'] },
+          parameters: { maxDancers: 15, exemptLevels: ['Elementary 1', 'Elementary 2'], hardCapInterpretation: true },
+          explanation: 'Synthetic room-capacity setup policy owner. Synthetic room-capacity exception.',
+        },
+        {
+          id: 'weekday-earliest-start',
+          kind: 'DAY_TIME_WINDOW',
+          ruleIds: ['OPS-001', 'OPS-002'],
+          selector: {},
+          parameters: {
+            days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+            normalEarliestStart: '16:45',
+            exceptionEarliestStart: '16:30',
+            exceptionLevels: ['Elementary 1', 'Elementary 2', 'Level 4B', 'Level 4B/5', 'Level 5'],
+            preferredNormalStart: '16:45',
+            displayOnlyEarlierTime: '16:15',
+          },
+          explanation: 'Synthetic operating-window setup policy owner. Synthetic preferred start.',
+        },
+      ],
     objectivePrioritySpine: [],
     readinessRuleIds: [],
     governanceAssertions: [],
@@ -307,22 +361,35 @@ insert into public.rooms(id,studio_id,name,capacity,features) values('verify01-r
 insert into public.class_definitions(id,studio_id,name,subject,level,duration_minutes,weekly_frequency,roster_student_ids,eligible_teacher_ids,company_only)
 values('verify01-class','${studioId}','Verify Class','Ballet','Test Level',60,1,'{}','{}',false);
 insert into public.class_sessions(id,studio_id,class_id,ordinal,locked) values('verify01-session','${studioId}','verify01-class',1,false);
-insert into public.rules(
+  insert into public.rules(
   id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
-) values(
-  'AIM-001','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 teacher qualification','${qualificationDescription}','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'
-);
+  ) values(
+    'AIM-001','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 teacher qualification','${qualificationDescription}','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'
+  );
+  insert into public.rules(
+    id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
+  ) values
+    ('CUR-008','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 curriculum room requirement','Synthetic curriculum room requirement.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+    ('OPS-002','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 preferred start','Synthetic preferred start.','LIGHT','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'LIGHT','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+    ('ROOM-008','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 room-capacity exception','Synthetic room-capacity exception.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED');
+  insert into public.rules(
+  id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
+) values
+  ('OPS-001','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 operating windows','Synthetic operating-window setup policy owner.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',4,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+  ('ROOM-002','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 unavailable windows','Synthetic room-unavailable setup policy owner.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',4,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+  ('ROOM-007','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 room capacity','Synthetic room-capacity setup policy owner.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',4,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+  ('ROOM-009','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 room features','Synthetic room-feature setup policy owner.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',4,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED');
 insert into public.rulebook_versions(studio_id,version,name,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,rulebook_id,status,rule_count,format_version,document_type,source_metadata)
-select '${studioId}',1,'VERIFY-01 Generic Rulebook','${ownerUserId}','Verify Owner','Synthetic non-DWDE browser fixture','{AIM-001}',jsonb_agg(to_jsonb(r) order by r.id),'verify01-generic-rulebook','CURRENT',count(*)::integer,'1.0','VERIFY01_TEST_RULEBOOK','{"fixture":"VERIFY-01","privateData":false}'::jsonb
+  select '${studioId}',4,'VERIFY-01 Generic Rulebook v4','${ownerUserId}','Verify Owner','Synthetic non-DWDE browser fixture','{}',jsonb_agg(to_jsonb(r) order by r.id),'verify01-generic-rulebook','CURRENT',count(*)::integer,'2.2','VERIFY01_TEST_RULEBOOK','{"fixture":"VERIFY-01","privateData":false}'::jsonb
 from public.rules r where r.studio_id='${studioId}';
 insert into public.rule_enforcement_versions(studio_id,version,rulebook_version,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,status)
-values('${studioId}',1,1,'${ownerUserId}','Verify Owner','Synthetic empty enforcement fixture','{}','[]'::jsonb,'CURRENT');
+values('${studioId}',1,4,'${ownerUserId}','Verify Owner','Synthetic empty enforcement fixture','{}','[]'::jsonb,'CURRENT');
 select private.ensure_planning_dataset_version_v25('${studioId}','${ownerUserId}','Verify Owner','VERIFY-01 synthetic planning fixture');
 insert into public.constraint_model_versions(studio_id,version,rulebook_version,compiler_version,actor_user_id,actor_label,reason,snapshot,snapshot_hash,complete_hard_constraint_compilation,status)
-select '${studioId}',1,1,'dwde-ir-0.3','${ownerUserId}','Verify Owner','Synthetic generic Constraint IR','${model}'::jsonb,
+  select '${studioId}',1,4,'dwde-ir-0.4','${ownerUserId}','Verify Owner','Synthetic generic Constraint IR','${model}'::jsonb,
   private.constraint_model_hash_v27('${model}'::jsonb),true,'CURRENT';
 insert into public.schedule_versions(studio_id,version,rulebook_version,enforcement_version,planning_dataset_version,constraint_model_version,actor_user_id,actor_label,reason,is_current,validation_result)
-select '${studioId}',1,1,1,p.version,1,'${ownerUserId}','Verify Owner','VERIFY-01 synthetic current schedule',true,
+select '${studioId}',1,4,1,p.version,1,'${ownerUserId}','Verify Owner','VERIFY-01 synthetic current schedule',true,
   '{"valid":true,"fullyValidated":true,"hardViolations":0,"warnings":0,"violations":[],"coverage":{"applicableHardRules":0,"implementedHardRules":0,"partialHardRules":0,"notImplementedHardRules":0,"notApplicableHardRules":0,"uncoveredHardRuleIds":[]}}'::jsonb
 from public.planning_dataset_versions p where p.studio_id='${studioId}' and p.status='CURRENT';
 insert into public.assignments(schedule_version_id,id,studio_id,session_id,day,start_time,end_time,teacher_id,room_id,locked,status)
@@ -361,7 +428,12 @@ async function waitForHttp(url, child, logPath) {
 }
 
 async function stopChild(child) {
-  if (!child || child.exitCode !== null) return;
+  if (!child) return;
+  if (process.platform === 'win32') {
+    if (child.pid) spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
+    return;
+  }
+  if (child.exitCode !== null) return;
   child.kill('SIGTERM');
   await delay(500);
   if (child.exitCode === null) child.kill('SIGKILL');
@@ -395,12 +467,12 @@ async function runHarness() {
   let supabaseStarted = false;
 
   try {
-    run('supabase', ['init'], { cwd: tempRoot });
+    runSupabase(['init'], { cwd: tempRoot });
     configureSupabaseProject(tempRoot, ports, projectId);
-    run('supabase', ['start'], { cwd: tempRoot, timeout: 10 * 60 * 1000 });
+    runSupabase(['start'], { cwd: tempRoot, timeout: 10 * 60 * 1000 });
     supabaseStarted = true;
 
-    const status = parseStatusJson(run('supabase', ['status', '--output', 'json'], { cwd: tempRoot }).stdout);
+    const status = parseStatusJson(runSupabase(['status', '--output', 'json'], { cwd: tempRoot }).stdout);
     if (!status.apiUrl || !status.anonKey || !status.serviceRoleKey || !status.mailpitUrl) {
       throw new E2EHarnessError('Supabase status did not expose the local API, public key, service-role credential and Mailpit URL.');
     }
@@ -438,6 +510,7 @@ async function runHarness() {
       env: appEnv,
       stdio: ['ignore', nextLogFd, nextLogFd],
       windowsHide: true,
+      shell: process.platform === 'win32',
     });
     await waitForHttp(ports.appUrl, nextProcess, nextLogPath);
 
@@ -464,11 +537,13 @@ async function runHarness() {
     await stopChild(nextProcess);
     if (nextLogFd !== null) closeSync(nextLogFd);
     if (supabaseStarted) {
-      const stopped = spawnSync('supabase', ['stop', '--no-backup'], {
+      const invocation = supabaseInvocation();
+      const stopped = spawnSync(invocation.command, [...invocation.args, 'stop', '--no-backup'], {
         cwd: tempRoot,
         encoding: 'utf8',
         windowsHide: true,
         timeout: 2 * 60 * 1000,
+        shell: process.platform === 'win32',
       });
       if (stopped.status !== 0) process.stderr.write(`Warning: Supabase cleanup failed.\n${stopped.stderr || stopped.stdout}\n`);
     }

@@ -154,4 +154,19 @@ describe("POL-02 V5 bundle-aware compiler", () => {
     expect(model.hardConstraints.some((node) => node.id === "studio-c-capacity")).toBe(false);
     expect(model.hardConstraints.some((node) => node.id === "typed-room-007-room-capacity")).toBe(false);
   });
+
+  it("continues using typed compilation for an immutable V6 setup-policy edit", () => {
+    const value = fixture();
+    const current = value.rulebookVersions.find((version) => version.status === "CURRENT")!;
+    current.version = 6;
+    current.parentVersion = 5;
+    current.formatVersion = "2.4";
+    current.changedRuleIds = ["AIM-001", "ROOM-007"];
+    current.sourceHash = "6".repeat(64);
+    current.sourceMetadata = { ...current.sourceMetadata, provenance: "TYPED_POLICY_BUNDLE_EDIT", previousTypedPolicyVersion: 5 };
+    const model = compileConstraintModel(value);
+    expect(model.compilerVersion).toBe("dwde-ir-0.5");
+    expect(model.completeHardConstraintCompilation).toBe(true);
+    expect(model.hardConstraints).toContainEqual(expect.objectContaining({ id: "typed-room-007-room-capacity" }));
+  });
 });
