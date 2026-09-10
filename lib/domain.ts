@@ -205,6 +205,57 @@ export interface PlanningDatasetVersion {
   confirmedForSchedulingAt?: string | null;
   confirmedForSchedulingByLabel?: string | null;
   schedulingConfirmationNote?: string | null;
+  certificationRulebookVersion?: number | null;
+  certificationConstraintModelVersion?: number | null;
+  certificationConstraintModelSnapshotHash?: string | null;
+  certificationReviewSetFingerprint?: string | null;
+  certificationReviewSchemaVersion?: number | null;
+}
+
+export type ReadinessReviewState =
+  | "MISSING"
+  | "NEEDS_REVIEW"
+  | "CHANGED_SINCE_REVIEW"
+  | "BLOCKED"
+  | "REVIEWED"
+  | "REVIEWED_VALUE"
+  | "REVIEWED_NO_ADDITIONAL_RESTRICTION";
+export type ReadinessReviewClassification = "MUST" | "PREFER" | "INFORMATIONAL";
+export interface ReadinessReviewFinding {
+  code: string;
+  scopeKind: string;
+  entityId: string | null;
+  aspect: string;
+  state: ReadinessReviewState;
+  classification: ReadinessReviewClassification;
+  message: string;
+  ruleIds: string[];
+  entityIds: string[];
+  currentFingerprint: string | null;
+  latestOutcome?: string | null;
+}
+export interface ReadinessCertificationState {
+  schemaVersion: number;
+  reviewSetSchemaVersion: number;
+  reviewSetFingerprint: string | null;
+  currentRulebookVersion: number | null;
+  currentPlanningDatasetVersion: number | null;
+  currentPlanningSnapshotHash: string | null;
+  currentConstraintModelVersion: number | null;
+  currentConstraintModelSnapshotHash: string | null;
+  currentConstraintModelCompilerVersion: string | null;
+  reviewFindings: ReadinessReviewFinding[];
+  certification: {
+    planningDatasetVersion: number;
+    planningSnapshotHash: string;
+    rulebookVersion: number;
+    constraintModelVersion: number;
+    constraintModelSnapshotHash: string;
+    reviewSetSchemaVersion: number;
+    reviewSetFingerprint: string;
+    confirmedAt: string;
+    confirmedByLabel: string | null;
+  } | null;
 }
 
 export interface RulebookVersion {
@@ -251,6 +302,7 @@ export interface StudioState {
   scheduleVersions: ScheduleVersion[];
   scenarios: Scenario[];
   auditEvents: AuditEvent[];
+  readinessCertification?: ReadinessCertificationState;
 }
 
 export interface CanonicalImportPackage {

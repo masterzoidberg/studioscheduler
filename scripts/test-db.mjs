@@ -637,6 +637,10 @@ $block$;
 const planningConfirmationSql = String.raw`
 set search_path=public,extensions;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+-- V39 is revoked for application roles by SET-07. This historical T04
+-- fixture is seeded as the disposable database owner; SET-07 has a dedicated
+-- V60 transaction regression for the application boundary.
+set role postgres;
 select public.confirm_current_planning_dataset_v39(
   version,
   snapshot_hash,
@@ -753,6 +757,7 @@ select public.set_planning_entity_archive_v40(
   'ROOM','t04-room',true,'T06 archive room lifecycle',
   (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
 );
+set role postgres;
 select public.confirm_current_planning_dataset_v39(
   version,snapshot_hash,'T06 confirmed archived active inventory',
   '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
@@ -863,6 +868,7 @@ select public.set_planning_entity_archive_v40(
   'CLASS','t04-class',false,'T06 restore class lifecycle',
   (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
 );
+set role postgres;
 select public.confirm_current_planning_dataset_v39(
   version,snapshot_hash,'T06 confirmed class restore with resources still archived',
   '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
@@ -924,6 +930,7 @@ select public.set_planning_entity_archive_v40(
   'ROOM','t04-room',false,'T06 restore room lifecycle',
   (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
 );
+set role postgres;
 select public.confirm_current_planning_dataset_v39(
   version,snapshot_hash,'T06 reconfirmed fully restored active inventory',
   '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
@@ -1719,7 +1726,7 @@ async function runHarness(onlyPol04 = false) {
     const constraintModelOutput = psql(container, 'postgres', constraintModelRoundTripSql, 'Constraint Model JSONB round-trip integration tests');
     process.stdout.write(constraintModelOutput);
     psql(container, 'postgres', candidateIntervalFixtureSql, 'T04 candidate interval fixture');
-    psql(container, 'authenticated', planningConfirmationSql, 'T04 planning confirmation');
+    psql(container, 'postgres', planningConfirmationSql, 'T04 planning confirmation bootstrap');
     const candidateIntervalOutput = psql(container, 'postgres', candidateIntervalAdoptionSql, 'T04 candidate interval adoption integration tests');
     process.stdout.write(candidateIntervalOutput);
     const archiveAwareOutput = psql(container, 'postgres', archiveAwareAdoptionSql, 'T06 archive-aware adoption integration tests');
@@ -1765,6 +1772,7 @@ select public.set_planning_entity_archive_v40(
   'CLASS','t04-class',true,'T12 archive-before-rebase',
   (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
 );
+set role postgres;
 select public.confirm_current_planning_dataset_v39(
   version,snapshot_hash,'T12 confirmed archive recovery input',
   '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
@@ -1849,6 +1857,7 @@ select private.ensure_planning_dataset_version_v25(
 );
 set role authenticated;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+set role postgres;
 select public.confirm_current_planning_dataset_v39(
   version,snapshot_hash,'T12 confirmed restored 105-minute duration',
   '{"peopleInventoryReviewed":true,"classSessionCatalogReviewed":true,"classRostersReviewed":true,"sourceAndCompletenessReviewed":true}'::jsonb
@@ -2613,7 +2622,13 @@ begin
       v_context,v_candidate,'{"valid":true,"hardViolations":0,"fullyValidated":true}'::jsonb
     ) into v_result;
   exception when others then
-    if position('LEGACY_HARD_VALIDATION_FAILED' in sqlerrm)=0 then raise; end if;
+    -- SET-07 adds the transaction-level certification gate before the
+    -- historical HARD validator. Accept either rejection here; the focused
+    -- SET-07 regression proves the new gate and this legacy fixture continues
+    -- to prove no canonical rows are written.
+    if position('LEGACY_HARD_VALIDATION_FAILED' in sqlerrm)=0
+       and position('PLANNING_DATASET_NOT_CERTIFIED' in sqlerrm)=0
+       and position('PLANNING_CERTIFICATION_STALE' in sqlerrm)=0 then raise; end if;
     v_rejected:=true;
   end;
   if not v_rejected then raise exception 'POL04 candidate adoption accepted caller-claimed valid:true'; end if;

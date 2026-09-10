@@ -101,6 +101,11 @@ function mapPlanningDataset(row: Record<string, unknown>): PlanningDatasetVersio
     confirmedForSchedulingAt: row.confirmed_for_scheduling_at ? String(row.confirmed_for_scheduling_at) : null,
     confirmedForSchedulingByLabel: row.confirmed_for_scheduling_by_label ? String(row.confirmed_for_scheduling_by_label) : null,
     schedulingConfirmationNote: row.scheduling_confirmation_note ? String(row.scheduling_confirmation_note) : null,
+    certificationRulebookVersion: row.certification_rulebook_version == null ? null : Number(row.certification_rulebook_version),
+    certificationConstraintModelVersion: row.certification_constraint_model_version == null ? null : Number(row.certification_constraint_model_version),
+    certificationConstraintModelSnapshotHash: row.certification_constraint_model_snapshot_hash ? String(row.certification_constraint_model_snapshot_hash) : null,
+    certificationReviewSetFingerprint: row.certification_review_set_fingerprint ? String(row.certification_review_set_fingerprint) : null,
+    certificationReviewSchemaVersion: row.certification_review_schema_version == null ? null : Number(row.certification_review_schema_version),
   };
 }
 
@@ -146,6 +151,11 @@ export interface SolverSnapshotContextToken {
   planningDatasetId: string | null;
   planningSnapshotHash: string | null;
   planningConfirmedForSchedulingAt: string | null;
+  planningCertificationRulebookVersion?: number | null;
+  planningCertificationConstraintModelVersion?: number | null;
+  planningCertificationConstraintModelSnapshotHash?: string | null;
+  planningCertificationReviewSchemaVersion?: number | null;
+  planningCertificationReviewSetFingerprint?: string | null;
   enforcementVersion: number | null;
   enforcementId: string | null;
   constraintModelVersion: number | null;
@@ -353,6 +363,10 @@ export function parseCanonicalSolverSnapshotPayload(raw: unknown, studioId: stri
     throw new Error("SOLVER_SNAPSHOT_INVALID: Context token references a missing ConstraintModelVersion.");
   }
 
+  const readinessCertification = isRecord(raw.readinessCertification)
+    ? raw.readinessCertification as unknown as StudioState["readinessCertification"]
+    : undefined;
+
   return {
     contextToken,
     publishedConstraintModel,
@@ -369,6 +383,7 @@ export function parseCanonicalSolverSnapshotPayload(raw: unknown, studioId: stri
       scheduleVersions,
       scenarios: [],
       auditEvents: [],
+      readinessCertification,
     },
   };
 }

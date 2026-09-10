@@ -12,6 +12,7 @@ import type {
   RuleHistoryEntry,
   RulePatch,
   RulebookVersion,
+  ReadinessCertificationState,
   Room,
   Scenario,
   SchedulePatch,
@@ -32,6 +33,7 @@ import type { SetupTypedPolicyMutationResult, SetupTypedPolicyPatch } from "@/li
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 
 type MutationResult = { ok: boolean; error?: string; validation?: ValidationResult; version?: number; details?: Record<string, unknown> };
+type PlanningConfirmationResponse = { certification?: ReadinessCertificationState | null; error?: string };
 
 interface WorkspaceContextValue {
   loading: boolean;
@@ -129,6 +131,11 @@ function mapPlanningDatasetVersion(row: Record<string, unknown>): PlanningDatase
       confirmedForSchedulingAt: row.confirmed_for_scheduling_at ? String(row.confirmed_for_scheduling_at) : null,
       confirmedForSchedulingByLabel: row.confirmed_for_scheduling_by_label ? String(row.confirmed_for_scheduling_by_label) : null,
       schedulingConfirmationNote: row.scheduling_confirmation_note ? String(row.scheduling_confirmation_note) : null,
+      certificationRulebookVersion: row.certification_rulebook_version == null ? null : Number(row.certification_rulebook_version),
+      certificationConstraintModelVersion: row.certification_constraint_model_version == null ? null : Number(row.certification_constraint_model_version),
+      certificationConstraintModelSnapshotHash: row.certification_constraint_model_snapshot_hash ? String(row.certification_constraint_model_snapshot_hash) : null,
+      certificationReviewSetFingerprint: row.certification_review_set_fingerprint ? String(row.certification_review_set_fingerprint) : null,
+      certificationReviewSchemaVersion: row.certification_review_schema_version == null ? null : Number(row.certification_review_schema_version),
     },
   } as PlanningDatasetVersion;
 }
@@ -207,6 +214,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         : { data: [], error: null };
       if (assignmentQ.error) throw assignmentQ.error;
       const assignments = (assignmentQ.data || []).map((row) => mapAssignment(row as Record<string, unknown>));
+      const certificationResponse = await fetch("/api/planning/confirmation", {
+        headers: { Authorization: `Bearer ${sess.access_token}` },
+        cache: "no-store",
+      });
+      const certificationPayload = await certificationResponse.json() as PlanningConfirmationResponse;
+      if (!certificationResponse.ok) {
+        throw new Error(certificationPayload.error || "The server could not load the current readiness certification.");
+      }
       const scheduleVersions: ScheduleVersion[] = (scheduleQ.data || []).map((row) => ({
         id: row.id, version: row.version, rulebookVersion: row.rulebook_version, enforcementVersion: Number(row.enforcement_version || 0),
         planningDatasetVersion: row.planning_dataset_version == null ? undefined : Number(row.planning_dataset_version), createdAt: row.created_at,
@@ -248,6 +263,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           rulePatches: (row.rule_patches || []) as unknown as RulePatch[], schedulePatches: (row.schedule_patches || []) as unknown as SchedulePatch[], createdAt: row.created_at,
         } as Scenario)),
         auditEvents: (auditQ.data || []).map((row) => ({ id: row.id, at: row.created_at, actor: row.actor_label, action: row.action, entityType: row.entity_type, entityId: row.entity_id || undefined, detail: row.detail })),
+        readinessCertification: certificationPayload.certification || undefined,
       };
       setState(mapped);
       setMembers((memberQ.data || []).map((row: Record<string, unknown>) => ({

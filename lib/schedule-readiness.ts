@@ -4,6 +4,7 @@ import { validateConstraintModelBindings, type ConstraintDataBindingReport } fro
 import { ruleExecutionCoverage } from "@/lib/rule-execution-registry";
 import { reviewedDwdePolicySupport } from "@/lib/dwde-policy-transition";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
+import { readinessCertificationIssues } from "@/lib/readiness-certification";
 
 export type ScheduleReadinessSeverity = "BLOCKER" | "WARNING";
 
@@ -13,6 +14,10 @@ export interface ScheduleReadinessIssue {
   message: string;
   ruleIds: string[];
   entityIds: string[];
+  classification?: "MUST" | "PREFER" | "INFORMATIONAL";
+  requiredAction?: string;
+  deepLink?: string;
+  operationsBlocked?: Array<"CERTIFICATION" | "AUTOMATIC_SOLVE" | "CANDIDATE_ADOPTION" | "FINAL_EXPORT">;
 }
 
 export interface ScheduleReadinessReport {
@@ -428,6 +433,22 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
   checkKarlyDaughterEnrollment(state, issues);
   checkSourceManifest(state, currentPlanning, issues);
   const constraintBinding = checkConstraintBindings(state, issues);
+
+  if (state.readinessCertification) {
+    if (planningDatasetConfirmed && !state.readinessCertification.certification) {
+      add(
+        issues,
+        "PLANNING_CERTIFICATION_CONTEXT_MISSING",
+        "The Planning Dataset has an older confirmation, but no current Rulebook, Constraint Model, and review-set certification context is pinned.",
+        [],
+        [],
+        "BLOCKER",
+      );
+    }
+    for (const issue of readinessCertificationIssues(state.readinessCertification)) {
+      issues.push(issue);
+    }
+  }
 
   const blockers = issues.filter((issue) => issue.severity === "BLOCKER");
   const warnings = issues.filter((issue) => issue.severity === "WARNING");

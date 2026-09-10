@@ -44,11 +44,12 @@ describe("Planning Dataset confirmation attestation v39", () => {
     expect(migration).toContain("'PLANNING_DATASET_CONFIRMED'");
   });
 
-  it("routes the browser through v39 with snapshot-bound evidence", () => {
-    expect(confirmationUi).toContain('rpc("confirm_current_planning_dataset_v39"');
-    expect(confirmationUi).toContain("p_expected_snapshot_hash: row.snapshot_hash");
+  it("routes the browser through server-prepared v60 with snapshot-bound evidence", () => {
+    expect(confirmationUi).toContain('rpc("confirm_current_planning_dataset_v60"');
+    expect(confirmationUi).toContain('fetch("/api/planning/confirmation"');
+    expect(confirmationUi).toContain("p_expected_snapshot_hash: context.currentPlanningSnapshotHash");
     expect(confirmationUi).toContain("p_evidence: confirmationEvidence");
-    expect(confirmationUi).not.toContain('rpc("confirm_current_planning_dataset_v32"');
+    expect(confirmationUi).not.toContain('rpc("confirm_current_planning_dataset_v39"');
   });
 
   it("never prechecks attestations and invalidates them when version/hash changes", () => {
