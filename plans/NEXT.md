@@ -5,7 +5,7 @@
 **Milestone: A — DWDE Operational**
 **Status: SELECTED; the only READY task and next run.**
 
-Execute R4 from implementation HEAD `03218ae750166445c1226b5d1b14988a5de822fb` on branch `feat/pre-cami-hardening`. SET-07 completed the bounded readiness and manager-certification gate matrix, server-prepared V60 confirmation context, certification-aware solver snapshot/adoption boundary, local disposable DB regression, parity and authenticated browser evidence. PR #55 remains open; no merge, push or deployment is authorized.
+Execute R4 from implementation HEAD `a763a75a11c4bfce96b6e8d52fb48dcac53b8b19` on branch `feat/pre-cami-hardening`. SET-07 completed the bounded readiness and manager-certification gate matrix, server-prepared V60 confirmation context, certification-aware solver snapshot/adoption boundary, local disposable DB regression, parity and authenticated browser evidence. PR #55 remains open; no merge, push or deployment is authorized.
 
 Authority: read [TASKS](TASKS.md), [MASTER_PLAN](MASTER_PLAN.md), [DECISIONS](DECISIONS.md), [CODEX_EXECUTION_RULES](CODEX_EXECUTION_RULES.md), [TEST_STRATEGY](TEST_STRATEGY.md), and the bounded [UX-01 prompt](prompts/UX-01.md). `TASKS.md` owns status and dependencies; this file selects exactly one run. SET-07 is complete; UX-01 is the only selected task.
 
