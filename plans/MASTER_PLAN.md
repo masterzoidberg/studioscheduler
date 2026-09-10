@@ -1,6 +1,6 @@
 # Studio Scheduler product completion plan
 
-Canonical baseline: `91204390d8c025789e6af871a5939eb22decd517`, 2026-09-07. Scope is a trustworthy weekly scheduling application that managers configure and operate independently. R0 plan rework adoption was completed on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`; R1/POL-04 was accepted at implementation head `15f5c79`, closing the demonstrated POL-02 SQL safeguard gap. R2/SET-03 is the sole selected next run. [TASKS](TASKS.md) owns task status/dependencies; [NEXT](NEXT.md) selects one run. This plan supersedes prior release/generic/cutover roadmaps.
+Canonical baseline: `91204390d8c025789e6af871a5939eb22decd517`, 2026-09-07. Scope is a trustworthy weekly scheduling application that managers configure and operate independently. R0 plan rework adoption was completed on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`; R1/POL-04 was accepted at implementation head `15f5c79`, closing the demonstrated POL-02 SQL safeguard gap; SET-03 was accepted at implementation head `d46e68c`. R2/SET-04 is the sole selected next run. [TASKS](TASKS.md) owns task status/dependencies; [NEXT](NEXT.md) selects one run. This plan supersedes prior release/generic/cutover roadmaps.
 
 ## What exists and what does not
 
@@ -12,7 +12,7 @@ Evidence: [architecture audit](AUDIT_ARCHITECTURE.md), [UX journey audit](AUDIT_
 
 ## Delivery route
 
-The adopted execution route completed R1/POL-04, which closed the demonstrated POL-02 SQL safeguard gap. R2/SET-03 is now selected; later runs follow the dependency graph in [TASKS](TASKS.md). This route is planning guidance only: no deployment, merge, external participant or private-data action is implied.
+The adopted execution route completed R1/POL-04, which closed the demonstrated POL-02 SQL safeguard gap, and R2/SET-03, which added the bounded studio-hours, room-policy and room-restriction review slice. R2/SET-04 is now selected; later runs follow the dependency graph in [TASKS](TASKS.md). This route is planning guidance only: no deployment, merge, external participant or private-data action is implied.
 
 1. SAFE-01 closes the missing-member authorization gap; SAFE-02 makes local configuration safe and contains misleading AI. VERIFY-01 provides parity and authenticated disposable verification.
 2. SET-01 adds narrow review state through one existing room-capacity workflow. POL-01/02/03 progressively support governed typed policy forms; SET-02–07 build a unified manager setup and certification journey.
@@ -39,7 +39,7 @@ Current statuses are evidence classifications, not delivery claims. “Verified�
 
 | Capability | Current | A: DWDE | B: second studio | C: pilot | D: v1 |
 |---|---|---|---|---|---|
-| Setup/teacher/student/room management | Basic inventory partial; scheduling intake absent | SET-01–07 complete | Empty neutral studio works | Repeated intake supported | Independent repeat |
+| Setup/teacher/student/room management | Basic inventory plus studio/room policy partial; teacher/class intake remains | SET-01–07 complete | Empty neutral studio works | Repeated intake supported | Independent repeat |
 | Planning data/classes/sessions/rosters | Versioned CRUD/repair partial | Complete in-app review | Typed ID dependencies | Reviewed bulk intake | New-cycle reuse |
 | Qualifications/availability | Compiler semantics; no full forms | Explicit policy forms | No name bindings | Supported limits documented | Regression maintained |
 | Policy/rules/HARD validation | Typed TS/Python/SQL IR verified; arbitrary prose unsupported | Typed supported bundles; fail closed | Tenant record accounting | Generic supported authoring | Stable documented vocabulary |

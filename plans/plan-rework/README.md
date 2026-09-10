@@ -6,7 +6,7 @@ This directory proposes a faster, evidence-preserving route from the current imp
 
 ## Authority and adoption
 
-Adopted at R0 on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`. R0 correctly left POL-02 pending/BLOCKED because effective SQL safeguard coverage was absent. R1/POL-04 was then completed at implementation head `15f5c79`, adding the V54 forward safeguard and executed disposable no-write evidence; POL-02 is now DONE. R2/SET-03 is the sole selected next run. The R0 adoption commit was planning-only; the later corrective implementation and final status are recorded in the canonical ledger.
+Adopted at R0 on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`. R0 correctly left POL-02 pending/BLOCKED because effective SQL safeguard coverage was absent. R1/POL-04 was then completed at implementation head `15f5c79`, adding the V54 forward safeguard and executed disposable no-write evidence; POL-02 is now DONE. SET-03 was completed at implementation head `d46e68c`; the canonical ledger now selects R2/SET-04 as the sole next run. The R0 adoption commit was planning-only; later implementations and final status are recorded in the canonical ledger.
 
 - Current authority remains [`../TASKS.md`](../TASKS.md) for status, [`../MASTER_PLAN.md`](../MASTER_PLAN.md) for milestone exits, [`../DECISIONS.md`](../DECISIONS.md) for accepted design, and [`../NEXT.md`](../NEXT.md) for the one authorized next task.
 - This directory is **ADOPTED rationale and runbook material**, not a competing execution queue. Status and dependencies are authoritative only in [`../TASKS.md`](../TASKS.md); the selected run is authoritative only in [`../NEXT.md`](../NEXT.md).

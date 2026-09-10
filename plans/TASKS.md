@@ -1,6 +1,6 @@
 # Canonical task ledger
 
-Baseline `9120439`, 2026-09-07. R0 plan adoption was completed at audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on 2026-09-09. R1/POL-04 was accepted at implementation head `15f5c79` on 2026-09-09. Current milestone **A**; the sole selected next run is **R2 / SET-03 — core setup inputs**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02 and POL-04 are DONE after CI-backed hardening and verification; their prompts are archived.
+Baseline `9120439`, 2026-09-07. R0 plan adoption was completed at audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da` on 2026-09-09. R1/POL-04 was accepted at implementation head `15f5c79` on 2026-09-09. SET-03 was accepted at implementation head `d46e68c43ae920e99be40c7bd61e8a7d6c563728` on 2026-09-09. Current milestone **A**; the sole selected next run is **R2 / SET-04 — teacher availability and qualifications**. Historical T01–T13 remain DONE as bounded foundation work. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02, POL-04 and SET-03 are DONE after CI-backed hardening and verification; their prompts are archived.
 
 ## Status and execution contract
 
@@ -20,8 +20,8 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 | [SET-02](prompts/archive/SET-02.md) | Create one Studio Setup entry and dashboard | DONE | A | SET-01 | STANDARD IMPLEMENTATION |
 | [POL-02](prompts/archive/POL-02.md) | Extend typed policy to studio and qualification families | DONE | A | POL-01, POL-04 | STANDARD IMPLEMENTATION |
 | [POL-04](prompts/archive/POL-04.md) | Close POL-02 typed SQL safeguard parity and no-write coverage | DONE | A | POL-01 | STANDARD IMPLEMENTATION |
-| [SET-03](prompts/SET-03.md) | Manage studio hours and rooms through Setup | READY | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
-| [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
+| [SET-03](prompts/archive/SET-03.md) | Manage studio hours and rooms through Setup | DONE | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
+| [SET-04](prompts/SET-04.md) | Manage teacher availability and qualifications | READY | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [SET-05](prompts/SET-05.md) | Complete class/session and roster setup | NOT_STARTED | A | POL-02, SET-02 | STANDARD IMPLEMENTATION |
 | [POL-03](prompts/POL-03.md) | Type linked attendance and sequencing policies | NOT_STARTED | A | POL-02 | STANDARD IMPLEMENTATION |
 | [SET-06](prompts/SET-06.md) | Capture student restrictions and scheduling relationships | NOT_STARTED | A | POL-03 | STANDARD IMPLEMENTATION |
@@ -51,7 +51,7 @@ Use ledger order among dependency-satisfied unfinished tasks, with NEXT selectin
 
 ## Historical task mapping
 
-T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
+T01–T13: retain completed identity and evidence in TASKS_OLD.md and [history audit](AUDIT_HISTORY.md); their 13 prompts are in [archive](prompts/archive/README.md). SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02, POL-04 and SET-03 are also archived with current completion records below. Do not infer complete production safety from bounded task acceptance.
 
 | Superseded unfinished task | New owner |
 |---|---|
@@ -94,7 +94,7 @@ The reworked plan is adopted at R0. `TASKS.md` remains the only status and depen
 |---|---|---|
 | R0 | POL-02 evidence reconciliation and plan adoption | COMPLETE CHECKPOINT; POL-02 was left pending |
 | R1 | POL-04 SQL safeguard parity and no-write closure | COMPLETE; POL-02 accepted |
-| R2 | SET-03 core setup inputs | SELECTED; the only run authorized after this checkpoint; SET-04/SET-05 remain queued |
+| R2 | SET-03 core setup inputs followed by the next dependency-satisfied setup slice | SET-03 COMPLETE; SET-04 SELECTED as the only next run; SET-05 remains queued |
 | R3 | POL-03, SET-06 | NOT_STARTED; policy lane after R2 contracts |
 | R4 | SET-07, UX-01, UX-02, LOCK-01, UX-03 | NOT_STARTED; integration sequence follows the adopted graph |
 | R5 | OPS-01 engineering rehearsal and engineering release checkpoint | NOT_STARTED; no deployment or external acceptance implied |
@@ -233,6 +233,21 @@ Result: **POL-02 DONE** after V54 forward SQL safeguard, executed disposable typ
 - No scheduling legality, typed-policy semantics, canonical data authority, deployment, private DWDE certification, customer data or external service was changed merely to complete SET-02.
 - Result: SET-02 DONE. POL-02 is dependency-ready and is the sole NEXT task by ledger order.
 
+### SET-03 — DONE
+
+- Starting implementation HEAD: `733ff67d1c8a26698ef069924569fb90c7383098` on `feat/pre-cami-hardening`; final implementation commit: `d46e68c43ae920e99be40c7bd61e8a7d6c563728` (`feat(set-03): add typed setup policy management`). The implementation commit contains 19 authorized files: Setup dashboard/provider, studio and room-review components/clients, setup policy/progress and transition/compiler handling, the V55 forward migration, disposable DB/E2E harness additions, package verification wiring and focused regressions.
+- Operating-hours criterion: PASS. `StudioOperatingWindows` is authored through the typed Rulebook path with canonical half-open same-day windows, explicit supported Monday–Saturday days, closed-day rejection and 15-minute validation; the TypeScript setup test and the shared POL-02 parity fixtures cover closed-day semantics.
+- Room-facts criterion: PASS by reuse. Room identity, capacity and features remain PlanningDataset facts managed by the existing People/PlanningDataset commands; Setup links to that authoritative room-facts surface and does not add a second setup store.
+- Room-policy criterion: PASS. Room unavailable periods and class-required feature sets are typed Rulebook policies, compile to stable-ID Constraint IR, survive immutable V5→V6 Rulebook successors and are validated for active-room/class membership, duplicate-free IDs/features and 15-minute boundaries.
+- Review criterion: PASS. V55 registers append-only room restriction review status/history with server-derived fingerprints over the current room feature facts and relevant typed policies. Active rooms expose Needs review/Changed since review/Reviewed states; both Review value and explicit Review no additional restriction are supported, with a responsible Setup-form link.
+- Authority/failure criterion: PASS. V55 uses exact current membership/role, advisory serialization, expected Rulebook/enforcement/PlanningDataset versions and server-side schema/entity validation. Rejected typed setup writes and stale review attempts occur before canonical/version/model/audit success changes; drafts remain visible after the invalid-grid E2E rejection. The focused DB regression now proves both V4→V5 and actual V5→V6 successors, invalid policy/room/stale-version rejection, review persistence and viewer denial.
+- UX criterion: PASS for this bounded slice. The authenticated browser workflow covers `/setup`, a 390px viewport, keyboard-compatible native controls, loading/error/success states, retained invalid input, persisted reload state and authoritative persisted review evidence. The responsible-form contradiction link is present in `components/room-restriction-review-panel.tsx`.
+- Non-goals preserved: no overnight/dated calendar, recurrence engine, arbitrary time quantum, relationship-family policy, optimization, deployment, production/private data, merge, push or external-service write.
+- Focused evidence: `npx vitest run tests/setup-policy.test.ts` — exit 0, 3 passed; `npx vitest run tests/pol02-bundle-transition.test.ts tests/pol02-v5-compiler.test.ts tests/setup-policy.test.ts` — exit 0, 3 files/18 tests passed; `node scripts/run-disposable-db-regression.mjs scripts/test-set03-db.mjs --target=docker-local --allow-disposable` — exit 0, `SET-03 DB PASS`.
+- Required local verification: `npm run lint` — exit 0, 0 errors and 4 existing warnings; `npm run typecheck` — exit 0; `npm test` — exit 0, 77 files passed/2 skipped and 439 tests passed/3 skipped; `npm run build` — exit 0, Next.js 16.3.3 compiled and 14/14 static pages generated; `npm run test:db` — exit 0, complete disposable chain passed including `SET-03 DB PASS`; `npm run test:parity` with `$env:PYTHON_BINARY='C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe'; $env:PYTHONPATH='solver'` — exit 0, 2 files/3 tests passed; pinned Python `3.12.0` with `ortools 9.15.6755`, `$env:PYTHONPATH='solver'; Push-Location solver; & 'C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe' -m pytest -q -p no:cacheprovider; Pop-Location` — exit 0, 42 passed/2 warnings; `npm run test:e2e` — exit 0, all 4 disposable authenticated journeys passed.
+- Preserved failures and limitations: the first POL-02 full-suite CI failure remains `34236506763` at `9de8d07` (typecheck; later steps skipped), with focused diagnosis records retained in the POL-02 evidence above. The first post-fix browser fixture failure and intermediate local lint/typecheck failures were diagnosed and corrected before the final reruns; no assertion was weakened. CI runs `34307660865` and `34307660849` and PR #55 are green base evidence at `7f5c128`, but do not contain unpushed V55/SET-03. No SET-03 CI artifact exists until an authorized push; private DWDE acceptance, deployed migration/configuration, restore, independent-studio and commercial evidence remain external gates.
+- Result: SET-03 DONE. Ledger order now selects SET-04 as the sole next run; SET-05 and all other dependency-satisfied work remain queued.
+
 ## Audit completion record
 
-Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are accepted post-rebuild implementation slices. R0 reconciled the subsequent POL-02 implementation evidence without inferring completion; the remaining product work follows the adopted dependency graph above, beginning with selected R1/POL-04.
+Planning rebuild established the new queue without claiming implementation. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02 and SET-03 are accepted post-rebuild implementation slices. R0 reconciled the subsequent POL-02 implementation evidence without inferring completion; R1/POL-04 closed the demonstrated SQL gap and POL-02 is DONE. The remaining product work follows the adopted dependency graph above, with SET-04 now selected as the sole next run.
