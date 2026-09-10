@@ -138,12 +138,14 @@ export function validateConstraintModelSchedule(
 ): ConstraintEngineResult {
   const base = validateBase(state, model, assignments);
   const defaultDenyQualification = model.governanceAssertions.some((assertion) => assertion.ruleId === "CUR-007");
+  const typedMaximumAttendanceIds = new Set(model.hardConstraints.filter((node) => node.kind === "MAX_ATTENDANCE_DAYS" && node.selector.participantIds?.length).map((node) => node.id));
   const typedQualificationTeacherIds = new Set(
     model.hardConstraints
       .filter((node) => node.kind === "TEACHER_CLASS_DOMAIN")
       .flatMap((node) => node.selector.teacherIds || []),
   );
   const violations = base.violations.filter((violation) => {
+    if (typedMaximumAttendanceIds.has(violation.constraintId)) return false;
     if (violation.constraintId !== "teacher-qualification-default-deny") return true;
     if (!defaultDenyQualification) return false;
     return !violation.affectedEntityIds.some((entityId) => typedQualificationTeacherIds.has(entityId));
@@ -160,6 +162,93 @@ export function validateConstraintModelSchedule(
   const roomsById = new Map(state.rooms.map((room) => [room.id, room]));
 
   for (const node of model.hardConstraints) {
+    if (node.kind === "PARTICIPANT_NO_OVERLAP") {
+      unsupported.delete(node.id);
+      evaluated.add(node.id);
+      const participantIds = node.selector.participantIds || [];
+      const selected = new Set(participantIds);
+      const attended = assignments.filter((assignment) => {
+        const klass = classesBySession.get(assignment.sessionId);
+        return klass?.rosterStudentIds.some((studentId) => selected.has(studentId));
+      });
+      for (let left = 0; left < attended.length; left += 1) {
+        for (let right = left + 1; right < attended.length; right += 1) {
+          const first = attended[left]; const second = attended[right];
+          if (first.day !== second.day || minutes(first.startTime) >= minutes(second.endTime) || minutes(second.startTime) >= minutes(first.endTime)) continue;
+          pushUnique(violations, {
+            constraintId: node.id, ruleIds: node.ruleIds,
+            message: "Sessions attended by this participant group cannot overlap.",
+            assignmentIds: [first.id, second.id], affectedEntityIds: participantIds,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (node.kind === "MAX_ATTENDANCE_DAYS" && node.selector.participantIds?.length) {
+      unsupported.delete(node.id);
+      evaluated.add(node.id);
+      const maximum = Number(node.parameters.maxDays);
+      for (const participantId of node.selector.participantIds) {
+        const attended = assignments.filter((assignment) => classesBySession.get(assignment.sessionId)?.rosterStudentIds.includes(participantId));
+        const count = new Set(attended.map((assignment) => assignment.day)).size;
+        if (count > maximum) {
+          pushUnique(violations, {
+            constraintId: node.id, ruleIds: node.ruleIds,
+            message: `${state.students.find((student) => student.id === participantId)?.name || participantId} attends on ${count} days; maximum is ${maximum}.`,
+            assignmentIds: attended.map((assignment) => assignment.id), affectedEntityIds: [participantId],
+          });
+        }
+      }
+      continue;
+    }
+
+    if (node.kind === "DIRECTLY_AFTER" && typeof node.parameters.predecessorSessionId === "string") {
+      unsupported.delete(node.id);
+      evaluated.add(node.id);
+      const predecessorSessionId = String(node.parameters.predecessorSessionId);
+      const successorSessionId = String(node.parameters.successorSessionId);
+      const predecessor = assignments.find((assignment) => assignment.sessionId === predecessorSessionId);
+      const successor = assignments.find((assignment) => assignment.sessionId === successorSessionId);
+      if (!predecessor || !successor) {
+        pushUnique(violations, {
+          constraintId: node.id, ruleIds: node.ruleIds,
+          message: "Both direct-after session endpoints must be placed before this schedule is complete.",
+          assignmentIds: [predecessor?.id, successor?.id].filter((id): id is string => Boolean(id)),
+          affectedEntityIds: [predecessorSessionId, successorSessionId],
+        });
+      } else if (predecessor.day !== successor.day || minutes(successor.startTime) !== minutes(predecessor.endTime)) {
+        pushUnique(violations, {
+          constraintId: node.id, ruleIds: node.ruleIds,
+          message: "The successor session must start exactly when the predecessor session ends on the same day.",
+          assignmentIds: [predecessor.id, successor.id], affectedEntityIds: [predecessorSessionId, successorSessionId],
+        });
+      }
+      continue;
+    }
+
+    if (node.kind === "LINKED_ARRIVAL") {
+      unsupported.delete(node.id);
+      evaluated.add(node.id);
+      const teacherId = String(node.parameters.teacherId || node.selector.teacherIds?.[0] || "");
+      const participantId = String(node.parameters.participantId || node.selector.participantIds?.[0] || "");
+      const minimum = Number(node.parameters.minOffsetMinutes); const maximum = Number(node.parameters.maxOffsetMinutes);
+      for (const day of ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const) {
+        const teaching = assignments.filter((assignment) => assignment.teacherId === teacherId && assignment.day === day).sort((a, b) => minutes(a.startTime) - minutes(b.startTime));
+        if (!teaching.length) continue;
+        const attending = assignments.filter((assignment) => assignment.day === day && classesBySession.get(assignment.sessionId)?.rosterStudentIds.includes(participantId)).sort((a, b) => minutes(a.startTime) - minutes(b.startTime));
+        if (!attending.length) {
+          pushUnique(violations, { constraintId: node.id, ruleIds: node.ruleIds, message: `The linked participant must attend on ${day} because the linked teacher teaches that day.`, assignmentIds: teaching.map((assignment) => assignment.id), affectedEntityIds: [teacherId, participantId] });
+          continue;
+        }
+        const delta = minutes(teaching[0].startTime) - minutes(attending[0].startTime);
+        if (delta < minimum || delta > maximum) {
+          pushUnique(violations, { constraintId: node.id, ruleIds: node.ruleIds, message: `Linked arrival offset is ${delta} minutes on ${day}; allowed interval is ${minimum} to ${maximum} minutes inclusive.`, assignmentIds: [teaching[0].id, attending[0].id], affectedEntityIds: [teacherId, participantId] });
+        }
+      }
+      continue;
+    }
+
     if (node.kind === "STUDIO_OPERATING_WINDOWS") {
       unsupported.delete(node.id);
       evaluated.add(node.id);

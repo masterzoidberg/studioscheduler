@@ -35,6 +35,7 @@ run(process.execPath, [
   'run',
   'tests/runtime-parity.test.ts',
   'tests/pol02-runtime-parity.test.ts',
+  'tests/pol03-runtime-parity.test.ts',
 ], {
   ...process.env,
   STUDIO_SCHEDULER_PARITY: '1',

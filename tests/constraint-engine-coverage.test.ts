@@ -25,6 +25,8 @@ const ALL_KINDS: ConstraintIRKind[] = [
   "FIXED_ASSIGNMENT",
   "ROOM_CAPACITY",
   "RELATIONSHIP_START_WINDOW",
+  "PARTICIPANT_NO_OVERLAP",
+  "LINKED_ARRIVAL",
 ];
 
 const state: StudioState = {
@@ -78,6 +80,8 @@ function node(kind: ConstraintIRKind): ConstraintIRNode {
     case "FIXED_ASSIGNMENT": return { ...base, selector: { classNames: ["Fixture Class"] }, parameters: { day: "Monday", start: "16:45", end: "17:45" } };
     case "ROOM_CAPACITY": return { ...base, selector: { roomNames: ["Studio A"] }, parameters: { maxDancers: 20, exemptLevels: [] } };
     case "RELATIONSHIP_START_WINDOW": return { ...base, selector: { teacherNames: ["Teacher"] }, parameters: { daughterClassNames: ["Fixture Class"], maxStartDifferenceMinutes: 30 } };
+    case "PARTICIPANT_NO_OVERLAP": return { ...base, selector: { participantIds: ["student"] } };
+    case "LINKED_ARRIVAL": return { ...base, selector: { teacherIds: ["teacher"], participantIds: ["student"] }, parameters: { teacherId: "teacher", participantId: "student", minOffsetMinutes: 0, maxOffsetMinutes: 30 } };
   }
 }
 

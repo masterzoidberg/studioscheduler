@@ -19,6 +19,7 @@ import {
 export const LEGACY_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
 export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.4";
 export const POL02_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.5";
+export const POL03_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.6";
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const POL01_TYPED_RULE_ID_SET = new Set<string>(POL01_TYPED_RULE_IDS);
 
@@ -159,6 +160,8 @@ function policyStableIdsExist(state: StudioState, policy: TypedPolicyV1) {
   const teacherIds = new Set(state.teachers.map((teacher) => teacher.id));
   const roomIds = new Set(state.rooms.map((room) => room.id));
   const classIds = new Set(state.classes.map((klass) => klass.id));
+  const participantIds = new Set(state.students.map((student) => student.id));
+  const sessionIds = new Set(state.sessions.map((session) => session.id));
   const allClassesExist = (ids: string[]) => ids.every((id) => classIds.has(id));
 
   switch (policy.kind) {
@@ -174,6 +177,10 @@ function policyStableIdsExist(state: StudioState, policy: TypedPolicyV1) {
     case "PREFERRED_ROOM": return roomIds.has(policy.roomId) && allClassesExist(policy.classIds);
     case "PREFERRED_DAY":
     case "AVOID_DAY": return allClassesExist(policy.classIds);
+    case "PARTICIPANT_NO_OVERLAP": return policy.participantIds.every((id) => participantIds.has(id));
+    case "MAX_ATTENDANCE_DAYS": return policy.participantIds.every((id) => participantIds.has(id));
+    case "DIRECT_AFTER": return sessionIds.has(policy.predecessorSessionId) && sessionIds.has(policy.successorSessionId);
+    case "LINKED_ARRIVAL": return teacherIds.has(policy.teacherId) && participantIds.has(policy.participantId);
   }
 }
 
@@ -249,6 +256,38 @@ function v5HardNode(rule: StudioRule, policy: TypedPolicyV1, ruleIds: string[]):
     case "PREFERRED_DAY":
     case "AVOID_DAY":
       return null;
+    case "PARTICIPANT_NO_OVERLAP":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-participant-no-overlap`,
+        kind: "PARTICIPANT_NO_OVERLAP",
+        selector: { participantIds: policy.participantIds },
+        parameters: {},
+      };
+    case "MAX_ATTENDANCE_DAYS":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-max-attendance-days`,
+        kind: "MAX_ATTENDANCE_DAYS",
+        selector: { participantIds: policy.participantIds },
+        parameters: { maxDays: policy.maxDays },
+      };
+    case "DIRECT_AFTER":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-direct-after`,
+        kind: "DIRECTLY_AFTER",
+        selector: { sessionIds: [policy.predecessorSessionId, policy.successorSessionId] },
+        parameters: { predecessorSessionId: policy.predecessorSessionId, successorSessionId: policy.successorSessionId },
+      };
+    case "LINKED_ARRIVAL":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-linked-arrival`,
+        kind: "LINKED_ARRIVAL",
+        selector: { teacherIds: [policy.teacherId], participantIds: [policy.participantId] },
+        parameters: { teacherId: policy.teacherId, participantId: policy.participantId, minOffsetMinutes: policy.minOffsetMinutes, maxOffsetMinutes: policy.maxOffsetMinutes },
+      };
   }
 }
 
@@ -266,6 +305,33 @@ function compileV5TypedPolicies(
   const suppressedLegacyNodeIds = new Set<string>();
   const nodes: ConstraintIRNode[] = [];
   const preferences: ObjectivePriorityIR[] = [];
+
+  const directEdges = manifest?.bundles.flatMap((bundle) => {
+    const rule = ruleMap.get(bundle.ownerRuleId);
+    if (!rule) return [];
+    const execution = RULE_EXECUTION_BY_ID.get(rule.id);
+    const hard = execution?.disposition === "HARD_CONSTRAINT" || execution?.disposition === "EXCEPTION" || rule.strength === "HARD";
+    if (!hard) return [];
+    const parsed = parseTypedPolicy(rule);
+    return parsed.status === "VALID" && parsed.policy.kind === "DIRECT_AFTER"
+      ? [{ bundle, from: parsed.policy.predecessorSessionId, to: parsed.policy.successorSessionId }]
+      : [];
+  }) || [];
+  const outgoing = new Map<string, string[]>();
+  for (const edge of directEdges) outgoing.set(edge.from, [...(outgoing.get(edge.from) || []), edge.to]);
+  const cyclicSessions = new Set<string>();
+  const visiting = new Set<string>(); const visited = new Set<string>();
+  const visit = (sessionId: string) => {
+    if (visiting.has(sessionId)) { cyclicSessions.add(sessionId); return true; }
+    if (visited.has(sessionId)) return false;
+    visiting.add(sessionId);
+    let cyclic = false;
+    for (const target of outgoing.get(sessionId) || []) if (visit(target)) cyclic = true;
+    visiting.delete(sessionId); visited.add(sessionId);
+    if (cyclic) cyclicSessions.add(sessionId);
+    return cyclic;
+  };
+  for (const sessionId of outgoing.keys()) visit(sessionId);
 
   for (const node of legacyNodes) {
     const consumedOnNode = node.ruleIds.filter((ruleId) => consumedRuleIds.has(ruleId));
@@ -300,6 +366,10 @@ function compileV5TypedPolicies(
     const hard = execution?.disposition === "HARD_CONSTRAINT" || execution?.disposition === "EXCEPTION" || rule.strength === "HARD";
     const parsed = parseTypedPolicy(rule);
     if (parsed.status !== "VALID") {
+      if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      continue;
+    }
+    if (parsed.policy.kind === "DIRECT_AFTER" && (cyclicSessions.has(parsed.policy.predecessorSessionId) || cyclicSessions.has(parsed.policy.successorSessionId))) {
       if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
       continue;
     }
@@ -383,7 +453,9 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
 
     return {
       ...base,
-      compilerVersion: POL02_CONSTRAINT_COMPILER_VERSION,
+      compilerVersion: typed.nodes.some((node) => ["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "DIRECTLY_AFTER", "LINKED_ARRIVAL"].includes(node.kind))
+        ? POL03_CONSTRAINT_COMPILER_VERSION
+        : POL02_CONSTRAINT_COMPILER_VERSION,
       hardConstraints,
       objectivePrioritySpine,
       uncompiledConstraintRuleIds,

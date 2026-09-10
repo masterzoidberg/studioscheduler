@@ -12,6 +12,8 @@ POL02_UNIQUE_KINDS = {
     "TEACHER_DAY_WINDOW",
     "TEACHER_CLASS_DOMAIN",
     "ROOM_REQUIRED_FEATURES",
+    "PARTICIPANT_NO_OVERLAP",
+    "LINKED_ARRIVAL",
 }
 
 
@@ -27,6 +29,10 @@ def _is_typed_extension(node: dict[str, Any]) -> bool:
         return bool(selector.get("roomIds") or selector.get("classIds") or params.get("roomId"))
     if kind == "ROOM_CAPACITY":
         return params.get("capacitySource") == "PLANNING_DATASET" or bool(selector.get("roomIds"))
+    if kind == "MAX_ATTENDANCE_DAYS":
+        return bool(selector.get("participantIds"))
+    if kind == "DIRECTLY_AFTER":
+        return bool(params.get("predecessorSessionId") or params.get("successorSessionId"))
     return False
 
 
@@ -368,6 +374,94 @@ def _apply_room_required_features(
                 built.model.add(item.room[room_id] == 0).only_enforce_if(active)
 
 
+def _apply_participant_no_overlap(
+    built: legacy.BuiltModel,
+    node: dict[str, Any],
+    participants: dict[str, dict[str, Any]],
+    active: Any,
+) -> None:
+    participant_ids = set(_stable_ids((node.get("selector") or {}).get("participantIds"), set(participants), "participantIds", str(node["id"])))
+    intervals = [item.interval for item in built.sessions.values() if participant_ids.intersection(item.klass.get("rosterStudentIds", []))]
+    if not intervals:
+        raise ValueError(f"Constraint {node['id']} has no rostered sessions for its participant group")
+    # All typed constraints are active for a normal solve. The literal remains
+    # useful for diagnostic attribution and is fixed true outside that pass.
+    built.model.add_no_overlap(intervals).only_enforce_if(active)
+
+
+def _apply_max_attendance_days(
+    built: legacy.BuiltModel,
+    node: dict[str, Any],
+    participants: dict[str, dict[str, Any]],
+    active: Any,
+) -> None:
+    participant_ids = _stable_ids((node.get("selector") or {}).get("participantIds"), set(participants), "participantIds", str(node["id"]))
+    maximum = int((node.get("parameters") or {}).get("maxDays", 0))
+    if maximum < 1 or maximum > len(legacy.DAYS):
+        raise ValueError(f"Constraint {node['id']} maxDays must be from 1 to {len(legacy.DAYS)}")
+    for participant_id in participant_ids:
+        sessions = [item for item in built.sessions.values() if participant_id in item.klass.get("rosterStudentIds", [])]
+        if not sessions:
+            raise ValueError(f"Constraint {node['id']} participant {participant_id!r} is absent from every class roster")
+        day_used = []
+        for day_index, day_name in enumerate(legacy.DAYS):
+            present = [item.day_flags[day_index] for item in sessions]
+            day_used.append(legacy._or_literal(built.model, present, f"typed_attendance_day__{node['id']}__{participant_id}__{day_name}"))
+        built.model.add(sum(day_used) <= maximum).only_enforce_if(active)
+
+
+def _apply_direct_after(
+    built: legacy.BuiltModel,
+    node: dict[str, Any],
+    active: Any,
+) -> None:
+    params = node.get("parameters") or {}
+    predecessor_id = str(params.get("predecessorSessionId") or "")
+    successor_id = str(params.get("successorSessionId") or "")
+    if not predecessor_id or not successor_id or predecessor_id == successor_id:
+        raise ValueError(f"Constraint {node['id']} requires distinct direct-after session endpoints")
+    predecessor = built.sessions.get(predecessor_id)
+    successor = built.sessions.get(successor_id)
+    if predecessor is None or successor is None:
+        raise ValueError(f"Constraint {node['id']} references a missing direct-after session endpoint")
+    built.model.add(successor.absolute_start == predecessor.absolute_end).only_enforce_if(active)
+
+
+def _apply_linked_arrival(
+    built: legacy.BuiltModel,
+    node: dict[str, Any],
+    teachers: dict[str, dict[str, Any]],
+    participants: dict[str, dict[str, Any]],
+    active: Any,
+) -> None:
+    selector = node.get("selector") or {}
+    params = node.get("parameters") or {}
+    teacher_ids = _stable_ids(selector.get("teacherIds"), set(teachers), "teacherIds", str(node["id"]))
+    participant_ids = _stable_ids(selector.get("participantIds"), set(participants), "participantIds", str(node["id"]))
+    if len(teacher_ids) != 1 or len(participant_ids) != 1:
+        raise ValueError(f"Constraint {node['id']} must identify exactly one teacher and participant")
+    teacher_id, participant_id = teacher_ids[0], participant_ids[0]
+    if params.get("teacherId") != teacher_id or params.get("participantId") != participant_id:
+        raise ValueError(f"Constraint {node['id']} relationship parameters disagree with stable-ID selectors")
+    minimum = int(params.get("minOffsetMinutes")); maximum = int(params.get("maxOffsetMinutes"))
+    if minimum > maximum or minimum % legacy.SLOT_MINUTES or maximum % legacy.SLOT_MINUTES:
+        raise ValueError(f"Constraint {node['id']} arrival offsets must be an ordered {legacy.SLOT_MINUTES}-minute interval")
+    participant_sessions = [item for item in built.sessions.values() if participant_id in item.klass.get("rosterStudentIds", [])]
+    if not participant_sessions:
+        raise ValueError(f"Constraint {node['id']} participant {participant_id!r} is absent from every class roster")
+    for day_index, day_name in enumerate(legacy.DAYS):
+        teacher_candidates = [(item, legacy._and_literal(built.model, [item.teacher[teacher_id], item.day_flags[day_index]], f"typed_link_teacher_day__{node['id']}__{item.session['id']}__{day_name}")) for item in built.sessions.values()]
+        participant_candidates = [(item, item.day_flags[day_index]) for item in participant_sessions]
+        teacher_works, teacher_first = legacy._sequence_circuit(built.model, teacher_candidates, f"typed_link_teacher__{node['id']}__{day_name}")
+        participant_attends, participant_first = legacy._sequence_circuit(built.model, participant_candidates, f"typed_link_participant__{node['id']}__{day_name}")
+        built.model.add_implication(teacher_works, participant_attends).only_enforce_if(active)
+        for teacher_item, teacher_flag in teacher_first:
+            for participant_item, participant_flag in participant_first:
+                both = legacy._and_literal(built.model, [teacher_flag, participant_flag, active], f"typed_link_pair__{node['id']}__{day_name}__{teacher_item.session['id']}__{participant_item.session['id']}")
+                built.model.add(teacher_item.start - participant_item.start >= minimum // legacy.SLOT_MINUTES).only_enforce_if(both)
+                built.model.add(teacher_item.start - participant_item.start <= maximum // legacy.SLOT_MINUTES).only_enforce_if(both)
+
+
 def _apply_typed_constraints(
     built: legacy.BuiltModel,
     problem: dict[str, Any],
@@ -377,6 +471,7 @@ def _apply_typed_constraints(
     classes = {str(item["id"]): item for item in problem.get("classes", [])}
     teachers = {str(item["id"]): item for item in problem.get("teachers", [])}
     rooms = {str(item["id"]): item for item in problem.get("rooms", [])}
+    participants = {str(item["id"]): item for item in problem.get("students", [])}
 
     for node in typed_nodes:
         constraint_id = str(node.get("id", ""))
@@ -400,6 +495,14 @@ def _apply_typed_constraints(
             _apply_room_capacity(built, node, rooms, classes, active)
         elif kind == "ROOM_REQUIRED_FEATURES":
             _apply_room_required_features(built, node, rooms, classes, active)
+        elif kind == "PARTICIPANT_NO_OVERLAP":
+            _apply_participant_no_overlap(built, node, participants, active)
+        elif kind == "MAX_ATTENDANCE_DAYS":
+            _apply_max_attendance_days(built, node, participants, active)
+        elif kind == "DIRECTLY_AFTER":
+            _apply_direct_after(built, node, active)
+        elif kind == "LINKED_ARRIVAL":
+            _apply_linked_arrival(built, node, teachers, participants, active)
         else:
             raise ValueError(f"Unsupported typed Constraint IR node: {constraint_id}")
 

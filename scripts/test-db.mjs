@@ -2130,6 +2130,10 @@ begin
   values('pol04-room',v_studio,'POL04 Room',2,'{mirrors,sprung-floor}'),
         ('pol04-alt-room',v_studio,'POL04 Alternate Room',20,'{mirrors,sprung-floor}')
   on conflict(id) do nothing;
+  insert into public.students(id,studio_id,name,level,cohort_ids)
+  values('pol04-student-a',v_studio,'POL04 Participant A','POL04','{}'),
+        ('pol04-student-b',v_studio,'POL04 Participant B','POL04','{}')
+  on conflict(id) do nothing;
   insert into public.class_definitions(
     id,studio_id,name,subject,level,duration_minutes,weekly_frequency,
     roster_student_ids,eligible_teacher_ids
@@ -2137,7 +2141,7 @@ begin
     ('pol04-class',v_studio,'POL04 Canonical Interval','Ballet','POL04',90,1,
       '{pol04-student-a,pol04-student-b}','{pol04-teacher}'),
     ('pol04-other-class',v_studio,'POL04 Qualification Probe','Ballet','POL04',90,1,
-      '{}','{pol04-other-teacher}')
+      '{pol04-student-a,pol04-student-b}','{pol04-other-teacher}')
   on conflict(id) do nothing;
   insert into public.class_sessions(id,studio_id,class_id,ordinal,duration_minutes,locked)
   values('pol04-session',v_studio,'pol04-class',1,90,false),
@@ -2281,6 +2285,67 @@ begin
   where studio_id=v_studio and version=v_planning;
 end
 $fixture$;
+
+-- POL-03 V58 executes every new family against the pinned PlanningDataset and
+-- proves a rejected canonical write cannot create version or audit success rows.
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111'; v_schedule_id uuid; v_model_id uuid;
+  v_original jsonb; v_node jsonb; v_result jsonb; v_context jsonb; v_rejected boolean:=false;
+  v_schedules bigint; v_assignments bigint; v_audits bigint;
+begin
+  select sv.id,cm.id,cm.snapshot into v_schedule_id,v_model_id,v_original
+  from public.schedule_versions sv join public.constraint_model_versions cm on cm.studio_id=sv.studio_id and cm.version=sv.constraint_model_version
+  where sv.studio_id=v_studio and sv.is_current;
+
+  v_node:=jsonb_build_object('id','pol03-group','kind','PARTICIPANT_NO_OVERLAP','ruleIds',jsonb_build_array('STU-003'),'selector',jsonb_build_object('participantIds',jsonb_build_array('pol04-student-a','pol04-student-b')),'parameters','{}'::jsonb,'explanation','POL03 group');
+  update public.constraint_model_versions set snapshot=jsonb_set(v_original,'{hardConstraints}',(v_original->'hardConstraints')||jsonb_build_array(v_node)),snapshot_hash=private.constraint_model_hash_v27(jsonb_set(v_original,'{hardConstraints}',(v_original->'hardConstraints')||jsonb_build_array(v_node))) where id=v_model_id;
+  update public.assignments set day='Monday',start_time='17:30',end_time='19:00' where id='pol04-other-assignment';
+  select private.validate_typed_schedule_v54(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol03-group') then raise exception 'POL03 participant group overlap was accepted: %',v_result; end if;
+  update public.assignments set day='Tuesday',start_time='17:00',end_time='18:30' where id='pol04-other-assignment';
+
+  v_node:=jsonb_build_object('id','pol03-max','kind','MAX_ATTENDANCE_DAYS','ruleIds',jsonb_build_array('STU-013'),'selector',jsonb_build_object('participantIds',jsonb_build_array('pol04-student-a')),'parameters',jsonb_build_object('maxDays',1),'explanation','POL03 max');
+  update public.constraint_model_versions set snapshot=jsonb_set(v_original,'{hardConstraints}',(v_original->'hardConstraints')||jsonb_build_array(v_node)),snapshot_hash=private.constraint_model_hash_v27(jsonb_set(v_original,'{hardConstraints}',(v_original->'hardConstraints')||jsonb_build_array(v_node))) where id=v_model_id;
+  select private.validate_typed_schedule_v54(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol03-max') then raise exception 'POL03 maximum attendance days was accepted: %',v_result; end if;
+
+  v_node:=jsonb_build_object('id','pol03-direct','kind','DIRECTLY_AFTER','ruleIds',jsonb_build_array('SEQ-005'),'selector',jsonb_build_object('sessionIds',jsonb_build_array('pol04-session','pol04-other-session')),'parameters',jsonb_build_object('predecessorSessionId','pol04-session','successorSessionId','pol04-other-session'),'explanation','POL03 direct');
+  update public.constraint_model_versions set snapshot=jsonb_set(v_original,'{hardConstraints}',(v_original->'hardConstraints')||jsonb_build_array(v_node)),snapshot_hash=private.constraint_model_hash_v27(jsonb_set(v_original,'{hardConstraints}',(v_original->'hardConstraints')||jsonb_build_array(v_node))) where id=v_model_id;
+  update public.assignments set day='Monday',start_time='18:30',end_time='20:00' where id='pol04-other-assignment';
+  select private.validate_typed_schedule_v54(v_schedule_id) into v_result;
+  if exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol03-direct') then raise exception 'POL03 direct equality boundary was rejected: %',v_result; end if;
+  update public.assignments set start_time='18:45',end_time='20:15' where id='pol04-other-assignment';
+  select private.validate_typed_schedule_v54(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol03-direct') then raise exception 'POL03 direct gap was accepted: %',v_result; end if;
+
+  v_node:=jsonb_build_object('id','pol03-arrival','kind','LINKED_ARRIVAL','ruleIds',jsonb_build_array('KAR-009'),'selector',jsonb_build_object('teacherIds',jsonb_build_array('pol04-teacher'),'participantIds',jsonb_build_array('pol04-student-b')),'parameters',jsonb_build_object('teacherId','pol04-teacher','participantId','pol04-student-b','minOffsetMinutes',-15,'maxOffsetMinutes',30),'explanation','POL03 arrival');
+  update public.constraint_model_versions set snapshot=jsonb_set(v_original,'{hardConstraints}',(v_original->'hardConstraints')||jsonb_build_array(v_node)),snapshot_hash=private.constraint_model_hash_v27(jsonb_set(v_original,'{hardConstraints}',(v_original->'hardConstraints')||jsonb_build_array(v_node))) where id=v_model_id;
+  update public.assignments set day='Monday',start_time='16:30',end_time='18:00' where id='pol04-other-assignment';
+  select private.validate_typed_schedule_v54(v_schedule_id) into v_result;
+  if exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol03-arrival') then raise exception 'POL03 inclusive arrival boundary was rejected: %',v_result; end if;
+  update public.assignments set start_time='16:15',end_time='17:45' where id='pol04-other-assignment';
+  select private.validate_typed_schedule_v54(v_schedule_id) into v_result;
+  if not exists(select 1 from jsonb_array_elements(v_result->'violations') item where item->>'constraintId'='pol03-arrival') then raise exception 'POL03 out-of-range arrival was accepted: %',v_result; end if;
+
+  select private.build_solver_context_token_v43(v_studio) into v_context;
+  select count(*) into v_schedules from public.schedule_versions where studio_id=v_studio;
+  select count(*) into v_assignments from public.assignments where studio_id=v_studio;
+  select count(*) into v_audits from public.audit_events where studio_id=v_studio;
+  begin
+    perform public.apply_authoritative_move_v46(v_studio,'10000000-0000-4000-8000-000000000001','pol04-assignment','{"startTime":"18:00"}'::jsonb,'POL03 no-write',v_context,'{"valid":true,"hardViolations":0,"fullyValidated":true}'::jsonb,false);
+  exception when others then
+    if position('HARD_VALIDATION_' in sqlerrm)=0 then raise; end if; v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'POL03 invalid canonical move was accepted'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_schedules or (select count(*) from public.assignments where studio_id=v_studio)<>v_assignments or (select count(*) from public.audit_events where studio_id=v_studio)<>v_audits then raise exception 'POL03 rejected move wrote canonical/version/audit state'; end if;
+
+  update public.assignments set day='Tuesday',start_time='17:00',end_time='18:30' where id='pol04-other-assignment';
+  update public.constraint_model_versions set snapshot=v_original,snapshot_hash=private.constraint_model_hash_v27(v_original) where id=v_model_id;
+end
+$block$;
+
+select 'POL-03 PASS: typed SQL participant, attendance, direct-after, linked-arrival, boundary and no-write evidence' as result;
 
 do $block$
 declare

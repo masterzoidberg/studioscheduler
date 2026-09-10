@@ -16,6 +16,10 @@ export const PREFERRED_TEACHER_POLICY_KIND = "PREFERRED_TEACHER" as const;
 export const PREFERRED_ROOM_POLICY_KIND = "PREFERRED_ROOM" as const;
 export const PREFERRED_DAY_POLICY_KIND = "PREFERRED_DAY" as const;
 export const AVOID_DAY_POLICY_KIND = "AVOID_DAY" as const;
+export const PARTICIPANT_NO_OVERLAP_POLICY_KIND = "PARTICIPANT_NO_OVERLAP" as const;
+export const MAX_ATTENDANCE_DAYS_POLICY_KIND = "MAX_ATTENDANCE_DAYS" as const;
+export const DIRECT_AFTER_POLICY_KIND = "DIRECT_AFTER" as const;
+export const LINKED_ARRIVAL_POLICY_KIND = "LINKED_ARRIVAL" as const;
 
 const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_SET = new Set<string>(DAYS);
@@ -53,11 +57,16 @@ export interface PreferredTeacherPolicyV1 extends TypedPolicyBaseV1 { kind: type
 export interface PreferredRoomPolicyV1 extends TypedPolicyBaseV1 { kind: typeof PREFERRED_ROOM_POLICY_KIND; roomId: string; classIds: string[] }
 export interface PreferredDayPolicyV1 extends TypedPolicyBaseV1 { kind: typeof PREFERRED_DAY_POLICY_KIND; classIds: string[]; days: Day[] }
 export interface AvoidDayPolicyV1 extends TypedPolicyBaseV1 { kind: typeof AVOID_DAY_POLICY_KIND; classIds: string[]; days: Day[] }
+export interface ParticipantNoOverlapPolicyV1 extends TypedPolicyBaseV1 { kind: typeof PARTICIPANT_NO_OVERLAP_POLICY_KIND; participantIds: string[] }
+export interface MaxAttendanceDaysPolicyV1 extends TypedPolicyBaseV1 { kind: typeof MAX_ATTENDANCE_DAYS_POLICY_KIND; participantIds: string[]; maxDays: number }
+export interface DirectAfterPolicyV1 extends TypedPolicyBaseV1 { kind: typeof DIRECT_AFTER_POLICY_KIND; predecessorSessionId: string; successorSessionId: string }
+export interface LinkedArrivalPolicyV1 extends TypedPolicyBaseV1 { kind: typeof LINKED_ARRIVAL_POLICY_KIND; teacherId: string; participantId: string; minOffsetMinutes: number; maxOffsetMinutes: number }
 
 export type TypedPolicyV1 =
   | TeacherDayWindowPolicyV1 | StudioOperatingWindowsPolicyV1 | RoomUnavailableWindowsPolicyV1
   | TeacherQualificationPolicyV1 | RequiredTeacherPolicyV1 | RequiredRoomPolicyV1 | RoomCapacityPolicyV1
-  | RoomRequiredFeaturesPolicyV1 | PreferredTeacherPolicyV1 | PreferredRoomPolicyV1 | PreferredDayPolicyV1 | AvoidDayPolicyV1;
+  | RoomRequiredFeaturesPolicyV1 | PreferredTeacherPolicyV1 | PreferredRoomPolicyV1 | PreferredDayPolicyV1 | AvoidDayPolicyV1
+  | ParticipantNoOverlapPolicyV1 | MaxAttendanceDaysPolicyV1 | DirectAfterPolicyV1 | LinkedArrivalPolicyV1;
 
 export type TypedPolicyParseResult = { status: "NONE" } | { status: "VALID"; policy: TypedPolicyV1 } | { status: "INVALID"; code: string; message: string };
 
@@ -208,6 +217,37 @@ export function parseTypedPolicy(rule: Pick<StudioRule, "id" | "parameters">): T
     if (!classIds) return bad(rule.id, "TYPED_POLICY_CLASS_IDS_INVALID", `${kind} classIds must be a non-empty array of stable class IDs.`);
     if (!preferredDays) return bad(rule.id, "TYPED_POLICY_DAYS_INVALID", `${kind} days must be a non-empty list of supported studio days.`);
     return { status: "VALID", policy: { schemaVersion: TYPED_POLICY_SCHEMA_VERSION, kind, classIds, days: preferredDays } };
+  }
+
+  if (kind === PARTICIPANT_NO_OVERLAP_POLICY_KIND) {
+    const e = keys(rule.id, envelope, ["schemaVersion", "kind", "participantIds"]); if (e) return e;
+    const participantIds = strings(envelope.participantIds); if (!participantIds) return bad(rule.id, "TYPED_POLICY_PARTICIPANT_IDS_INVALID", "participantIds must be a non-empty array of stable participant IDs.");
+    return { status: "VALID", policy: { schemaVersion: TYPED_POLICY_SCHEMA_VERSION, kind, participantIds } };
+  }
+
+  if (kind === MAX_ATTENDANCE_DAYS_POLICY_KIND) {
+    const e = keys(rule.id, envelope, ["schemaVersion", "kind", "participantIds", "maxDays"]); if (e) return e;
+    const participantIds = strings(envelope.participantIds); if (!participantIds) return bad(rule.id, "TYPED_POLICY_PARTICIPANT_IDS_INVALID", "participantIds must be a non-empty array of stable participant IDs.");
+    const maxDays = envelope.maxDays;
+    if (!Number.isInteger(maxDays) || Number(maxDays) < 1 || Number(maxDays) > DAYS.length) return bad(rule.id, "TYPED_POLICY_MAX_DAYS_INVALID", `maxDays must be an integer from 1 to ${DAYS.length}.`);
+    return { status: "VALID", policy: { schemaVersion: TYPED_POLICY_SCHEMA_VERSION, kind, participantIds, maxDays: Number(maxDays) } };
+  }
+
+  if (kind === DIRECT_AFTER_POLICY_KIND) {
+    const e = keys(rule.id, envelope, ["schemaVersion", "kind", "predecessorSessionId", "successorSessionId"]); if (e) return e;
+    const predecessorSessionId = text(envelope.predecessorSessionId); const successorSessionId = text(envelope.successorSessionId);
+    if (!predecessorSessionId || !successorSessionId) return bad(rule.id, "TYPED_POLICY_SESSION_IDS_REQUIRED", "direct-after requires stable predecessorSessionId and successorSessionId endpoints.");
+    if (predecessorSessionId === successorSessionId) return bad(rule.id, "TYPED_POLICY_SELF_EDGE", "direct-after endpoints must be different sessions.");
+    return { status: "VALID", policy: { schemaVersion: TYPED_POLICY_SCHEMA_VERSION, kind, predecessorSessionId, successorSessionId } };
+  }
+
+  if (kind === LINKED_ARRIVAL_POLICY_KIND) {
+    const e = keys(rule.id, envelope, ["schemaVersion", "kind", "teacherId", "participantId", "minOffsetMinutes", "maxOffsetMinutes"]); if (e) return e;
+    const teacherId = stableId(rule.id, envelope, "teacherId"); if (typeof teacherId !== "string") return teacherId;
+    const participantId = text(envelope.participantId); if (!participantId) return bad(rule.id, "TYPED_POLICY_PARTICIPANT_ID_REQUIRED", "linked arrival requires a stable participantId.");
+    const minOffsetMinutes = envelope.minOffsetMinutes; const maxOffsetMinutes = envelope.maxOffsetMinutes;
+    if (!Number.isInteger(minOffsetMinutes) || !Number.isInteger(maxOffsetMinutes) || Number(minOffsetMinutes) > Number(maxOffsetMinutes) || Number(minOffsetMinutes) % 15 !== 0 || Number(maxOffsetMinutes) % 15 !== 0) return bad(rule.id, "TYPED_POLICY_OFFSET_INTERVAL_INVALID", "linked-arrival offsets must be an inclusive ordered interval on the 15-minute grid.");
+    return { status: "VALID", policy: { schemaVersion: TYPED_POLICY_SCHEMA_VERSION, kind, teacherId, participantId, minOffsetMinutes: Number(minOffsetMinutes), maxOffsetMinutes: Number(maxOffsetMinutes) } };
   }
 
   return bad(rule.id, "TYPED_POLICY_KIND_UNSUPPORTED", `typed policy kind ${kind} is unsupported.`);

@@ -4,7 +4,8 @@ import type { ClassDefinition, StudioState, Student } from "@/lib/domain";
 export interface DelegatedPreflightIssue {
   constraintId: string;
   ruleIds: string[];
-  code: "LOWER_LEVEL_CLASS_MISSING" | "LOWER_LEVEL_ROSTER_MISSING" | "UNSUPPORTED_DELEGATED_CONSTRAINT";
+  code: "LOWER_LEVEL_CLASS_MISSING" | "LOWER_LEVEL_ROSTER_MISSING" | "UNSUPPORTED_DELEGATED_CONSTRAINT"
+    | "POLICY_PARTICIPANT_NOT_ROSTERED" | "POLICY_REQUIRED_SESSION_MISSING" | "POLICY_SESSION_ENDPOINT_MISSING";
   message: string;
   entityIds: string[];
 }
@@ -157,6 +158,33 @@ export function validateDelegatedSolverPreconditions(
     const constraintIssues = validateLowerLevelConstraint(state, constraint);
     issues.push(...constraintIssues);
     if (constraintIssues.length === 0) validated.push(constraint.id);
+  }
+
+  const sessionsByClass = new Map<string, typeof state.sessions>();
+  for (const session of state.sessions) sessionsByClass.set(session.classId, [...(sessionsByClass.get(session.classId) || []), session]);
+  for (const constraint of model.hardConstraints) {
+    const participantIds = constraint.selector.participantIds || [];
+    if (["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "LINKED_ARRIVAL"].includes(constraint.kind)) {
+      for (const participantId of participantIds) {
+        const rostered = state.classes.filter((klass) => klass.rosterStudentIds.includes(participantId));
+        if (!rostered.length) {
+          issues.push({ constraintId: constraint.id, ruleIds: constraint.ruleIds, code: "POLICY_PARTICIPANT_NOT_ROSTERED", message: `Participant ${participantId} is not on any current class roster required by this policy.`, entityIds: [participantId] });
+          continue;
+        }
+        for (const klass of rostered) {
+          const sessions = sessionsByClass.get(klass.id) || [];
+          if (sessions.length !== klass.weeklyFrequency) {
+            issues.push({ constraintId: constraint.id, ruleIds: constraint.ruleIds, code: "POLICY_REQUIRED_SESSION_MISSING", message: `${klass.name} requires ${klass.weeklyFrequency} session(s), but ${sessions.length} current session endpoint(s) exist.`, entityIds: [participantId, klass.id, ...sessions.map((session) => session.id)] });
+          }
+        }
+      }
+    }
+    if (constraint.kind === "DIRECTLY_AFTER" && typeof constraint.parameters.predecessorSessionId === "string") {
+      const endpointIds = [String(constraint.parameters.predecessorSessionId), String(constraint.parameters.successorSessionId)];
+      const present = new Set(state.sessions.map((session) => session.id));
+      const missing = endpointIds.filter((id) => !present.has(id));
+      if (missing.length) issues.push({ constraintId: constraint.id, ruleIds: constraint.ruleIds, code: "POLICY_SESSION_ENDPOINT_MISSING", message: `Direct-after references missing session endpoint(s): ${missing.join(", ")}.`, entityIds: endpointIds });
+    }
   }
 
   return {

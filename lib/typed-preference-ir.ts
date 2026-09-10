@@ -48,6 +48,10 @@ export function compileTypedPreferenceIR(
     case "REQUIRED_ROOM":
     case "ROOM_CAPACITY_POLICY":
     case "ROOM_REQUIRED_FEATURES":
+    case "PARTICIPANT_NO_OVERLAP":
+    case "MAX_ATTENDANCE_DAYS":
+    case "DIRECT_AFTER":
+    case "LINKED_ARRIVAL":
       return null;
   }
 }

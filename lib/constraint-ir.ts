@@ -19,7 +19,9 @@ export type ConstraintIRKind =
   | "DIRECTLY_AFTER"
   | "FIXED_ASSIGNMENT"
   | "ROOM_CAPACITY"
-  | "RELATIONSHIP_START_WINDOW";
+  | "RELATIONSHIP_START_WINDOW"
+  | "PARTICIPANT_NO_OVERLAP"
+  | "LINKED_ARRIVAL";
 
 export interface ConstraintSelectorIR {
   /** Stable-ID class targets for typed policy. */
@@ -34,6 +36,8 @@ export interface ConstraintSelectorIR {
   roomIds?: string[];
   roomNames?: string[];
   studentNames?: string[];
+  participantIds?: string[];
+  sessionIds?: string[];
   studentRelation?: string;
 }
 

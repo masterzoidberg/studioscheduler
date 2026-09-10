@@ -1,7 +1,7 @@
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 import type { StudioState } from "@/lib/domain";
 
-export type ConstraintBindingEntityType = "CLASS" | "TEACHER" | "ROOM" | "STUDENT";
+export type ConstraintBindingEntityType = "CLASS" | "TEACHER" | "ROOM" | "STUDENT" | "SESSION";
 export type ConstraintBindingStatus = "BOUND" | "MISSING" | "AMBIGUOUS";
 
 export interface ConstraintBindingReference {
@@ -86,6 +86,8 @@ function referencesForNode(node: ConstraintIRNode): PendingReference[] {
   addIds(references, "ROOM", node.selector.roomIds ?? [], "selector.roomIds");
   addNames(references, "ROOM", node.selector.roomNames ?? [], "selector.roomNames");
   addNames(references, "STUDENT", node.selector.studentNames ?? [], "selector.studentNames");
+  addIds(references, "STUDENT", node.selector.participantIds ?? [], "selector.participantIds");
+  addIds(references, "SESSION", node.selector.sessionIds ?? [], "selector.sessionIds");
 
   // Relationship selectors currently carry the canonical related student's display name.
   // Treat that as a real planning-data binding instead of allowing the constraint to
@@ -97,6 +99,8 @@ function referencesForNode(node: ConstraintIRNode): PendingReference[] {
   addName(references, "CLASS", stringValue(node.parameters.predecessor), "parameters.predecessor");
   addName(references, "CLASS", stringValue(node.parameters.successor), "parameters.successor");
   addNames(references, "CLASS", strings(node.parameters.daughterClassNames), "parameters.daughterClassNames");
+  addIds(references, "SESSION", [stringValue(node.parameters.predecessorSessionId), stringValue(node.parameters.successorSessionId)].filter((value): value is string => Boolean(value)), "parameters session endpoint");
+  addIds(references, "STUDENT", [stringValue(node.parameters.participantId)].filter((value): value is string => Boolean(value)), "parameters.participantId");
 
   // V3 lower-level exceptions are named dancer exceptions. If the dancer cannot be
   // resolved, the exception semantics cannot safely be applied by a solver.
@@ -127,7 +131,8 @@ function entitiesFor(state: StudioState, type: ConstraintBindingEntityType): Nam
   if (type === "CLASS") return state.classes;
   if (type === "TEACHER") return state.teachers;
   if (type === "ROOM") return state.rooms;
-  return state.students;
+  if (type === "STUDENT") return state.students;
+  return state.sessions.map((session) => ({ id: session.id, name: session.id }));
 }
 
 function bindReference(
