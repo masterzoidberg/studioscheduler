@@ -1,10 +1,9 @@
 # Implementation prompts
 
-[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one run/task. Current selection: **R3 / POL-03**. Read the assigned bounded prompt rather than every file below. POL-02, POL-04 and SET-03 through SET-05 are completed and archived. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are also completed and archived; active prompts do not claim implementation merely by existing.
+[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one run/task. Current selection: **R3 / SET-06**. Read the assigned bounded prompt rather than every file below. POL-02 through POL-04 and SET-03 through SET-05 are completed and archived. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are also completed and archived; active prompts do not claim implementation merely by existing.
 
 | Prompt | Execution class |
 |---|---|
-| [POL-03 — Type linked attendance and sequencing policies](POL-03.md) | STANDARD IMPLEMENTATION |
 | [SET-06 — Capture student restrictions and scheduling relationships](SET-06.md) | STANDARD IMPLEMENTATION |
 | [SET-07 — Unify readiness and manager certification](SET-07.md) | STANDARD IMPLEMENTATION |
 | [UX-01 — Make schedule generation and failures understandable](UX-01.md) | STANDARD IMPLEMENTATION |
@@ -28,4 +27,4 @@
 | [CYCLE-01 — Support next season and safe archive lifecycle](CYCLE-01.md) | STANDARD IMPLEMENTATION |
 | [V1-01 — Close product v1 acceptance](V1-01.md) | STANDARD IMPLEMENTATION |
 
-Completed T01–T13, SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02, POL-04, SET-03, SET-04 and SET-05 are in the [historical archive](archive/README.md). T14–T29 ending _OLD remain superseded/incomplete, not completed history or active work. Their replacement mapping is in TASKS. Prompt README from the former queue is superseded by this index.
+Completed T01–T13, SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01, SET-02, POL-02, POL-03, POL-04, SET-03, SET-04 and SET-05 are in the [historical archive](archive/README.md). T14–T29 ending _OLD remain superseded/incomplete, not completed history or active work. Their replacement mapping is in TASKS. Prompt README from the former queue is superseded by this index.
