@@ -393,6 +393,59 @@
         },
         "preflight": { "validatedDelegatedConstraintIds": [] }
       }
+    },
+    {
+      "id": "set04-teacher-multi-window-availability",
+      "expectedSolverStatus": "FEASIBLE",
+      "expectedTsLegal": true,
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "set04-parity", "rulebookVersion": 6, "planningDatasetVersion": 1, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-set04", "name": "Teacher Set04" }],
+        "rooms": [{ "id": "room-set04", "name": "Room Set04", "capacity": 20, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-set04", "name": "Set04 Class", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-set04", "classId": "class-set04", "ordinal": 1, "durationMinutes": 60, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0",
+          "compilerVersion": "dwde-ir-0.5",
+          "rulebookVersion": 6,
+          "planningDatasetVersion": 1,
+          "activeRuleCount": 1,
+          "hardConstraints": [{ "id": "set04-teacher-window", "kind": "TEACHER_DAY_WINDOW", "ruleIds": ["SET04-TEACHER-AVAILABILITY-teacher-set04"], "selector": { "teacherIds": ["teacher-set04"] }, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }, { "day": "Tuesday", "start": "18:00", "end": "19:00" }], "unavailableDays": ["Wednesday"] }, "explanation": "SET-04 multi-window teacher availability." }],
+          "objectivePrioritySpine": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
+    },
+    {
+      "id": "set04-teacher-unavailable-day-rejection",
+      "expectedSolverStatus": "INFEASIBLE",
+      "expectedTsLegal": false,
+      "expectedTsBlocker": "SOLVER_CANDIDATE_HARD_VALIDATION_FAILED",
+      "probeCandidate": [{ "sessionId": "session-set04-unavailable", "day": "Tuesday", "startTime": "17:00", "endTime": "18:00", "teacherId": "teacher-set04", "roomId": "room-set04" }],
+      "problem": {
+        "contractVersion": "1.0",
+        "context": { "studioId": "set04-parity", "rulebookVersion": 6, "planningDatasetVersion": 1, "compilerVersion": "dwde-ir-0.5" },
+        "teachers": [{ "id": "teacher-set04", "name": "Teacher Set04" }],
+        "rooms": [{ "id": "room-set04", "name": "Room Set04", "capacity": 20, "features": [] }],
+        "students": [],
+        "classes": [{ "id": "class-set04-unavailable", "name": "Set04 Unavailable Class", "subject": "Ballet", "level": "Level 1", "durationMinutes": 60, "weeklyFrequency": 1, "rosterStudentIds": [], "companyOnly": false }],
+        "sessions": [{ "id": "session-set04-unavailable", "classId": "class-set04-unavailable", "ordinal": 1, "durationMinutes": 60, "locked": false, "lockedPlacement": null }],
+        "constraintModel": {
+          "schemaVersion": "1.0",
+          "compilerVersion": "dwde-ir-0.5",
+          "rulebookVersion": 6,
+          "planningDatasetVersion": 1,
+          "activeRuleCount": 2,
+          "hardConstraints": [
+            { "id": "set04-teacher-window-unavailable", "kind": "TEACHER_DAY_WINDOW", "ruleIds": ["SET04-TEACHER-AVAILABILITY-teacher-set04"], "selector": { "teacherIds": ["teacher-set04"] }, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }], "unavailableDays": ["Tuesday"] }, "explanation": "SET-04 Tuesday is explicitly unavailable." },
+            { "id": "set04-fixed-unavailable", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-SET04"], "selector": { "classNames": ["Set04 Unavailable Class"] }, "parameters": { "day": "Tuesday", "start": "17:00", "end": "18:00", "lockType": "POLICY_FIXED" }, "explanation": "Parity witness fixes the class on the unavailable day." }
+          ],
+          "objectivePrioritySpine": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
+        },
+        "preflight": { "validatedDelegatedConstraintIds": [] }
+      }
     }
   ]
 }

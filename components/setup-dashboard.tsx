@@ -17,6 +17,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { buildSetupProgress, type SetupSectionId, type SetupSectionStatus } from "@/lib/setup-progress";
 import { StudioSetupForm } from "@/components/studio-setup-form";
 import { RoomRestrictionReviewPanel } from "@/components/room-restriction-review-panel";
+import { TeacherSetupForm } from "@/components/teacher-setup-form";
 
 const icons: Record<SetupSectionId, typeof Building2> = {
   studio: Building2,
@@ -141,6 +142,7 @@ export function SetupDashboard() {
       </section>
 
       <StudioSetupForm />
+      <TeacherSetupForm />
       <RoomRestrictionReviewPanel />
 
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600 sm:p-5">

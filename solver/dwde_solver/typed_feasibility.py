@@ -9,6 +9,7 @@ from . import feasibility as legacy
 POL02_UNIQUE_KINDS = {
     "STUDIO_OPERATING_WINDOWS",
     "ROOM_UNAVAILABLE_WINDOWS",
+    "TEACHER_DAY_WINDOW",
     "TEACHER_CLASS_DOMAIN",
     "ROOM_REQUIRED_FEATURES",
 }
@@ -198,6 +199,54 @@ def _apply_room_unavailable_windows(
                 ).only_enforce_if(active)
 
 
+def _apply_teacher_day_window(
+    built: legacy.BuiltModel,
+    node: dict[str, Any],
+    teachers: dict[str, dict[str, Any]],
+    active: Any,
+) -> None:
+    selector = node.get("selector") or {}
+    params = node.get("parameters") or {}
+    teacher_ids = _stable_ids(selector.get("teacherIds"), set(teachers), "teacherIds", str(node["id"]))
+    windows = _windows(params.get("windows"), str(node["id"])) if params.get("windows") is not None else []
+    allowed_days = params.get("allowedDays") or []
+    exact_day = params.get("day")
+    unavailable = params.get("unavailableDays") or []
+    start_limit = params.get("start")
+    end_limit = params.get("end")
+    if not isinstance(allowed_days, list) or not isinstance(unavailable, list):
+        raise ValueError(f"Constraint {node['id']} allowedDays and unavailableDays must be arrays")
+    allowed_indexes = {legacy.DAY_INDEX[str(day)] for day in allowed_days if str(day) in legacy.DAY_INDEX}
+    unavailable_indexes = {legacy.DAY_INDEX[str(day)] for day in unavailable if str(day) in legacy.DAY_INDEX}
+    if exact_day:
+        if str(exact_day) not in legacy.DAY_INDEX:
+            raise ValueError(f"Constraint {node['id']} has unsupported day {exact_day!r}")
+        allowed_indexes = {legacy.DAY_INDEX[str(exact_day)]}
+
+    for teacher_id in teacher_ids:
+        for item in built.sessions.values():
+            present = item.teacher[teacher_id]
+            for day_index in unavailable_indexes:
+                built.model.add_bool_or([present.Not(), item.day_flags[day_index].Not()]).only_enforce_if(active)
+            if windows:
+                choices = []
+                for index, (day, start, end) in enumerate(windows):
+                    choice = built.model.new_bool_var(f"typed_teacher_window__{node['id']}__{item.session['id']}__{index}")
+                    built.model.add(item.day == legacy.DAY_INDEX[day]).only_enforce_if([active, choice])
+                    built.model.add(item.start >= start).only_enforce_if([active, choice])
+                    built.model.add(item.start + item.duration_slots <= end).only_enforce_if([active, choice])
+                    choices.append(choice)
+                built.model.add_bool_or(choices).only_enforce_if([active, present])
+            else:
+                for day_index in range(len(legacy.DAYS)):
+                    if allowed_indexes and day_index not in allowed_indexes:
+                        built.model.add_bool_or([present.Not(), item.day_flags[day_index].Not()]).only_enforce_if(active)
+                if start_limit:
+                    built.model.add(item.start >= legacy._slot(str(start_limit))).only_enforce_if([active, present])
+                if end_limit:
+                    built.model.add(item.start + item.duration_slots <= legacy._slot(str(end_limit))).only_enforce_if([active, present])
+
+
 def _apply_teacher_class_domain(
     built: legacy.BuiltModel,
     node: dict[str, Any],
@@ -339,6 +388,8 @@ def _apply_typed_constraints(
             _apply_studio_operating_windows(built, node, active)
         elif kind == "ROOM_UNAVAILABLE_WINDOWS":
             _apply_room_unavailable_windows(built, node, rooms, active)
+        elif kind == "TEACHER_DAY_WINDOW":
+            _apply_teacher_day_window(built, node, teachers, active)
         elif kind == "TEACHER_CLASS_DOMAIN":
             _apply_teacher_class_domain(built, node, teachers, classes, active)
         elif kind == "REQUIRED_TEACHER":

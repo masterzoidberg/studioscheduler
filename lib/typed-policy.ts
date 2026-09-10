@@ -28,7 +28,20 @@ interface TypedPolicyBaseV1 {
 }
 
 export interface PolicyTimeWindowV1 { day: Day; start: string; end: string }
-export interface TeacherDayWindowPolicyV1 extends TypedPolicyBaseV1 { kind: typeof TEACHER_DAY_WINDOW_POLICY_KIND; teacherId: string; allowedDays?: Day[]; day?: Day; start?: string; end?: string }
+export interface TeacherDayWindowPolicyV1 extends TypedPolicyBaseV1 {
+  kind: typeof TEACHER_DAY_WINDOW_POLICY_KIND;
+  teacherId: string;
+  /** Legacy whole-day form retained for the POL-01 transition. */
+  allowedDays?: Day[];
+  /** SET-04 supports multiple same-day allowed windows in one policy. */
+  windows?: PolicyTimeWindowV1[];
+  /** Explicitly unavailable days are reviewable and cannot overlap an allowed window. */
+  unavailableDays?: Day[];
+  /** Legacy single-window form retained for existing reviewed rules. */
+  day?: Day;
+  start?: string;
+  end?: string;
+}
 export interface StudioOperatingWindowsPolicyV1 extends TypedPolicyBaseV1 { kind: typeof STUDIO_OPERATING_WINDOWS_POLICY_KIND; windows: PolicyTimeWindowV1[]; closedDays?: Day[] }
 export interface RoomUnavailableWindowsPolicyV1 extends TypedPolicyBaseV1 { kind: typeof ROOM_UNAVAILABLE_WINDOWS_POLICY_KIND; roomId: string; windows: PolicyTimeWindowV1[] }
 export interface TeacherQualificationPolicyV1 extends TypedPolicyBaseV1 { kind: typeof TEACHER_QUALIFICATION_POLICY_KIND; teacherId: string; classIds: string[] }
@@ -100,19 +113,42 @@ export function parseTypedPolicy(rule: Pick<StudioRule, "id" | "parameters">): T
   if (!kind) return bad(rule.id, "TYPED_POLICY_KIND_UNSUPPORTED", "typed policy kind missing is unsupported.");
 
   if (kind === TEACHER_DAY_WINDOW_POLICY_KIND) {
-    const e = keys(rule.id, envelope, ["schemaVersion", "kind", "teacherId", "allowedDays", "day", "start", "end"]); if (e) return e;
+    const e = keys(rule.id, envelope, ["schemaVersion", "kind", "teacherId", "allowedDays", "windows", "unavailableDays", "day", "start", "end"]); if (e) return e;
     const teacherId = stableId(rule.id, envelope, "teacherId"); if (typeof teacherId !== "string") return teacherId;
     const allowedDays = envelope.allowedDays === undefined ? [] : days(envelope.allowedDays);
     if (allowedDays === null || (Array.isArray(envelope.allowedDays) && allowedDays.length !== envelope.allowedDays.length)) return bad(rule.id, "TYPED_POLICY_ALLOWED_DAYS_INVALID", "allowedDays must be a non-empty, duplicate-free list of supported studio days.");
+    const parsedWindows = envelope.windows === undefined ? [] : windows(envelope.windows);
+    if (envelope.windows !== undefined && !parsedWindows) return bad(rule.id, "TYPED_POLICY_WINDOWS_INVALID", "teacher windows must be non-empty half-open same-day intervals with start earlier than end.");
+    const unavailableDays = envelope.unavailableDays === undefined ? [] : days(envelope.unavailableDays, true);
+    if (unavailableDays === null) return bad(rule.id, "TYPED_POLICY_UNAVAILABLE_DAYS_INVALID", "unavailableDays must contain supported studio days.");
     const exactDay = envelope.day === undefined ? null : day(envelope.day);
     if (envelope.day !== undefined && !exactDay) return bad(rule.id, "TYPED_POLICY_DAY_INVALID", "day must be a supported studio day.");
-    if (allowedDays.length && exactDay) return bad(rule.id, "TYPED_POLICY_WINDOW_AMBIGUOUS", "typed teacher window must use either allowedDays or one day/time window, not both.");
+    if (allowedDays.length && (exactDay || parsedWindows?.length)) return bad(rule.id, "TYPED_POLICY_WINDOW_AMBIGUOUS", "typed teacher availability must use either allowedDays, windows, or one day/time window, not more than one.");
+    if (exactDay && parsedWindows?.length) return bad(rule.id, "TYPED_POLICY_WINDOW_AMBIGUOUS", "typed teacher availability must use either windows or one day/time window, not both.");
     const start = envelope.start === undefined ? null : text(envelope.start); const end = envelope.end === undefined ? null : text(envelope.end);
     if ((start && !TIME.test(start)) || (end && !TIME.test(end))) return bad(rule.id, "TYPED_POLICY_TIME_INVALID", "start/end must use canonical HH:MM 24-hour time.");
     if ((start || end) && !exactDay) return bad(rule.id, "TYPED_POLICY_DAY_REQUIRED_FOR_TIME", "start/end require a specific day.");
     if (start && end && start >= end) return bad(rule.id, "TYPED_POLICY_WINDOW_INVALID", "typed teacher window start must be earlier than end.");
-    if (!allowedDays.length && !exactDay) return bad(rule.id, "TYPED_POLICY_WINDOW_REQUIRED", "typed teacher availability policy requires allowedDays or a specific day window.");
-    return { status: "VALID", policy: { schemaVersion: TYPED_POLICY_SCHEMA_VERSION, kind, teacherId, ...(allowedDays.length ? { allowedDays } : {}), ...(exactDay ? { day: exactDay } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}) } };
+    const windowDays = new Set((parsedWindows || []).map((item) => item.day));
+    if (exactDay && unavailableDays.includes(exactDay)) return bad(rule.id, "TYPED_POLICY_UNAVAILABLE_DAY_CONFLICT", `unavailableDays cannot include the specific available day ${exactDay}.`);
+    if (allowedDays.some((item) => unavailableDays.includes(item))) return bad(rule.id, "TYPED_POLICY_UNAVAILABLE_DAY_CONFLICT", "unavailableDays cannot include a day in allowedDays.");
+    const conflictingWindowDay = unavailableDays.find((item) => windowDays.has(item));
+    if (conflictingWindowDay) return bad(rule.id, "TYPED_POLICY_UNAVAILABLE_DAY_CONFLICT", `unavailableDays cannot include a day with an allowed window (${conflictingWindowDay}).`);
+    if (!allowedDays.length && !exactDay && !parsedWindows?.length) return bad(rule.id, "TYPED_POLICY_WINDOW_REQUIRED", "typed teacher availability policy requires allowedDays, windows, or a specific day window.");
+    return {
+      status: "VALID",
+      policy: {
+        schemaVersion: TYPED_POLICY_SCHEMA_VERSION,
+        kind,
+        teacherId,
+        ...(allowedDays.length ? { allowedDays } : {}),
+        ...(parsedWindows?.length ? { windows: parsedWindows } : {}),
+        ...(unavailableDays.length ? { unavailableDays } : {}),
+        ...(exactDay ? { day: exactDay } : {}),
+        ...(start ? { start } : {}),
+        ...(end ? { end } : {}),
+      },
+    };
   }
 
   if (kind === STUDIO_OPERATING_WINDOWS_POLICY_KIND) {
@@ -184,6 +220,8 @@ export function isTeacherDayWindowPolicy(policy: TypedPolicyV1): policy is Teach
 export function teacherDayWindowPolicyParameters(policy: TeacherDayWindowPolicyV1): Record<string, unknown> {
   return {
     ...(policy.allowedDays ? { allowedDays: [...policy.allowedDays] } : {}),
+    ...(policy.windows ? { windows: policy.windows.map((window) => ({ ...window })) } : {}),
+    ...(policy.unavailableDays ? { unavailableDays: [...policy.unavailableDays] } : {}),
     ...(policy.day ? { day: policy.day } : {}),
     ...(policy.start ? { start: policy.start } : {}),
     ...(policy.end ? { end: policy.end } : {}),

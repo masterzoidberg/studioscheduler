@@ -52,7 +52,7 @@ test('SET-03 saves typed setup policy and reviews an explicit no-restriction roo
   const mondayOpen = page.getByLabel('Monday opens');
   await mondayOpen.fill('16:50');
   await page.getByRole('button', { name: 'Save Setup' }).click();
-  await expect(page.getByText(/15-minute grid/)).toBeVisible();
+  await expect(page.locator('[role="alert"]').filter({ hasText: 'Setup time 16:50' })).toBeVisible();
   await expect(mondayOpen).toHaveValue('16:50');
 
   const rejectedRulebook = await admin.from('rulebook_versions').select('version').eq('studio_id', studioId).eq('status', 'CURRENT').single();

@@ -204,6 +204,37 @@ export function validateConstraintModelSchedule(
       continue;
     }
 
+    if (node.kind === "TEACHER_DAY_WINDOW" && (Array.isArray(node.parameters.windows) || Array.isArray(node.parameters.unavailableDays))) {
+      unsupported.delete(node.id);
+      evaluated.add(node.id);
+      const windows = policyWindows(node.parameters.windows);
+      const unavailableDays = strings(node.parameters.unavailableDays);
+      for (const assignment of assignments) {
+        const teacher = teachersById.get(assignment.teacherId);
+        if (!teacher || !teacherMatchesNode(teacher.id, teacher.name, node)) continue;
+        if (unavailableDays.includes(assignment.day)) {
+          pushAssignmentViolation(
+            violations,
+            node,
+            `${teacher.name} is unavailable on ${assignment.day}; move this class to an available day or change the teacher's Setup availability.`,
+            assignment,
+            [teacher.id],
+          );
+          continue;
+        }
+        if (windows.length && !windows.some((window) => assignmentFitsWindow(assignment, window))) {
+          pushAssignmentViolation(
+            violations,
+            node,
+            `${teacher.name} is outside the configured availability windows; move this class inside an available window or adjust the teacher's Setup availability.`,
+            assignment,
+            [teacher.id],
+          );
+        }
+      }
+      continue;
+    }
+
     if (node.kind === "TEACHER_CLASS_DOMAIN") {
       unsupported.delete(node.id);
       evaluated.add(node.id);

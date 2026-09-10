@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from dwde_solver.feasibility import solve_feasibility
+from dwde_solver.typed_feasibility import solve_feasibility
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "solver-runtime-parity.json"
 

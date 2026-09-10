@@ -91,10 +91,10 @@ export function buildSetupProgress(state: StudioState): SetupProgress {
     : {
       id: "teachers",
       title: "Teachers",
-      description: `${plural(state.teachers.length, "teacher")} are in the working inventory. Availability and qualification editing will move here in a later setup step.`,
+      description: `${plural(state.teachers.length, "teacher")} are in the working inventory. Set explicit availability and qualified class domains in Teacher setup below, then review each result.`,
       status: "READY_FOR_NOW",
-      href: "/people",
-      actionLabel: "Review teachers",
+      href: "#setup-teacher-policies",
+      actionLabel: "Set teacher policies",
     };
 
   const classes: SetupSectionProgress = state.classes.length === 0

@@ -171,6 +171,8 @@ do $block$ declare rejected boolean:=false; begin begin perform public.attest_ro
 select 'SET-03 DB PASS' as result;
 `;
 
+export { setupSql };
+
 async function main() {
   const args = process.argv.slice(2);
   const allowDisposable = args.includes('--allow-disposable') || process.env.STUDIO_SCHEDULER_TEST_DB_ALLOW_DISPOSABLE === '1';
