@@ -1,6 +1,6 @@
 # Transition checklist — R0 COMPLETE
 
-R0 adoption completed on 2026-09-09. The audited implementation base was `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`; the planning-only adoption commit is recorded in the canonical ledger. R1/POL-04 subsequently closed the demonstrated SQL gap at `15f5c79`, POL-02 is DONE, and SET-03 subsequently completed at `d46e68c`; the canonical ledger now selects R2/SET-04 as the sole run. The canonical ledger and derived views contain the current status; this checklist preserves the R0 adoption procedure and evidence.
+R0 adoption completed on 2026-09-09. The audited implementation base was `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`; the planning-only adoption commit is recorded in the canonical ledger. R1/POL-04 subsequently closed the demonstrated SQL gap at `15f5c79`, POL-02 is DONE, SET-03 subsequently completed at `d46e68c`, and SET-04 at `c165f4a`; the canonical ledger now selects R2/SET-05 as the sole run. The canonical ledger and derived views contain the current status; this checklist preserves the R0 adoption procedure and evidence.
 
 ## 1. Reconcile repository and active work
 
@@ -23,7 +23,7 @@ R0 adoption completed on 2026-09-09. The audited implementation base was `7f5c12
 - [x] Keep `plans/TASKS.md` as the sole canonical status/dependency ledger.
 - [x] Update `MASTER_PLAN.md` to outcome releases and classifications; update `README.md` as entry point.
 - [x] Replace task-level NEXT with exactly one selected autonomous run in `NEXT.md`.
-- [x] Update prompt index and generate only the selected R1/POL-04 run prompt at the R0 checkpoint; after R1 and SET-03, archive completed prompts and derive the sole selected R2/SET-04 prompt.
+- [x] Update prompt index and generate only the selected R1/POL-04 run prompt at the R0 checkpoint; after R1, SET-03 and SET-04, archive completed prompts and derive the sole selected R2/SET-05 prompt.
 - [x] Keep this directory as rationale/runbook, not a second status mirror; add adopted date/head banners.
 - [x] Preserve all completed records, IDs, archives, `_OLD` evidence, failed runs, migrations, production ledgers, and ZIP bytes.
 
@@ -40,7 +40,7 @@ R0 adoption completed on 2026-09-09. The audited implementation base was `7f5c12
 
 ## 5. Select exactly one run
 
-- [x] Select R1 after bounded corrective work was selected for the demonstrated POL-02 gap; R1 and SET-03 completed and the current sole selection is R2/SET-04.
+- [x] Select R1 after bounded corrective work was selected for the demonstrated POL-02 gap; R1, SET-03 and SET-04 completed and the current sole selection is R2/SET-05.
 - [x] Record run ID, exact base implementation HEAD, contained task ID, lane ownership, synchronization points, verification level, and stop conditions in NEXT.
 - [x] Ensure no task prompt, README, archive, or plan-rework document presents another READY/NEXT authority.
 - [x] Commit the adoption atomically; deployment, merge, push, and external actions remain separately authorized.

@@ -1,18 +1,18 @@
 # Studio Scheduler product completion plan
 
-Canonical baseline: `91204390d8c025789e6af871a5939eb22decd517`, 2026-09-07. Scope is a trustworthy weekly scheduling application that managers configure and operate independently. R0 plan rework adoption was completed on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`; R1/POL-04 was accepted at implementation head `15f5c79`, closing the demonstrated POL-02 SQL safeguard gap; SET-03 was accepted at implementation head `d46e68c`. R2/SET-04 is the sole selected next run. [TASKS](TASKS.md) owns task status/dependencies; [NEXT](NEXT.md) selects one run. This plan supersedes prior release/generic/cutover roadmaps.
+Canonical baseline: `91204390d8c025789e6af871a5939eb22decd517`, 2026-09-07. Scope is a trustworthy weekly scheduling application that managers configure and operate independently. R0 plan rework adoption was completed on 2026-09-09 from audited implementation head `7f5c1287ec838cb6e8cc2e9efc395b13c6e426da`; R1/POL-04 was accepted at implementation head `15f5c79`, closing the demonstrated POL-02 SQL safeguard gap; SET-03 was accepted at implementation head `d46e68c`; SET-04 was accepted at implementation head `c165f4a`. R2/SET-05 is the sole selected next run. [TASKS](TASKS.md) owns task status/dependencies; [NEXT](NEXT.md) selects one run. This plan supersedes prior release/generic/cutover roadmaps.
 
 ## What exists and what does not
 
 Current code implements versioned policy/planning/schedules, deterministic Constraint IR, CP-SAT feasibility, coherent candidate context, per-session solver locks, authoritative manual commands/recovery and restricted legacy writes. T01–T13 are accepted historical work. Typed POL-02 application/runtime/compiler/solver/parity evidence and the V54 effective SQL safeguard/no-write regression are complete; POL-04 is recorded as the bounded corrective that closed the R0 gap. New P1 correctness finding: V49 adoption's nullable membership check fails to reject a missing row; SAFE-01 fixes this before new features.
 
-The manager product is incomplete: inventory forms omit scheduling availability/qualification intake, readiness is DWDE-specific, review is global rather than scoped, onboarding is absent, normal UI exposes internal architecture, lock controls and schedule print/export are missing, all-room/mobile/duration behavior needs repair. Copilot still carries legacy authority assumptions. Tenant UUIDs, names, 178-rule accounting and calendar defaults prevent independent onboarding. Passing tests do not prove private data completeness, deployed migration state or independent manager use.
+The manager product is incomplete: class/session/roster intake remains unfinished, readiness is DWDE-specific, review is still being scoped, onboarding is absent, normal UI exposes internal architecture, lock controls and schedule print/export are missing, all-room/mobile/duration behavior needs repair. Copilot still carries legacy authority assumptions. Tenant UUIDs, names, 178-rule accounting and calendar defaults prevent independent onboarding. Passing tests do not prove private data completeness, deployed migration state or independent manager use.
 
 Evidence: [architecture audit](AUDIT_ARCHITECTURE.md), [UX journey audit](AUDIT_UX.md), [history/instruction audit](AUDIT_HISTORY.md), [verification record](AUDIT_VERIFICATION.md). These are dated evidence appendices, not competing task queues.
 
 ## Delivery route
 
-The adopted execution route completed R1/POL-04, which closed the demonstrated POL-02 SQL safeguard gap, and R2/SET-03, which added the bounded studio-hours, room-policy and room-restriction review slice. R2/SET-04 is now selected; later runs follow the dependency graph in [TASKS](TASKS.md). This route is planning guidance only: no deployment, merge, external participant or private-data action is implied.
+The adopted execution route completed R1/POL-04, which closed the demonstrated POL-02 SQL safeguard gap, and R2/SET-03 plus SET-04, which added the bounded studio-hours, room-policy, room-restriction review, teacher availability and qualification slices. R2/SET-05 is now selected; later runs follow the dependency graph in [TASKS](TASKS.md). This route is planning guidance only: no deployment, merge, external participant or private-data action is implied.
 
 1. SAFE-01 closes the missing-member authorization gap; SAFE-02 makes local configuration safe and contains misleading AI. VERIFY-01 provides parity and authenticated disposable verification.
 2. SET-01 adds narrow review state through one existing room-capacity workflow. POL-01/02/03 progressively support governed typed policy forms; SET-02–07 build a unified manager setup and certification journey.
@@ -39,9 +39,9 @@ Current statuses are evidence classifications, not delivery claims. “Verified�
 
 | Capability | Current | A: DWDE | B: second studio | C: pilot | D: v1 |
 |---|---|---|---|---|---|
-| Setup/teacher/student/room management | Basic inventory plus studio/room policy partial; teacher/class intake remains | SET-01–07 complete | Empty neutral studio works | Repeated intake supported | Independent repeat |
+| Setup/teacher/student/room management | Basic inventory plus studio/room and teacher policy slices; class intake remains | SET-01–07 complete | Empty neutral studio works | Repeated intake supported | Independent repeat |
 | Planning data/classes/sessions/rosters | Versioned CRUD/repair partial | Complete in-app review | Typed ID dependencies | Reviewed bulk intake | New-cycle reuse |
-| Qualifications/availability | Compiler semantics; no full forms | Explicit policy forms | No name bindings | Supported limits documented | Regression maintained |
+| Qualifications/availability | Typed compiler/runtime plus teacher setup form | Explicit policy forms | No name bindings | Supported limits documented | Regression maintained |
 | Policy/rules/HARD validation | Typed TS/Python/SQL IR verified; arbitrary prose unsupported | Typed supported bundles; fail closed | Tenant record accounting | Generic supported authoring | Stable documented vocabulary |
 | Preferences | Priority metadata only | Record honestly; feasibility + manual finish accepted | Same | OPT-01/02 measured | Repeatable quality |
 | Completeness/certification | Global attestation partial | Scoped review + operation gates | Tenant-neutral | Supported | Cycle-aware |
