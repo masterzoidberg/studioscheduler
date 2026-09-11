@@ -10,12 +10,12 @@ import {
   GripVertical,
   LockKeyhole,
   Pencil,
-  RefreshCw,
   ShieldCheck,
   X,
 } from "lucide-react";
 import type { Assignment, Day, SchedulePatch } from "@/lib/domain";
 import { applyAssignmentChanges, validateSchedule } from "@/lib/validator";
+import { assessScheduleEdit, sessionDurationForAssignment } from "@/lib/schedule-editing";
 import { useWorkspace } from "@/components/workspace-provider";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { safeTeacherColor, subjectMarker, translucentHex } from "@/lib/schedule-visuals";
@@ -66,7 +66,6 @@ export function ScheduleView() {
     scheduleIsStale,
     validation,
     applySchedulePatch,
-    rebaseSchedule,
     canEdit,
   } = useWorkspace();
 
@@ -121,7 +120,13 @@ export function ScheduleView() {
     safeTeacherColor(teacherColors[teacherId] || teacherMap.get(teacherId)?.displayColor, teacherId);
 
   const dayAssignments = assignmentsFor(day);
-  const preview = draft ? validateSchedule(state, applyAssignmentChanges(currentAssignments, draft.id, draft)) : null;
+  const previewAssignments = draft ? applyAssignmentChanges(currentAssignments, draft.id, draft) : null;
+  const draftAssessment = draft && previewAssignments
+    ? assessScheduleEdit(state, previewAssignments, { locked: Boolean(editing?.locked), assignment: draft })
+    : null;
+  const draftDuration = draft
+    ? sessionDurationForAssignment(state, draft) ?? (toMinutes(draft.endTime) - toMinutes(draft.startTime))
+    : null;
   const related = editing ? validation.violations.filter((violation) => violation.assignmentIds.includes(editing.id)) : [];
   const dragValidation = dragPreview
     ? validateSchedule(state, applyAssignmentChanges(currentAssignments, dragPreview.id, dragPreview))
@@ -150,7 +155,7 @@ export function ScheduleView() {
   }
 
   async function save() {
-    if (!draft || !editing) return;
+    if (!draft || !editing || !draftAssessment?.allowed || editing.locked || scheduleIsStale) return;
     setSaving(true);
     const changes: Partial<Assignment> = {
       day: draft.day,
@@ -258,7 +263,8 @@ export function ScheduleView() {
     if (!targetDay || !targetRoom || !Number.isFinite(gridStart) || !Number.isFinite(rowHeight) || rowHeight <= 0) return;
 
     const rect = drop.getBoundingClientRect();
-    const duration = toMinutes(drag.assignment.endTime) - toMinutes(drag.assignment.startTime);
+    const duration = sessionDurationForAssignment(state!, drag.assignment)
+      ?? (toMinutes(drag.assignment.endTime) - toMinutes(drag.assignment.startTime));
     const slot = Math.round((event.clientY - rect.top) / rowHeight);
     const operating = windowFor(targetDay);
     const unclamped = gridStart + slot * 15;
@@ -358,6 +364,12 @@ export function ScheduleView() {
         onPointerMove={moveClassDrag}
         onPointerUp={(event) => void finishClassDrag(event)}
         onPointerCancel={cancelClassDrag}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            begin(assignment);
+          }
+        }}
         className={`absolute left-1.5 right-1.5 overflow-hidden rounded-lg border border-slate-200 border-l-[5px] p-2 text-left shadow-sm transition-opacity focus:outline-none focus:ring-2 focus:ring-slate-950/30 ${
           assignment.locked || !canEdit || scheduleIsStale ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
         } ${isDragging ? "opacity-25" : "opacity-100"}`}
@@ -405,8 +417,7 @@ export function ScheduleView() {
       {scheduleIsStale ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div><strong>Rulebook changed after this schedule version.</strong><p className="mt-1 leading-6">Revalidate the unchanged assignments before moving classes.</p></div>
-            {canEdit ? <button onClick={() => void rebaseSchedule()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-amber-950 px-4 font-semibold text-white"><RefreshCw className="size-4" />Revalidate</button> : null}
+             <div><strong>Rulebook changed after this schedule version.</strong><p className="mt-1 leading-6">Review revalidation above before saving the unchanged assignments as a new schedule version.</p></div>
           </div>
         </section>
       ) : null}
@@ -454,7 +465,7 @@ export function ScheduleView() {
                   <div className="border-r border-slate-200 bg-slate-50">{Array.from({ length: rows }, (_, index) => { const total = operating.start + index * 15; return <div key={total} className="border-b border-slate-200/70 px-1.5 pt-1 text-[9px] text-slate-500" style={{ height: slotHeight }}>{pretty(asTime(total))}</div>; })}</div>
                   {state.rooms.map((room) => (
                     <div key={room.id} data-drop-day={targetDay} data-drop-room={room.id} data-grid-start={operating.start} data-slot-height={slotHeight} className="relative border-r border-slate-200 last:border-r-0" style={{ height: gridHeight, backgroundImage: "linear-gradient(to bottom, rgba(148,163,184,.34) 1px, transparent 1px)", backgroundSize: `100% ${slotHeight}px` }}>
-                      {targetAssignments.filter((assignment) => assignment.roomId === room.id).map((assignment) => { const top = ((toMinutes(assignment.startTime) - operating.start) / 15) * slotHeight; const height = ((toMinutes(assignment.endTime) - toMinutes(assignment.startTime)) / 15) * slotHeight; const outside = top < 0 || top + height > gridHeight; return detailedCard(assignment, top, height, outside); })}
+                       {targetAssignments.filter((assignment) => assignment.roomId === room.id).map((assignment) => { const top = ((toMinutes(assignment.startTime) - operating.start) / 15) * slotHeight; const duration = sessionDurationForAssignment(state, assignment) ?? (toMinutes(assignment.endTime) - toMinutes(assignment.startTime)); const height = (duration / 15) * slotHeight; const outside = top < 0 || top + height > gridHeight; return detailedCard(assignment, top, height, outside); })}
                       {dragPreview && dragPreview.day === targetDay && dragPreview.roomId === room.id ? <div className={`pointer-events-none absolute left-1 right-1 z-10 rounded-lg border-2 border-dashed p-2 shadow-lg ${dragAllowed ? "border-emerald-500 bg-emerald-50/90" : "border-red-500 bg-red-50/90"}`} style={{ top: ((toMinutes(dragPreview.startTime) - operating.start) / 15) * slotHeight, height: Math.max(36, ((toMinutes(dragPreview.endTime) - toMinutes(dragPreview.startTime)) / 15) * slotHeight) }}><p className="truncate text-xs font-bold text-slate-900">{dragAllowed ? "✓" : "✕"} {subjectMarker(klass(dragPreview)?.subject, klass(dragPreview)?.name)} {klass(dragPreview)?.name}</p><p className="mt-1 truncate text-[10px] text-slate-600">{pretty(dragPreview.startTime)} · {room.name}</p></div> : null}
                     </div>
                   ))}
@@ -468,7 +479,7 @@ export function ScheduleView() {
           {days.map((targetDay) => { const operating = windowFor(targetDay); const rows = Math.ceil((operating.end - operating.start) / 15); const height = rows * weekSlotHeight; const targetAssignments = assignmentsFor(targetDay); return (
             <section key={targetDay} className="min-w-0">
               <button type="button" onClick={() => { setViewMode(1); setTimeout(() => scrollToDay(targetDay), 0); }} className="w-full border-b border-slate-200 bg-slate-50 p-3 text-left"><p className="font-semibold">{targetDay}</p><p className="text-xs text-slate-500">{targetAssignments.length} sessions</p></button>
-              <div className="grid grid-cols-3 divide-x divide-slate-100">{state.rooms.slice(0, 3).map((room) => <div key={room.id}><div className="truncate border-b border-slate-100 p-1.5 text-center text-[9px] font-semibold text-slate-500">{room.name}</div><div className="relative" style={{ height, backgroundImage: "linear-gradient(to bottom, rgba(148,163,184,.23) 1px, transparent 1px)", backgroundSize: `100% ${weekSlotHeight}px` }}>{targetAssignments.filter((assignment) => assignment.roomId === room.id).map((assignment) => { const currentClass = klass(assignment); const top = ((toMinutes(assignment.startTime) - operating.start) / 15) * weekSlotHeight; const cardHeight = Math.max(16, ((toMinutes(assignment.endTime) - toMinutes(assignment.startTime)) / 15) * weekSlotHeight); const color = teacherColor(assignment.teacherId); return <button key={assignment.id} type="button" onClick={() => begin(assignment)} className="absolute left-0.5 right-0.5 overflow-hidden rounded border border-slate-200 border-l-[4px] px-1 py-0.5 text-left shadow-sm" style={{ top: Math.max(0, top), height: cardHeight, borderLeftColor: color, backgroundColor: translucentHex(color) }} title={`${currentClass?.name} · ${teacherMap.get(assignment.teacherId)?.name} · ${pretty(assignment.startTime)}`}><span className="block truncate text-[9px] font-bold">{subjectMarker(currentClass?.subject, currentClass?.name)} {currentClass?.name}</span></button>; })}</div></div>)}</div>
+               <div className="grid min-w-max divide-x divide-slate-100" style={{ gridTemplateColumns: `repeat(${Math.max(state.rooms.length, 1)}, minmax(80px, 1fr))` }}>{state.rooms.map((room) => <div key={room.id}><div className="truncate border-b border-slate-100 p-1.5 text-center text-[9px] font-semibold text-slate-500">{room.name}</div><div className="relative" style={{ height, backgroundImage: "linear-gradient(to bottom, rgba(148,163,184,.23) 1px, transparent 1px)", backgroundSize: `100% ${weekSlotHeight}px` }}>{targetAssignments.filter((assignment) => assignment.roomId === room.id).map((assignment) => { const currentClass = klass(assignment); const top = ((toMinutes(assignment.startTime) - operating.start) / 15) * weekSlotHeight; const duration = sessionDurationForAssignment(state, assignment) ?? (toMinutes(assignment.endTime) - toMinutes(assignment.startTime)); const cardHeight = Math.max(16, (duration / 15) * weekSlotHeight); const color = teacherColor(assignment.teacherId); return <button key={assignment.id} type="button" onClick={() => begin(assignment)} className="absolute left-0.5 right-0.5 overflow-hidden rounded border border-slate-200 border-l-[4px] px-1 py-0.5 text-left shadow-sm" style={{ top: Math.max(0, top), height: cardHeight, borderLeftColor: color, backgroundColor: translucentHex(color) }} title={`${currentClass?.name} · ${teacherMap.get(assignment.teacherId)?.name} · ${pretty(assignment.startTime)}`}><span className="block truncate text-[9px] font-bold">{subjectMarker(currentClass?.subject, currentClass?.name)} {currentClass?.name}</span></button>; })}</div></div>)}</div>
             </section>
           ); })}
         </div></div>
@@ -483,12 +494,20 @@ export function ScheduleView() {
           {!canEdit ? <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">Viewer access is read-only.</div> : null}
           <div className="mt-5 grid gap-4">
             <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">Day<select disabled={!canEdit || editing.locked || scheduleIsStale} value={draft.day} onChange={(event) => setDraft({ ...draft, day: event.target.value as Day })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{days.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-600">Room<select disabled={!canEdit || editing.locked || scheduleIsStale} value={draft.roomId} onChange={(event) => setDraft({ ...draft, roomId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{state.rooms.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></div>
-            <div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Start<input disabled={!canEdit || editing.locked || scheduleIsStale} type="time" step={900} value={draft.startTime} onChange={(event) => { const duration = klass(draft)?.durationMinutes ?? (toMinutes(draft.endTime) - toMinutes(draft.startTime)); const start = toMinutes(event.target.value); setDraft({ ...draft, startTime: event.target.value, endTime: asTime(start + duration) }); }} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label><div className="text-xs font-semibold text-slate-600">Duration<div className="mt-1 flex min-h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-normal text-slate-600">{klass(draft)?.durationMinutes ?? toMinutes(draft.endTime) - toMinutes(draft.startTime)} minutes · ends {pretty(draft.endTime)}</div></div></div>
+            <div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Start<input disabled={!canEdit || editing.locked || scheduleIsStale} type="time" step={900} value={draft.startTime} onChange={(event) => { const duration = draftDuration ?? 0; const start = toMinutes(event.target.value); setDraft({ ...draft, startTime: event.target.value, endTime: asTime(start + duration) }); }} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label><div className="text-xs font-semibold text-slate-600">Duration<div className="mt-1 flex min-h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-normal text-slate-600">{draftDuration ?? "Unknown"} minutes · ends {pretty(draft.endTime)}</div></div></div>
             <label className="text-xs font-semibold text-slate-600">Teacher<select disabled={!canEdit || editing.locked || scheduleIsStale} value={draft.teacherId} onChange={(event) => setDraft({ ...draft, teacherId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{state.teachers.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-            <div className={`rounded-xl border p-4 ${preview && (validation.hardViolations === 0 ? preview.hardViolations === 0 : preview.hardViolations < validation.hardViolations) ? "border-blue-200 bg-blue-50" : "border-red-200 bg-red-50"}`}><div className="flex items-center gap-2 text-sm font-semibold">{preview && (validation.hardViolations === 0 ? preview.hardViolations === 0 : preview.hardViolations < validation.hardViolations) ? <CheckCircle2 className="size-4 text-blue-600" /> : <AlertTriangle className="size-4 text-red-600" />}Proposed move preview</div><p className="mt-2 text-sm text-slate-700">{preview?.hardViolations || 0} detected HARD violation(s). Coverage remains {preview?.coverage.implementedHardRules || 0}/{preview?.coverage.applicableHardRules || 0} applicable HARD rules.</p>{preview && preview.hardViolations > 0 ? <div className="mt-3 space-y-1 text-xs text-red-800">{preview.violations.filter((item) => item.severity === "HARD").slice(0, 5).map((item, index) => <p key={index}>• {item.message}</p>)}</div> : null}<p className="mt-2 text-xs text-slate-500">The database reruns the implemented HARD checks before committing.</p></div>
+            {draftAssessment ? <div className={`rounded-xl border p-4 ${draftAssessment.status === "VALID" ? "border-emerald-200 bg-emerald-50" : draftAssessment.status === "PREFERENCE_WARNING" ? "border-amber-200 bg-amber-50" : draftAssessment.status === "LOCKED" ? "border-slate-200 bg-slate-50" : draftAssessment.status === "INCOMPLETE" ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
+              <div className="flex items-center gap-2 text-sm font-semibold">{draftAssessment.status === "VALID" || draftAssessment.status === "PREFERENCE_WARNING" ? <CheckCircle2 className="size-4 text-emerald-700" /> : <AlertTriangle className="size-4 text-red-700" />}<span className="rounded-full border border-current px-2 py-0.5 text-[10px] tracking-wide">{draftAssessment.status}</span><span>{draftAssessment.title}</span></div>
+              <p className="mt-2 text-sm text-slate-700">{draftAssessment.message}</p>
+              {draftAssessment.status === "PREFERENCE_WARNING" ? <div className="mt-3 space-y-1 text-xs text-amber-900">{draftAssessment.preferenceWarnings.slice(0, 5).map((item, index) => <p key={index}>• {item}</p>)}</div> : null}
+              {draftAssessment.status === "INCOMPLETE" ? <p className="mt-3 text-xs text-amber-900">Missing {draftAssessment.completeness.unscheduledSessionIds.length} session{draftAssessment.completeness.unscheduledSessionIds.length === 1 ? "" : "s"}; this draft is not ready to publish.</p> : null}
+              {draftAssessment.status === "REJECTED" ? <div className="mt-3 space-y-1 text-xs text-red-800">{draftAssessment.validation.violations.filter((item) => item.severity === "HARD").slice(0, 5).map((item, index) => <p key={index}>• {item.message}</p>)}</div> : null}
+              {draftAssessment.status === "LOCKED" ? <p className="mt-3 text-xs text-slate-600">Unlocking is a governed lock action. Regeneration and recovery preserve this placement until an authorized lock change.</p> : null}
+              <p className="mt-3 text-xs text-slate-500">The database reruns the implemented HARD checks before committing the {draftAssessment.durationMinutes ?? "configured"}-minute session.</p>
+            </div> : null}
             {related.length ? <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold text-slate-600">Current findings for this assignment</p>{related.map((item, index) => <p key={index} className="mt-1 text-xs text-slate-600">• {item.message}</p>)}</div> : null}
             <label className="text-xs font-semibold text-slate-600">Reason<input disabled={!canEdit || editing.locked || scheduleIsStale} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Optional note about this move" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
-            <div className="flex gap-2"><button onClick={() => { setEditing(null); setDraft(null); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Close</button><button disabled={!canEdit || editing.locked || scheduleIsStale || saving || !preview || (validation.hardViolations === 0 ? preview.hardViolations > 0 : preview.hardViolations >= validation.hardViolations)} onClick={() => void save()} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40"><Pencil className="size-4" />{saving ? "Saving…" : "Save new schedule version"}</button></div>
+            <div className="flex gap-2"><button onClick={() => { setEditing(null); setDraft(null); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Close</button><button disabled={!canEdit || editing.locked || scheduleIsStale || saving || !draftAssessment?.allowed} onClick={() => void save()} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40"><Pencil className="size-4" />{saving ? "Saving…" : "Save new schedule version"}</button></div>
           </div>
         </div></div>
       ) : null}

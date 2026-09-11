@@ -31,4 +31,13 @@ describe("T12 recovery route contract", () => {
     expect(provider).toContain('fetch("/api/schedule/recovery"');
     expect(controls).toContain("undoSchedule");
   });
+
+  it("supports a non-mutating recovery preview before the service-role commit", () => {
+    expect(route).toContain("preview?: boolean");
+    expect(route).toContain("if (body.preview)");
+    expect(route).toContain('status: "PREVIEW"');
+    expect(provider).toContain("previewScheduleRecovery");
+    expect(controls).toContain("Review revalidation");
+    expect(controls).toContain("Restore as new schedule version");
+  });
 });

@@ -4,6 +4,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { ChevronLeft, ChevronRight, GripVertical, LockKeyhole, X } from "lucide-react";
 import type { Assignment, Day, Room, SchedulePatch } from "@/lib/domain";
 import { applyAssignmentChanges, validateSchedule } from "@/lib/validator";
+import { sessionDurationForAssignment } from "@/lib/schedule-editing";
 import { safeTeacherColor, subjectMarker, translucentHex } from "@/lib/schedule-visuals";
 import { useWorkspace } from "@/components/workspace-provider";
 
@@ -132,7 +133,8 @@ export function MobileScheduleView() {
 
     const rect = drop.getBoundingClientRect();
     const operating = windowFor(day);
-    const duration = toMinutes(drag.assignment.endTime) - toMinutes(drag.assignment.startTime);
+    const duration = sessionDurationForAssignment(state!, drag.assignment)
+      ?? (toMinutes(drag.assignment.endTime) - toMinutes(drag.assignment.startTime));
     const slot = Math.round((event.clientY - rect.top) / rowHeight);
     const requested = start + slot * 15;
     const latest = Math.max(operating.start, operating.end - duration);
@@ -211,7 +213,8 @@ export function MobileScheduleView() {
   function classCard(assignment: Assignment, operatingStart: number) {
     const currentClass = klass(assignment);
     const color = teacherColor(assignment.teacherId);
-    const duration = toMinutes(assignment.endTime) - toMinutes(assignment.startTime);
+    const duration = sessionDurationForAssignment(state!, assignment)
+      ?? (toMinutes(assignment.endTime) - toMinutes(assignment.startTime));
     const top = ((toMinutes(assignment.startTime) - operatingStart) / 15) * slotHeight;
     const height = (duration / 15) * slotHeight;
     const isDragging = draggingId === assignment.id;
@@ -355,7 +358,7 @@ export function MobileScheduleView() {
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
               <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Time</span><strong>{pretty(details.startTime)}–{pretty(details.endTime)}</strong></div>
-              <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Duration</span><strong>{toMinutes(details.endTime) - toMinutes(details.startTime)} min</strong></div>
+              <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Duration</span><strong>{sessionDurationForAssignment(state, details) ?? (toMinutes(details.endTime) - toMinutes(details.startTime))} min</strong></div>
               <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Room</span><strong>{roomMap.get(details.roomId)?.name}</strong></div>
               <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Teacher</span><strong>{teacherMap.get(details.teacherId)?.name}</strong></div>
             </div>

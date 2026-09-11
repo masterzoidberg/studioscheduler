@@ -62,6 +62,7 @@ interface WorkspaceContextValue {
   applyRulePatch: (patch: RulePatch) => Promise<MutationResult>;
   applySetupTypedPolicies: (policies: SetupTypedPolicyPatch[], reason: string) => Promise<SetupTypedPolicyMutationResult>;
   applySchedulePatch: (patch: SchedulePatch) => Promise<MutationResult>;
+  previewScheduleRecovery: (operation: "REBASE" | "UNDO") => Promise<MutationResult>;
   rebaseSchedule: () => Promise<MutationResult>;
   undoSchedule: () => Promise<MutationResult>;
   proposeEnforcementMapping: (ruleId: string, mapping: RuleEnforcementMapping, rationale: string, source?: "USER" | "AI") => Promise<MutationResult>;
@@ -383,7 +384,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (caught) { return fail(caught); }
   }
 
-  async function runScheduleRecovery(operation: "REBASE" | "UNDO"): Promise<MutationResult> {
+  async function runScheduleRecovery(operation: "REBASE" | "UNDO", preview = false): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
     try {
@@ -396,6 +397,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({
           studioId: state.studioId,
           operation,
+          preview,
           reason: operation === "REBASE"
             ? `Revalidate Schedule v${currentScheduleVersion} against the current scheduling context`
             : `Undo Schedule v${currentScheduleVersion} under the current scheduling context`,
@@ -410,7 +412,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           details: payload,
         };
       }
-      await load();
+      if (!preview) await load();
       return {
         ok: true,
         version: Number(payload.scheduleVersion || 0),
@@ -426,6 +428,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   async function undoSchedule(): Promise<MutationResult> {
     return runScheduleRecovery("UNDO");
+  }
+
+  async function previewScheduleRecovery(operation: "REBASE" | "UNDO"): Promise<MutationResult> {
+    return runScheduleRecovery(operation, true);
   }
 
   async function proposeEnforcementMapping(ruleId: string, mapping: RuleEnforcementMapping, rationale: string, proposalSource: "USER" | "AI" = "USER"): Promise<MutationResult> {
@@ -578,7 +584,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
     currentPlanningDatasetVersion,currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,currentSchedulePlanningDatasetVersion,
     scheduleIsStale,validation,
-    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySetupTypedPolicies,applySchedulePatch,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
+    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySetupTypedPolicies,applySchedulePatch,previewScheduleRecovery,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
     updateTeacher,updateRoom,updateClass,createScenario,inviteMember,setMemberRole,removeMember,cancelInvite,
   };
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

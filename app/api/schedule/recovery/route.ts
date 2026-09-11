@@ -24,6 +24,7 @@ type RecoveryRequest = {
   studioId?: string;
   operation?: ScheduleRecoveryOperation;
   reason?: string;
+  preview?: boolean;
 };
 
 async function authorizeWorkspace(request: NextRequest, studioId: string): Promise<AuthorizedWorkspace | null> {
@@ -175,6 +176,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const candidate = decision.candidateAssignments.map((assignment) => ({
+      assignmentId: assignment.id,
+      sessionId: assignment.sessionId,
+      day: assignment.day,
+      startTime: assignment.startTime,
+      endTime: assignment.endTime,
+      teacherId: assignment.teacherId,
+      roomId: assignment.roomId,
+      status: assignment.status || "NORMAL",
+    }));
+    if (body.preview) {
+      return NextResponse.json({
+        status: "PREVIEW",
+        scheduleVersion: currentSchedule.version,
+        sourceScheduleVersion,
+        sourceScheduleId,
+        candidate,
+        validation: decision.legacyValidation,
+        irValidation: decision.irValidation,
+        legacyValidation: decision.legacyValidation,
+        draftStatus: decision.draftStatus,
+        authoritativeConstraintModelVersion: token.constraintModelVersion,
+      });
+    }
+
     let admin: SupabaseClient;
     try {
       admin = getServerAdminSupabase();
@@ -190,16 +216,6 @@ export async function POST(request: NextRequest) {
       : operation === "REBASE"
         ? `Revalidate Schedule v${currentSchedule.version} against the current scheduling context`
         : `Undo Schedule v${currentSchedule.version} by re-adopting Schedule v${sourceScheduleVersion} placements under current policy`;
-    const candidate = decision.candidateAssignments.map((assignment) => ({
-      assignmentId: assignment.id,
-      sessionId: assignment.sessionId,
-      day: assignment.day,
-      startTime: assignment.startTime,
-      endTime: assignment.endTime,
-      teacherId: assignment.teacherId,
-      roomId: assignment.roomId,
-      status: assignment.status || "NORMAL",
-    }));
     const result = await admin.rpc("apply_authoritative_schedule_recovery_v48", {
       p_operation: operation,
       p_studio_id: studioId,
