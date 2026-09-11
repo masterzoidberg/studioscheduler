@@ -139,7 +139,7 @@ export function registerUx02ScheduleEditingTest() {
     await expect(lockedCard).toBeVisible();
     await lockedCard.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByText('This placement is locked. The server will reject attempts to move it too.')).toBeVisible();
+    await expect(page.getByText('Effective lock: Locked')).toBeVisible();
     await page.getByRole('button', { name: 'Close' }).last().click();
 
     await page.getByRole('button', { name: 'Review undo' }).click();
