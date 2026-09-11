@@ -9,6 +9,7 @@ import { registerSet05ClassSetupTest } from './set05-class-setup.spec.mjs';
 import { registerSet06StudentSetupTest } from './set06-student-setup.spec.mjs';
 import { registerUx02ScheduleEditingTest } from './ux02-schedule-editing.spec.mjs';
 import { registerLock01SessionLockTest } from './lock01-session-lock.spec.mjs';
+import { registerUx03ScheduleExportTest } from './ux03-schedule-export.spec.mjs';
 
 const appUrl = process.env.E2E_APP_URL;
 const supabaseUrl = process.env.E2E_SUPABASE_URL;
@@ -269,3 +270,4 @@ registerSet04TeacherSetupTest();
 registerSet05ClassSetupTest();
 registerSet06StudentSetupTest();
 registerSet02SetupDashboardTest();
+registerUx03ScheduleExportTest();
