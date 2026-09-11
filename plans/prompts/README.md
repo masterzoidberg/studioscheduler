@@ -1,6 +1,6 @@
 # Implementation prompts
 
-[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one run/task. Current selection: **R5 / OPS-01**. Read the assigned bounded prompt rather than every file below. POL-02 through POL-04, SET-03 through SET-07, UX-01, UX-02, LOCK-01 and UX-03 are completed and archived. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are also completed and archived; active prompts do not claim implementation merely by existing.
+[TASKS](../TASKS.md) owns statuses; [NEXT](../NEXT.md) selects exactly one run/task. Current selection: **R6 / GEN-01**. Read the assigned bounded prompt rather than every file below. POL-02 through POL-04, SET-03 through SET-07, UX-01, UX-02, LOCK-01 and UX-03 are completed and archived. OPS-01 engineering rehearsal is recorded but remains blocked on its external release gate. SAFE-01, SAFE-02, VERIFY-01, SET-01, POL-01 and SET-02 are also completed and archived; active prompts do not claim implementation merely by existing.
 
 | Prompt | Execution class |
 |---|---|
