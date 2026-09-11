@@ -7,6 +7,7 @@ import { registerSet03SetupPolicyTest } from './set03-setup-policies.spec.mjs';
 import { registerSet04TeacherSetupTest } from './set04-teacher-setup.spec.mjs';
 import { registerSet05ClassSetupTest } from './set05-class-setup.spec.mjs';
 import { registerSet06StudentSetupTest } from './set06-student-setup.spec.mjs';
+import { registerUx02ScheduleEditingTest } from './ux02-schedule-editing.spec.mjs';
 
 const appUrl = process.env.E2E_APP_URL;
 const supabaseUrl = process.env.E2E_SUPABASE_URL;
@@ -259,6 +260,7 @@ test('OWNER login, governed inventory write, and conflicting authoritative MOVE 
   expect(afterInventory.currentScheduleVersion).toBe(before.currentScheduleVersion);
 });
 
+registerUx02ScheduleEditingTest();
 registerSet01RoomCapacityReviewTest();
 registerSet03SetupPolicyTest();
 registerSet04TeacherSetupTest();

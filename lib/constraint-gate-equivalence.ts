@@ -56,7 +56,8 @@ function currentLegacyCompletenessRuleIds(state: StudioState) {
 function isIrCompletenessObligation(violation: ConstraintEngineViolation, model: ConstraintModelSnapshotV1) {
   const node = model.hardConstraints.find((candidate) => candidate.id === violation.constraintId);
   return violation.assignmentIds.length === 0
-    && Boolean(node && ["FIXED_ASSIGNMENT", "DIRECTLY_AFTER"].includes(node.kind));
+    && violation.affectedEntityIds.length === 0
+    && Boolean(node);
 }
 
 function legacyHardViolations(result: ValidationResult) {
@@ -106,10 +107,11 @@ function irRuleIds(violations: ConstraintEngineViolation[]) {
  * Shadow comparison for the migration from the partial SQL/legacy validator to
  * the complete Constraint IR runtime.
  *
- * T11 distinguishes placement legality from completeness. CLASS_FREQUENCY and
- * missing FIXED_ASSIGNMENT/DIRECTLY_AFTER counterparts remain visible findings,
- * but do not prevent legal incremental construction. All other HARD findings are
- * compared by stable violation identity, never only by aggregate count.
+ * T11 distinguishes placement legality from completeness. CLASS_FREQUENCY,
+ * missing entity references, and missing FIXED_ASSIGNMENT/DIRECTLY_AFTER
+ * counterparts remain visible findings, but do not prevent legal incremental
+ * construction. All other HARD findings are compared by stable violation
+ * identity, never only by aggregate count.
  */
 export function compareConstraintGatesForCommand(
   state: StudioState,

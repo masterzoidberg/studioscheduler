@@ -167,6 +167,27 @@ describe("Constraint IR command-gate equivalence", () => {
     expect(comparison.constraintIr.after.violations.some((item) => item.constraintId === "cami-domain")).toBe(true);
   });
 
+  it("allows a legal move when the current IR only reports assignment-less inventory completeness findings", () => {
+    const incompleteModel = completeModel();
+    incompleteModel.hardConstraints.push(node({
+      id: "missing-required-class",
+      kind: "REQUIRED_ROOM",
+      selector: { classNames: ["Missing Class"], roomNames: ["Studio A"] },
+      parameters: { roomName: "Studio A" },
+    }));
+
+    const comparison = compareConstraintGatesForCommand(state(), current, patch({
+      operation: "MOVE",
+      changes: { day: "Tuesday" },
+    }), incompleteModel);
+
+    expect(comparison.constraintIr.after.violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ constraintId: "missing-required-class", assignmentIds: [], affectedEntityIds: [] }),
+    ]));
+    expect(comparison.constraintIr.accepts).toBe(true);
+    expect(comparison.constraintIr.completenessObligationKeys).toHaveLength(1);
+  });
+
   it("flags a release blocker if an incomplete IR model would relax a legacy protection", () => {
     const comparison = compareConstraintGatesForCommand(state(), current, patch({
       operation: "MOVE",
