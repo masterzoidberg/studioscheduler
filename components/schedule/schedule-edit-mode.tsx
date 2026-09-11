@@ -13,6 +13,8 @@ const MUTATION_LABELS = [
   "place class",
   "unassign",
   "send to unscheduled",
+  "lock session",
+  "unlock session",
   "save new schedule version",
 ];
 
