@@ -1,5 +1,6 @@
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 import type { ClassDefinition, StudioState, Student } from "@/lib/domain";
+import { canonicalBindingName } from "@/lib/constraint-data-binding";
 
 export interface DelegatedPreflightIssue {
   constraintId: string;
@@ -17,7 +18,7 @@ export interface DelegatedSolverPreflightReport {
   issues: DelegatedPreflightIssue[];
 }
 
-const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+const normalize = canonicalBindingName;
 const canonicalSort = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 function levelKey(value: string): "4A" | "4B" | "5" | null {
@@ -29,10 +30,10 @@ function levelKey(value: string): "4A" | "4B" | "5" | null {
 }
 
 function classHasLevel(klass: ClassDefinition, key: "4A" | "4B" | "5") {
-  const haystack = `${klass.level} ${klass.name}`.toLowerCase();
-  if (key === "4A") return /4\s*a/i.test(haystack);
-  if (key === "4B") return /4\s*b/i.test(haystack);
-  return /(^|[^0-9])5([^0-9]|$)/.test(haystack) || normalize(haystack).includes("level5");
+  const level = klass.level.toLowerCase();
+  if (key === "4A") return /4\s*a/i.test(level);
+  if (key === "4B") return /4\s*b/i.test(level);
+  return /(^|[^0-9])5([^0-9]|$)/.test(level) || normalize(level).includes("level5");
 }
 
 function subjectFamily(value: string): "Ballet" | "Jazz" | "Tap" | "Contemporary" | null {
@@ -45,14 +46,17 @@ function subjectFamily(value: string): "Ballet" | "Jazz" | "Tap" | "Contemporary
 }
 
 function classFamily(klass: ClassDefinition) {
-  return subjectFamily(`${klass.subject} ${klass.name}`);
+  return subjectFamily(klass.subject);
 }
 
 function studentException(constraint: ConstraintIRNode, student: Student) {
   const exceptions = Array.isArray(constraint.parameters.exceptions)
     ? constraint.parameters.exceptions as Array<Record<string, unknown>>
     : [];
-  return exceptions.find((item) => normalize(String(item.studentName || "")) === normalize(student.name)) ?? null;
+  return exceptions.find((item) => {
+    if (typeof item.participantId === "string" && item.participantId.trim()) return item.participantId === student.id;
+    return normalize(String(item.studentName || "")) === normalize(student.name);
+  }) ?? null;
 }
 
 function subjectSet(value: unknown) {

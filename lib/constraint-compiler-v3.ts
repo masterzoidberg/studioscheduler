@@ -9,6 +9,7 @@ import {
 } from "@/lib/dwde-policy-transition";
 import { RULE_EXECUTION_BY_ID } from "@/lib/rule-execution-registry";
 import { compileTypedPreferenceIR } from "@/lib/typed-preference-ir";
+import { materializeConstraintIdentityTargets } from "@/lib/constraint-data-binding";
 import {
   isTeacherDayWindowPolicy,
   parseTypedPolicy,
@@ -21,6 +22,7 @@ export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.4";
 export const POL02_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.5";
 export const POL03_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.6";
 export const SET06_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.7";
+export const GEN01_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.8";
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const POL01_TYPED_RULE_ID_SET = new Set<string>(POL01_TYPED_RULE_IDS);
 
@@ -435,10 +437,14 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
 
   if (currentRulebook && currentRulebook.version >= DWDE_TYPED_POLICY_BUNDLE_VERSION) {
     const typed = compileV5TypedPolicies(state, ruleMap, legacyCandidates, base.objectivePrioritySpine);
-    const candidateHardConstraints = [
+    const candidateHardConstraintsBeforeIdentity = [
       ...legacyCandidates.filter((node) => !typed.suppressedLegacyNodeIds.has(node.id)),
       ...typed.nodes,
     ];
+    const identity = currentRulebook.version >= 7
+      ? materializeConstraintIdentityTargets(state, candidateHardConstraintsBeforeIdentity)
+      : { nodes: candidateHardConstraintsBeforeIdentity, invalidRuleIds: [], changed: false };
+    const candidateHardConstraints = identity.nodes;
     const candidateRuleIds = [...new Set(candidateHardConstraints.flatMap((node) => node.ruleIds))];
     const unsupportedRuleIds = policySupport.supported
       ? []
@@ -448,13 +454,15 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
       .filter((node) => policySupport.supported || node.ruleIds.every((ruleId) => !unsupportedRuleIdSet.has(ruleId)))
       .sort((a, b) => compareCanonicalStrings(a.id, b.id));
     const representedRuleIds = new Set(hardConstraints.flatMap((node) => node.ruleIds));
+    const identityInvalidRuleIds = new Set(identity.invalidRuleIds);
     const uncompiledConstraintRuleIds = [...new Set([
       ...base.uncompiledConstraintRuleIds,
       ...unsupportedRuleIds,
       ...typed.invalidHardRuleIds,
       ...typed.closureBlockedRuleIds,
+      ...identity.invalidRuleIds,
     ])]
-      .filter((ruleId) => !representedRuleIds.has(ruleId))
+      .filter((ruleId) => identityInvalidRuleIds.has(ruleId) || !representedRuleIds.has(ruleId))
       .sort(compareCanonicalStrings);
     const objectivePrioritySpine = [
       ...base.objectivePrioritySpine.filter((objective) => !typed.consumedRuleIds.has(objective.ruleId)),
@@ -463,7 +471,9 @@ export function compileConstraintModelV3(state: StudioState): ConstraintModelSna
 
     return {
       ...base,
-      compilerVersion: typed.nodes.some((node) => node.kind === "LATEST_FINISH_BY_PARTICIPANT")
+      compilerVersion: identity.changed || identity.invalidRuleIds.length
+        ? GEN01_CONSTRAINT_COMPILER_VERSION
+        : typed.nodes.some((node) => node.kind === "LATEST_FINISH_BY_PARTICIPANT")
         ? SET06_CONSTRAINT_COMPILER_VERSION
         : typed.nodes.some((node) => ["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "DIRECTLY_AFTER", "LINKED_ARRIVAL"].includes(node.kind))
           ? POL03_CONSTRAINT_COMPILER_VERSION

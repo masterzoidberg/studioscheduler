@@ -20,7 +20,10 @@ function state(): StudioState {
 
 const assignment = (id: string, sessionId: string, day: Assignment["day"], startTime: string, endTime: string): Assignment => ({ id, sessionId, day, startTime, endTime, teacherId: "teacher-a", roomId: "room-a" });
 const node = (kind: ConstraintIRNode["kind"], selector: ConstraintIRNode["selector"], parameters: Record<string, unknown>): ConstraintIRNode => ({ id: `typed-${kind.toLowerCase()}`, kind, ruleIds: ["POL03"], selector, parameters, explanation: "fixture" });
-const model = (...hardConstraints: ConstraintIRNode[]): ConstraintModelSnapshotV1 => ({ schemaVersion: "1.0", compilerVersion: "dwde-ir-0.6-test", rulebookVersion: 6, planningDatasetVersion: 1, activeRuleCount: hardConstraints.length, hardConstraints, objectivePrioritySpine: [], readinessRuleIds: [], governanceAssertions: [], uncompiledConstraintRuleIds: [], completeHardConstraintCompilation: true });
+const model = (...hardConstraints: ConstraintIRNode[]): ConstraintModelSnapshotV1 => {
+  const qualification = node("TEACHER_SUBJECT_DOMAIN", { teacherIds: ["teacher-a", "teacher-b"] }, {});
+  return { schemaVersion: "1.0", compilerVersion: "dwde-ir-0.6-test", rulebookVersion: 6, planningDatasetVersion: 1, activeRuleCount: hardConstraints.length + 1, hardConstraints: [...hardConstraints, qualification], objectivePrioritySpine: [], readinessRuleIds: [], governanceAssertions: [], uncompiledConstraintRuleIds: [], completeHardConstraintCompilation: true };
+};
 
 describe("POL-03 typed runtime semantics", () => {
   it("enforces no-overlap across the selected participant group", () => {

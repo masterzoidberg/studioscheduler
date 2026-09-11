@@ -17,7 +17,8 @@
           "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 2,
           "hardConstraints": [
             { "id": "studio-hours", "kind": "STUDIO_OPERATING_WINDOWS", "ruleIds": ["OPS-001"], "selector": {}, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }], "closedDays": [] }, "explanation": "Studio hours" },
-            { "id": "fixed-boundary", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "17:00", "end": "18:00", "lockType": "POLICY_FIXED" }, "explanation": "Boundary witness" }
+            { "id": "fixed-boundary", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "17:00", "end": "18:00", "lockType": "POLICY_FIXED" }, "explanation": "Boundary witness" },
+            { "id": "fixture-qualification", "kind": "TEACHER_SUBJECT_DOMAIN", "ruleIds": ["FIXTURE-QUALIFICATION"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": {}, "explanation": "The fixture explicitly supplies a reviewed qualification domain." }
           ],
           "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
         },
@@ -42,7 +43,8 @@
           "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 2,
           "hardConstraints": [
             { "id": "studio-hours", "kind": "STUDIO_OPERATING_WINDOWS", "ruleIds": ["OPS-001"], "selector": {}, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }], "closedDays": ["Tuesday"] }, "explanation": "Tuesday closed" },
-            { "id": "fixed-closed-day", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Tuesday", "start": "17:00", "end": "18:00", "lockType": "POLICY_FIXED" }, "explanation": "Closed day witness" }
+            { "id": "fixed-closed-day", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Tuesday", "start": "17:00", "end": "18:00", "lockType": "POLICY_FIXED" }, "explanation": "Closed day witness" },
+            { "id": "fixture-qualification", "kind": "TEACHER_SUBJECT_DOMAIN", "ruleIds": ["FIXTURE-QUALIFICATION"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": {}, "explanation": "The fixture explicitly supplies a reviewed qualification domain." }
           ],
           "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
         },
@@ -65,7 +67,8 @@
           "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 2,
           "hardConstraints": [
             { "id": "room-unavailable", "kind": "ROOM_UNAVAILABLE_WINDOWS", "ruleIds": ["ROOM-X"], "selector": { "roomIds": ["room-a"] }, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }] }, "explanation": "Room unavailable" },
-            { "id": "fixed-touch", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "16:00", "end": "17:00", "lockType": "POLICY_FIXED" }, "explanation": "Half-open endpoint witness" }
+            { "id": "fixed-touch", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "16:00", "end": "17:00", "lockType": "POLICY_FIXED" }, "explanation": "Half-open endpoint witness" },
+            { "id": "fixture-qualification", "kind": "TEACHER_SUBJECT_DOMAIN", "ruleIds": ["FIXTURE-QUALIFICATION"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": {}, "explanation": "The fixture explicitly supplies a reviewed qualification domain." }
           ],
           "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
         },
@@ -90,7 +93,8 @@
           "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 2,
           "hardConstraints": [
             { "id": "room-unavailable", "kind": "ROOM_UNAVAILABLE_WINDOWS", "ruleIds": ["ROOM-X"], "selector": { "roomIds": ["room-a"] }, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }] }, "explanation": "Room unavailable" },
-            { "id": "fixed-overlap", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "16:30", "end": "17:30", "lockType": "POLICY_FIXED" }, "explanation": "Overlap witness" }
+            { "id": "fixed-overlap", "kind": "FIXED_ASSIGNMENT", "ruleIds": ["FIX-T"], "selector": { "classNames": ["Class Renamed"] }, "parameters": { "day": "Monday", "start": "16:30", "end": "17:30", "lockType": "POLICY_FIXED" }, "explanation": "Overlap witness" },
+            { "id": "fixture-qualification", "kind": "TEACHER_SUBJECT_DOMAIN", "ruleIds": ["FIXTURE-QUALIFICATION"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": {}, "explanation": "The fixture explicitly supplies a reviewed qualification domain." }
           ],
           "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
         },
@@ -154,7 +158,7 @@
         "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
         "constraintModel": {
           "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 1,
-          "hardConstraints": [{ "id": "required-room", "kind": "REQUIRED_ROOM", "ruleIds": ["ROOM-R"], "selector": { "classIds": ["class-a"], "roomIds": ["room-b"] }, "parameters": { "roomId": "room-b" }, "explanation": "Stable room requirement" }],
+          "hardConstraints": [{ "id": "required-room", "kind": "REQUIRED_ROOM", "ruleIds": ["ROOM-R"], "selector": { "classIds": ["class-a"], "roomIds": ["room-b"] }, "parameters": { "roomId": "room-b" }, "explanation": "Stable room requirement" }, { "id": "fixture-qualification", "kind": "TEACHER_SUBJECT_DOMAIN", "ruleIds": ["FIXTURE-QUALIFICATION"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": {}, "explanation": "The fixture explicitly supplies a reviewed qualification domain." }],
           "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
         },
         "preflight": { "validatedDelegatedConstraintIds": [] }
@@ -176,7 +180,7 @@
         "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
         "constraintModel": {
           "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 1,
-          "hardConstraints": [{ "id": "planning-capacity", "kind": "ROOM_CAPACITY", "ruleIds": ["ROOM-007", "ROOM-008"], "selector": { "roomIds": ["room-a"] }, "parameters": { "capacitySource": "PLANNING_DATASET", "exemptClassIds": [] }, "explanation": "Capacity from planning facts" }],
+          "hardConstraints": [{ "id": "planning-capacity", "kind": "ROOM_CAPACITY", "ruleIds": ["ROOM-007", "ROOM-008"], "selector": { "roomIds": ["room-a"] }, "parameters": { "capacitySource": "PLANNING_DATASET", "exemptClassIds": [] }, "explanation": "Capacity from planning facts" }, { "id": "fixture-qualification", "kind": "TEACHER_SUBJECT_DOMAIN", "ruleIds": ["FIXTURE-QUALIFICATION"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": {}, "explanation": "The fixture explicitly supplies a reviewed qualification domain." }],
           "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
         },
         "preflight": { "validatedDelegatedConstraintIds": [] }
@@ -197,7 +201,7 @@
         "sessions": [{ "id": "session-a", "classId": "class-a", "ordinal": 1, "durationMinutes": null, "locked": false, "lockedPlacement": null }],
         "constraintModel": {
           "schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.5", "rulebookVersion": 5, "planningDatasetVersion": 9, "activeRuleCount": 1,
-          "hardConstraints": [{ "id": "required-features", "kind": "ROOM_REQUIRED_FEATURES", "ruleIds": ["ROOM-F"], "selector": { "classIds": ["class-a"] }, "parameters": { "requiredFeatures": ["mirrors", "sprung-floor"] }, "explanation": "Required feature subset" }],
+          "hardConstraints": [{ "id": "required-features", "kind": "ROOM_REQUIRED_FEATURES", "ruleIds": ["ROOM-F"], "selector": { "classIds": ["class-a"] }, "parameters": { "requiredFeatures": ["mirrors", "sprung-floor"] }, "explanation": "Required feature subset" }, { "id": "fixture-qualification", "kind": "TEACHER_SUBJECT_DOMAIN", "ruleIds": ["FIXTURE-QUALIFICATION"], "selector": { "teacherIds": ["teacher-a"] }, "parameters": {}, "explanation": "The fixture explicitly supplies a reviewed qualification domain." }],
           "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
         },
         "preflight": { "validatedDelegatedConstraintIds": [] }

@@ -411,8 +411,11 @@
           "compilerVersion": "dwde-ir-0.5",
           "rulebookVersion": 6,
           "planningDatasetVersion": 1,
-          "activeRuleCount": 1,
-          "hardConstraints": [{ "id": "set04-teacher-window", "kind": "TEACHER_DAY_WINDOW", "ruleIds": ["SET04-TEACHER-AVAILABILITY-teacher-set04"], "selector": { "teacherIds": ["teacher-set04"] }, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }, { "day": "Tuesday", "start": "18:00", "end": "19:00" }], "unavailableDays": ["Wednesday"] }, "explanation": "SET-04 multi-window teacher availability." }],
+          "activeRuleCount": 2,
+          "hardConstraints": [
+            { "id": "set04-teacher-window", "kind": "TEACHER_DAY_WINDOW", "ruleIds": ["SET04-TEACHER-AVAILABILITY-teacher-set04"], "selector": { "teacherIds": ["teacher-set04"] }, "parameters": { "windows": [{ "day": "Monday", "start": "17:00", "end": "18:00" }, { "day": "Tuesday", "start": "18:00", "end": "19:00" }], "unavailableDays": ["Wednesday"] }, "explanation": "SET-04 multi-window teacher availability." },
+            { "id": "set04-teacher-qualification", "kind": "TEACHER_CLASS_DOMAIN", "ruleIds": ["SET04-TEACHER-QUALIFICATION-teacher-set04"], "selector": { "teacherIds": ["teacher-set04"] }, "parameters": { "classIds": ["class-set04"] }, "explanation": "SET-04 parity fixture supplies an explicit stable qualification domain." }
+          ],
           "objectivePrioritySpine": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": true
         },
         "preflight": { "validatedDelegatedConstraintIds": [] }

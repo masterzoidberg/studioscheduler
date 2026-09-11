@@ -43,7 +43,14 @@ def problem() -> dict:
             "rulebookVersion": 3,
             "planningDatasetVersion": 7,
             "activeRuleCount": 178,
-            "hardConstraints": [],
+            "hardConstraints": [{
+                "id": "fixture-qualification",
+                "kind": "TEACHER_SUBJECT_DOMAIN",
+                "ruleIds": [],
+                "selector": {"teacherIds": ["teacher"]},
+                "parameters": {},
+                "explanation": "The fixture explicitly supplies a reviewed qualification domain.",
+            }],
             "objectivePrioritySpine": [],
             "readinessRuleIds": [],
             "governanceAssertions": [],
@@ -153,6 +160,7 @@ def test_service_preserves_one_locked_meeting_of_multi_session_class(monkeypatch
     payload["constraintModel"]["hardConstraints"] = [
         {"id": "teacher-no-overlap", "kind": "RESOURCE_NO_OVERLAP", "ruleIds": [], "selector": {}, "parameters": {"resource": "TEACHER"}, "explanation": "teacher overlap"},
         {"id": "room-no-overlap", "kind": "RESOURCE_NO_OVERLAP", "ruleIds": [], "selector": {}, "parameters": {"resource": "ROOM"}, "explanation": "room overlap"},
+        {"id": "fixture-qualification", "kind": "TEACHER_SUBJECT_DOMAIN", "ruleIds": [], "selector": {"teacherIds": ["teacher"]}, "parameters": {}, "explanation": "The fixture explicitly supplies a reviewed qualification domain."},
     ]
 
     response = client.post(

@@ -1,6 +1,6 @@
 import type { ClassDefinition, ClassSession, PlanningDatasetVersion, StudioState } from "@/lib/domain";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
-import { validateConstraintModelBindings, type ConstraintDataBindingReport } from "@/lib/constraint-data-binding";
+import { canonicalBindingName, validateConstraintModelBindings, type ConstraintDataBindingReport } from "@/lib/constraint-data-binding";
 import { ruleExecutionCoverage } from "@/lib/rule-execution-registry";
 import { reviewedDwdePolicySupport } from "@/lib/dwde-policy-transition";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
@@ -64,7 +64,7 @@ const KARLY_DAUGHTER_CLASS_NAMES = [
   "Hip Hop 2",
   "Pre-Company Technique 1",
 ] as const;
-const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+const normalizeName = canonicalBindingName;
 const sorted = (values: number[]) => [...values].sort((a, b) => a - b);
 const sortedStrings = (values: string[]) => [...values].sort();
 const sameStrings = (a: string[], b: string[]) => {
@@ -366,12 +366,14 @@ function checkConstraintBindings(state: StudioState, issues: ScheduleReadinessIs
   const model = compileConstraintModel(state);
   const binding = validateConstraintModelBindings(state, model);
   for (const issue of binding.issues) {
+    const expected = issue.expectedName ?? issue.expectedId ?? "unknown reference";
+    const referenceKind = issue.expectedName ? "name" : "stable ID";
     add(
       issues,
       issue.status === "MISSING" ? "CONSTRAINT_ENTITY_MISSING" : "CONSTRAINT_ENTITY_AMBIGUOUS",
       issue.status === "MISSING"
-        ? `${issue.constraintId} expects ${issue.entityType.toLowerCase()} “${issue.expectedName}”, but no current planning entity resolves to that name.`
-        : `${issue.constraintId} expects one ${issue.entityType.toLowerCase()} “${issue.expectedName}”, but ${issue.matchedEntityIds.length} current planning entities resolve to that name.`,
+        ? `${issue.constraintId} expects ${issue.entityType.toLowerCase()} ${referenceKind} “${expected}”, but no current planning entity resolves to that reference.`
+        : `${issue.constraintId} expects one ${issue.entityType.toLowerCase()} ${referenceKind} “${expected}”, but ${issue.matchedEntityIds.length} current planning entities resolve to that reference.`,
       issue.ruleIds,
       issue.matchedEntityIds,
     );

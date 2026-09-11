@@ -133,7 +133,7 @@ def _qualification_bridge(
                     "id": f"typed-qualification-bridge-{teacher_id}",
                     "kind": "TEACHER_SUBJECT_DOMAIN",
                     "ruleIds": [],
-                    "selector": {"teacherNames": [str(teachers[teacher_id].get("name", ""))]},
+                    "selector": {"teacherIds": [teacher_id]},
                     "parameters": {},
                     "explanation": "Stable-ID typed qualification bridge for legacy default-deny coverage only.",
                 }

@@ -47,8 +47,8 @@ const assignment: Assignment = {
 function model(defaultDeny: boolean): ConstraintModelSnapshotV1 {
   return {
     schemaVersion: "1.0",
-    compilerVersion: "dwde-ir-0.5-test",
-    rulebookVersion: 5,
+    compilerVersion: "dwde-ir-0.8-test",
+    rulebookVersion: 7,
     planningDatasetVersion: 1,
     activeRuleCount: 0,
     hardConstraints: [],
@@ -65,9 +65,12 @@ function model(defaultDeny: boolean): ConstraintModelSnapshotV1 {
 }
 
 describe("POL-02 qualification default-deny authority", () => {
-  it("does not invent default-deny semantics when CUR-007 is absent", () => {
+  it("enforces qualification default-deny even when CUR-007 is absent", () => {
     const result = validateConstraintModelSchedule(state(), model(false), [assignment]);
-    expect(result.violations.some((item) => item.constraintId === "teacher-qualification-default-deny")).toBe(false);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      constraintId: "teacher-qualification-default-deny",
+      affectedEntityIds: expect.arrayContaining(["teacher-a", "class-a"]),
+    }));
   });
 
   it("preserves default-deny when CUR-007 is an explicit governance assertion", () => {

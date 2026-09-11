@@ -1,5 +1,6 @@
 import type { Assignment, ClassDefinition, StudioState, Teacher } from "@/lib/domain";
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
+import { canonicalBindingName } from "@/lib/constraint-data-binding";
 
 export interface ConstraintEngineViolation {
   constraintId: string;
@@ -19,7 +20,7 @@ export interface ConstraintEngineResult {
 }
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
-const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+const normalize = canonicalBindingName;
 const minutes = (value: string) => {
   const [hour = "0", minute = "0"] = value.slice(0, 5).split(":");
   return Number(hour) * 60 + Number(minute);
@@ -69,7 +70,8 @@ function subjectAllowed(klass: ClassDefinition, allowed: string[]) {
 }
 
 function selectorMatchesClass(node: ConstraintIRNode, klass: ClassDefinition) {
-  return textMatches(klass.name, node.selector.classNames)
+  return (!node.selector.classIds?.length || node.selector.classIds.includes(klass.id))
+    && textMatches(klass.name, node.selector.classNames)
     && textMatches(klass.subject, node.selector.subjects)
     && levelMatches(klass.level, node.selector.levels);
 }
@@ -115,13 +117,20 @@ function dayApplies(node: ConstraintIRNode, assignment: Assignment) {
 }
 
 function classAssignments(
-  state: StudioState,
   assignments: Assignment[],
   className: string,
   classesBySession: Map<string, ClassDefinition>,
 ) {
   const wanted = normalize(className);
   return assignments.filter((assignment) => normalize(classesBySession.get(assignment.sessionId)?.name || "") === wanted);
+}
+
+function classAssignmentsById(
+  assignments: Assignment[],
+  classId: string,
+  classesBySession: Map<string, ClassDefinition>,
+) {
+  return assignments.filter((assignment) => classesBySession.get(assignment.sessionId)?.id === classId);
 }
 
 export function validateConstraintModelSchedule(
@@ -174,23 +183,26 @@ export function validateConstraintModelSchedule(
     }
   }
 
-  // CUR-007 is a governance assertion: qualification is default-deny. A teacher
-  // with no compiled qualification domain may exist in inventory, but may not be
-  // scheduled until the Rulebook is updated and recompiled.
+  // Qualification is always default-deny. Historical models remain readable,
+  // but a schedule cannot rely on the optional legacy governance assertion to
+  // make an unqualified teacher assignment safe.
+  const defaultDenyQualification = true;
   const teacherDomainNodes = model.hardConstraints.filter((node) => node.kind === "TEACHER_SUBJECT_DOMAIN");
   const coveredTeacherIds = new Set(teacherDomainNodes.flatMap((node) => node.selector.teacherIds || []));
   const coveredTeacherNames = new Set(teacherDomainNodes.flatMap((node) => node.selector.teacherNames || []).map(normalize));
-  for (const assignment of assignments) {
-    const teacher = teachersById.get(assignment.teacherId);
-    const klass = classesBySession.get(assignment.sessionId);
-    if (!teacher || !klass || coveredTeacherIds.has(teacher.id) || coveredTeacherNames.has(normalize(teacher.name))) continue;
-    violations.push({
-      constraintId: "teacher-qualification-default-deny",
-      ruleIds: ["CUR-007"],
-      message: `${teacher.name} has no compiled Rulebook qualification domain, so ${klass.name} cannot be assigned to that teacher yet.`,
-      assignmentIds: [assignment.id],
-      affectedEntityIds: [teacher.id, klass.id],
-    });
+  if (defaultDenyQualification) {
+    for (const assignment of assignments) {
+      const teacher = teachersById.get(assignment.teacherId);
+      const klass = classesBySession.get(assignment.sessionId);
+      if (!teacher || !klass || coveredTeacherIds.has(teacher.id) || coveredTeacherNames.has(normalize(teacher.name))) continue;
+      violations.push({
+        constraintId: "teacher-qualification-default-deny",
+        ruleIds: ["CUR-007"],
+        message: `${teacher.name} has no compiled Rulebook qualification domain, so ${klass.name} cannot be assigned to that teacher yet.`,
+        assignmentIds: [assignment.id],
+        affectedEntityIds: [teacher.id, klass.id],
+      });
+    }
   }
 
   for (const node of model.hardConstraints) {
@@ -214,6 +226,68 @@ export function validateConstraintModelSchedule(
     for (const roomName of node.selector.roomNames || []) {
       if (!state.rooms.some((room) => normalize(room.name) === normalize(roomName))) {
         addViolation(violations, node, `${roomName} is referenced by the current Rulebook constraint model but is missing from room inventory.`);
+      }
+    }
+    for (const classId of node.selector.classIds || []) {
+      if (!classesById.has(classId)) {
+        addViolation(violations, node, `Class ${classId} is referenced by stable ID in the current Rulebook constraint model but is missing from class inventory.`, [], [classId]);
+      }
+    }
+    for (const roomId of node.selector.roomIds || []) {
+      if (!roomsById.has(roomId)) {
+        addViolation(violations, node, `Room ${roomId} is referenced by stable ID in the current Rulebook constraint model but is missing from room inventory.`, [], [roomId]);
+      }
+    }
+    for (const participantId of node.selector.participantIds || []) {
+      if (!state.students.some((student) => student.id === participantId)) {
+        addViolation(violations, node, `Participant ${participantId} is referenced by stable ID in the current Rulebook constraint model but is missing from student inventory.`, [], [participantId]);
+      }
+    }
+    for (const sessionId of node.selector.sessionIds || []) {
+      if (!state.sessions.some((session) => session.id === sessionId)) {
+        addViolation(violations, node, `Session ${sessionId} is referenced by stable ID in the current Rulebook constraint model but is missing from session inventory.`, [], [sessionId]);
+      }
+    }
+    for (const [entityType, key, entities] of [
+      ["teacher", "teacherId", teachersById] as const,
+      ["room", "roomId", roomsById] as const,
+    ]) {
+      const value = node.parameters[key];
+      if (typeof value === "string" && !entities.has(value)) {
+        addViolation(violations, node, `${entityType[0].toUpperCase()}${entityType.slice(1)} ${value} is referenced by stable ID in the current Rulebook constraint model but is missing from inventory.`, [], [value]);
+      }
+    }
+    for (const key of ["predecessorSessionId", "successorSessionId"] as const) {
+      const value = node.parameters[key];
+      if (typeof value === "string" && !state.sessions.some((session) => session.id === value)) {
+        addViolation(violations, node, `Session ${value} is referenced by stable ID in the current Rulebook constraint model but is missing from session inventory.`, [], [value]);
+      }
+    }
+    for (const key of ["predecessorClassId", "successorClassId"] as const) {
+      const value = node.parameters[key];
+      if (typeof value === "string" && !classesById.has(value)) {
+        addViolation(violations, node, `Class ${value} is referenced by stable ID in the current Rulebook constraint model but is missing from class inventory.`, [], [value]);
+      }
+    }
+    for (const classId of parameterStrings(node, "daughterClassIds")) {
+      if (!classesById.has(classId)) {
+        addViolation(violations, node, `Class ${classId} is referenced by stable ID in the current Rulebook constraint model but is missing from class inventory.`, [], [classId]);
+      }
+    }
+    const participantParameterId = node.parameters.participantId;
+    if (typeof participantParameterId === "string" && participantParameterId && !state.students.some((student) => student.id === participantParameterId)) {
+      addViolation(violations, node, `Participant ${participantParameterId} is referenced by stable ID in the current Rulebook constraint model but is missing from student inventory.`, [], [participantParameterId]);
+    }
+    for (const classId of parameterStrings(node, "exceptionClassIds")) {
+      if (!classesById.has(classId)) {
+        addViolation(violations, node, `Class ${classId} is referenced by stable ID in the current Rulebook constraint model but is missing from class inventory.`, [], [classId]);
+      }
+    }
+    for (const parameterKey of ["classIds", "exemptClassIds"] as const) {
+      for (const classId of parameterStrings(node, parameterKey)) {
+        if (!classesById.has(classId)) {
+          addViolation(violations, node, `Class ${classId} is referenced by stable ID in the current Rulebook constraint model but is missing from class inventory.`, [], [classId]);
+        }
       }
     }
 
@@ -369,8 +443,11 @@ export function validateConstraintModelSchedule(
 
     if (node.kind === "REQUIRED_ROOM") {
       evaluated.add(node.id);
+      const requiredId = typeof node.parameters.roomId === "string"
+        ? node.parameters.roomId
+        : node.selector.roomIds?.[0];
       const requiredName = String(node.parameters.roomName || node.selector.roomNames?.[0] || "");
-      const room = state.rooms.find((item) => normalize(item.name) === normalize(requiredName));
+      const room = requiredId ? roomsById.get(requiredId) : state.rooms.find((item) => normalize(item.name) === normalize(requiredName));
       if (!room) continue;
       for (const assignment of assignments) {
         const klass = classesBySession.get(assignment.sessionId);
@@ -383,8 +460,11 @@ export function validateConstraintModelSchedule(
 
     if (node.kind === "REQUIRED_TEACHER") {
       evaluated.add(node.id);
+      const requiredId = typeof node.parameters.teacherId === "string"
+        ? node.parameters.teacherId
+        : node.selector.teacherIds?.[0];
       const requiredName = String(node.parameters.teacherName || node.selector.teacherNames?.[0] || "");
-      const teacher = state.teachers.find((item) => normalize(item.name) === normalize(requiredName));
+      const teacher = requiredId ? teachersById.get(requiredId) : state.teachers.find((item) => normalize(item.name) === normalize(requiredName));
       if (!teacher) continue;
       for (const assignment of assignments) {
         const klass = classesBySession.get(assignment.sessionId);
@@ -407,11 +487,14 @@ export function validateConstraintModelSchedule(
       const prohibitedSubjects = parameterStrings(node, "prohibitedSubjects");
       const prohibitedLevels = parameterStrings(node, "prohibitedLevels");
       const exceptionClasses = parameterStrings(node, "exceptionClasses");
+      const exceptionClassIds = parameterStrings(node, "exceptionClassIds");
       for (const teacher of state.teachers.filter((item) => teacherMatchesSelector(item, node))) {
         for (const assignment of assignments.filter((item) => item.teacherId === teacher.id)) {
           const klass = classesBySession.get(assignment.sessionId);
           if (!klass) continue;
-          const explicitException = textMatches(klass.name, exceptionClasses);
+          const explicitException = exceptionClassIds.length > 0
+            ? exceptionClassIds.includes(klass.id)
+            : textMatches(klass.name, exceptionClasses);
           const prohibitedSubject = prohibitedSubjects.length > 0 && subjectAllowed(klass, prohibitedSubjects);
           const prohibitedLevel = prohibitedLevels.length > 0 && levelMatches(klass.level, prohibitedLevels);
           const subjectOkay = explicitException || allowedSubjects.length === 0 || subjectAllowed(klass, allowedSubjects);
@@ -454,13 +537,27 @@ export function validateConstraintModelSchedule(
 
     if (node.kind === "DIRECTLY_AFTER") {
       evaluated.add(node.id);
-      const predecessor = String(node.parameters.predecessor || node.selector.classNames?.[0] || "");
-      const successor = String(node.parameters.successor || node.selector.classNames?.[1] || "");
+      const predecessorId = typeof node.parameters.predecessorClassId === "string"
+        ? node.parameters.predecessorClassId
+        : node.selector.classIds?.[0];
+      const successorId = typeof node.parameters.successorClassId === "string"
+        ? node.parameters.successorClassId
+        : node.selector.classIds?.[1];
+      const predecessor = String(node.parameters.predecessor || node.selector.classNames?.[0] || predecessorId || "");
+      const successor = String(node.parameters.successor || node.selector.classNames?.[1] || successorId || "");
       const gap = Number(node.parameters.gapMinutes || 0);
-      const before = classAssignments(state, assignments, predecessor, classesBySession);
-      const after = classAssignments(state, assignments, successor, classesBySession);
-      const predecessorClass = state.classes.find((klass) => normalize(klass.name) === normalize(predecessor));
-      const successorClass = state.classes.find((klass) => normalize(klass.name) === normalize(successor));
+      const before = predecessorId
+        ? classAssignmentsById(assignments, predecessorId, classesBySession)
+        : classAssignments(assignments, predecessor, classesBySession);
+      const after = successorId
+        ? classAssignmentsById(assignments, successorId, classesBySession)
+        : classAssignments(assignments, successor, classesBySession);
+      const predecessorClass = predecessorId
+        ? classesById.get(predecessorId)
+        : state.classes.find((klass) => normalize(klass.name) === normalize(predecessor));
+      const successorClass = successorId
+        ? classesById.get(successorId)
+        : state.classes.find((klass) => normalize(klass.name) === normalize(successor));
       if (after.length && !before.length) {
         addViolation(violations, node, `${successor} is placed while ${predecessor} is still unassigned; the direct-after obligation is incomplete.`, [], [predecessorClass?.id, successorClass?.id].filter((id): id is string => Boolean(id)));
         continue;
@@ -488,9 +585,12 @@ export function validateConstraintModelSchedule(
 
     if (node.kind === "FIXED_ASSIGNMENT") {
       evaluated.add(node.id);
-      const className = node.selector.classNames?.[0];
+      const classId = node.selector.classIds?.[0];
+      const className = node.selector.classNames?.[0] || classId;
       if (!className) continue;
-      const list = classAssignments(state, assignments, className, classesBySession);
+      const list = classId
+        ? classAssignmentsById(assignments, classId, classesBySession)
+        : classAssignments(assignments, className, classesBySession);
       if (!list.length) {
         addViolation(violations, node, `${className} is a fixed Rulebook anchor but is not assigned in the candidate schedule.`);
         continue;
@@ -498,10 +598,12 @@ export function validateConstraintModelSchedule(
       const day = String(node.parameters.day || "");
       const start = String(node.parameters.start || "");
       const end = String(node.parameters.end || "");
+      const teacherId = node.selector.teacherIds?.[0];
+      const roomId = node.selector.roomIds?.[0];
       const teacherName = node.selector.teacherNames?.[0];
       const roomName = node.selector.roomNames?.[0];
-      const teacher = teacherName ? state.teachers.find((item) => normalize(item.name) === normalize(teacherName)) : null;
-      const room = roomName ? state.rooms.find((item) => normalize(item.name) === normalize(roomName)) : null;
+      const teacher = teacherId ? teachersById.get(teacherId) : teacherName ? state.teachers.find((item) => normalize(item.name) === normalize(teacherName)) : null;
+      const room = roomId ? roomsById.get(roomId) : roomName ? state.rooms.find((item) => normalize(item.name) === normalize(roomName)) : null;
       const matched = list.some((assignment) =>
         (!day || assignment.day === day)
         && (!start || minutes(assignment.startTime) === minutes(start))
@@ -517,10 +619,15 @@ export function validateConstraintModelSchedule(
       evaluated.add(node.id);
       const maximum = Number(node.parameters.maxDancers || 0);
       const exemptLevels = parameterStrings(node, "exemptLevels");
+      const selectedRoomIds = node.selector.roomIds || [];
       for (const assignment of assignments) {
         const klass = classesBySession.get(assignment.sessionId);
         const room = roomsById.get(assignment.roomId);
-        if (!klass || !room || !textMatches(room.name, node.selector.roomNames) || levelMatches(klass.level, exemptLevels)) continue;
+        if (klass && node.selector.classIds?.length && !node.selector.classIds.includes(klass.id)) continue;
+        const roomMatches = selectedRoomIds.length > 0
+          ? selectedRoomIds.includes(assignment.roomId)
+          : textMatches(room?.name || "", node.selector.roomNames);
+        if (!klass || !room || !roomMatches || levelMatches(klass.level, exemptLevels)) continue;
         if (maximum && klass.rosterStudentIds.length > maximum) {
           addViolation(violations, node, `${klass.name} has ${klass.rosterStudentIds.length} dancers, exceeding ${room.name}'s Rulebook capacity of ${maximum}.`, [assignment], [klass.id, room.id, ...klass.rosterStudentIds]);
         }
@@ -530,10 +637,12 @@ export function validateConstraintModelSchedule(
 
     if (node.kind === "RELATIONSHIP_START_WINDOW") {
       evaluated.add(node.id);
-      const teacherName = node.selector.teacherNames?.[0] || "";
-      const teacher = state.teachers.find((item) => normalize(item.name) === normalize(teacherName));
+      const teacherId = node.selector.teacherIds?.[0];
+      const teacherName = node.selector.teacherNames?.[0] || teacherId || "";
+      const teacher = teacherId ? teachersById.get(teacherId) : state.teachers.find((item) => normalize(item.name) === normalize(teacherName));
       if (!teacher) continue;
       const daughterClasses = parameterStrings(node, "daughterClassNames");
+      const daughterClassIds = parameterStrings(node, "daughterClassIds");
       const maximum = Number(node.parameters.maxStartDifferenceMinutes || 0);
       for (const day of DAYS) {
         const teacherDay = assignments.filter((assignment) => assignment.teacherId === teacher.id && assignment.day === day)
@@ -541,7 +650,7 @@ export function validateConstraintModelSchedule(
         if (!teacherDay.length) continue;
         const daughterDay = assignments.filter((assignment) => {
           const klass = classesBySession.get(assignment.sessionId);
-          return assignment.day === day && Boolean(klass && textMatches(klass.name, daughterClasses));
+          return assignment.day === day && Boolean(klass && (daughterClassIds.length > 0 ? daughterClassIds.includes(klass.id) : textMatches(klass.name, daughterClasses)));
         }).sort((a, b) => minutes(a.startTime) - minutes(b.startTime));
         if (!daughterDay.length) {
           addViolation(violations, node, `${teacher.name} teaches on ${day}, but none of the daughter's Rulebook classes is scheduled that day.`, teacherDay, [teacher.id]);

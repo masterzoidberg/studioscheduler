@@ -42,7 +42,7 @@ function model(): ConstraintModelSnapshotV1 {
     }],
     objectivePrioritySpine: [],
     readinessRuleIds: [],
-    governanceAssertions: [],
+    governanceAssertions: [{ ruleId: "CUR-007", family: "CURRICULUM_INTEGRITY", assertion: "Teacher qualification is default-deny." }],
     uncompiledConstraintRuleIds: [],
     completeHardConstraintCompilation: true,
   };

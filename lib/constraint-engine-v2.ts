@@ -5,8 +5,9 @@ import {
   type ConstraintEngineResult,
   type ConstraintEngineViolation,
 } from "@/lib/constraint-engine";
+import { canonicalBindingName } from "@/lib/constraint-data-binding";
 
-const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+const normalize = canonicalBindingName;
 const minutes = (value: string) => {
   const [hour = "0", minute = "0"] = value.slice(0, 5).split(":");
   return Number(hour) * 60 + Number(minute);
@@ -137,7 +138,6 @@ export function validateConstraintModelSchedule(
   assignments: Assignment[],
 ): ConstraintEngineResult {
   const base = validateBase(state, model, assignments);
-  const defaultDenyQualification = model.governanceAssertions.some((assertion) => assertion.ruleId === "CUR-007");
   const typedMaximumAttendanceIds = new Set(model.hardConstraints.filter((node) => node.kind === "MAX_ATTENDANCE_DAYS" && node.selector.participantIds?.length).map((node) => node.id));
   const typedQualificationTeacherIds = new Set(
     model.hardConstraints
@@ -147,7 +147,6 @@ export function validateConstraintModelSchedule(
   const violations = base.violations.filter((violation) => {
     if (typedMaximumAttendanceIds.has(violation.constraintId)) return false;
     if (violation.constraintId !== "teacher-qualification-default-deny") return true;
-    if (!defaultDenyQualification) return false;
     return !violation.affectedEntityIds.some((entityId) => typedQualificationTeacherIds.has(entityId));
   });
   const evaluated = new Set(base.evaluatedConstraintIds);
@@ -423,19 +422,21 @@ export function validateConstraintModelSchedule(
     }
 
     if (node.kind === "TEACHER_SUBJECT_DOMAIN") {
-      const teacherNames = node.selector.teacherNames || [];
       const allowedSubjects = strings(node.parameters.allowedSubjects);
       const prohibitedSubjects = strings(node.parameters.prohibitedSubjects);
       const allowedLevels = strings(node.parameters.allowedLevels);
       const prohibitedLevels = strings(node.parameters.prohibitedLevels);
+      const exceptionClassIds = strings(node.parameters.exceptionClassIds);
       const exceptionClasses = strings(node.parameters.exceptionClasses);
 
       for (const assignment of assignments) {
         const teacher = teachersById.get(assignment.teacherId);
         const klass = classesBySession.get(assignment.sessionId);
-        if (!teacher || !klass || !textMatches(teacher.name, teacherNames)) continue;
+        if (!teacher || !klass || !teacherMatchesNode(teacher.id, teacher.name, node)) continue;
 
-        const explicitException = exceptionClasses.length > 0 && textMatches(klass.name, exceptionClasses);
+        const explicitException = exceptionClassIds.length > 0
+          ? exceptionClassIds.includes(klass.id)
+          : exceptionClasses.length > 0 && textMatches(klass.name, exceptionClasses);
         const prohibitedSubject = prohibitedSubjects.length > 0 && subjectMatches(klass, prohibitedSubjects);
         const prohibitedLevel = prohibitedLevels.length > 0 && levelMatches(klass.level, prohibitedLevels);
         const subjectAllowed = explicitException || allowedSubjects.length === 0 || subjectMatches(klass, allowedSubjects);
@@ -455,13 +456,14 @@ export function validateConstraintModelSchedule(
 
     if (node.kind === "ROOM_CAPACITY") {
       const roomIds = node.selector.roomIds || [];
-      const planningCapacity = node.parameters.capacitySource === "PLANNING_DATASET" || roomIds.length > 0;
+      const classIds = node.selector.classIds || [];
+      const planningCapacity = node.parameters.capacitySource === "PLANNING_DATASET";
       if (planningCapacity) {
         const exemptClassIds = strings(node.parameters.exemptClassIds);
         for (const assignment of assignments) {
           const klass = classesBySession.get(assignment.sessionId);
           const room = roomsById.get(assignment.roomId);
-          if (!klass || !room || !roomMatchesNode(room.id, room.name, node) || exemptClassIds.includes(klass.id)) continue;
+          if (!klass || !room || (classIds.length > 0 && !classIds.includes(klass.id)) || !roomMatchesNode(room.id, room.name, node) || exemptClassIds.includes(klass.id)) continue;
           if (room.capacity === undefined || room.capacity === null) {
             pushAssignmentViolation(
               violations,
@@ -493,7 +495,7 @@ export function validateConstraintModelSchedule(
       for (const assignment of assignments) {
         const klass = classesBySession.get(assignment.sessionId);
         const room = roomsById.get(assignment.roomId);
-        if (!klass || !room || !textMatches(room.name, roomNames)) continue;
+        if (!klass || !room || (classIds.length > 0 && !classIds.includes(klass.id)) || (roomIds.length > 0 ? !roomIds.includes(room.id) : !textMatches(room.name, roomNames))) continue;
         const exempt = exemptLevels.length > 0 && levelMatches(klass.level, exemptLevels);
         if (exempt || klass.rosterStudentIds.length <= maximum) continue;
 

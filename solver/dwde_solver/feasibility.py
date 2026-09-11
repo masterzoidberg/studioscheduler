@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import unicodedata
 
 from ortools.sat.python import cp_model
 
@@ -39,7 +40,9 @@ def _slot(value: str) -> int:
 
 
 def _normalize(value: str) -> str:
-    return "".join(character for character in value.lower() if character.isalnum())
+    decomposed = unicodedata.normalize("NFKD", value)
+    ascii_value = decomposed.encode("ascii", "ignore").decode("ascii")
+    return "".join(character for character in ascii_value.lower() if character.isalnum())
 
 
 def _level_tokens(value: str) -> list[str]:
@@ -79,9 +82,12 @@ def _subject_matches(klass: dict[str, Any], selectors: list[str]) -> bool:
 
 def _selector_matches(constraint: dict[str, Any], klass: dict[str, Any]) -> bool:
     selector = constraint.get("selector") or {}
+    class_ids = [str(value) for value in (selector.get("classIds") or [])]
     names = selector.get("classNames") or []
     subjects = selector.get("subjects") or []
     levels = selector.get("levels") or []
+    if class_ids and str(klass["id"]) not in class_ids:
+        return False
     if names and not _text_matches(str(klass["name"]), names):
         return False
     if subjects and not _text_matches(str(klass["subject"]), subjects):
@@ -96,6 +102,51 @@ def _resolve_unique_by_name(items: dict[str, dict[str, Any]], name: str, kind: s
     if len(matches) != 1:
         raise ValueError(f"Constraint {constraint_id} cannot uniquely resolve {kind} {name!r}; found {len(matches)}")
     return matches[0]
+
+
+def _resolve_stable_selector(
+    selector: dict[str, Any],
+    key: str,
+    items: dict[str, dict[str, Any]],
+    kind: str,
+    constraint_id: str,
+) -> list[str]:
+    raw = selector.get(key)
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"Constraint {constraint_id} {key} must be an array of stable IDs")
+    values = [str(value) for value in raw]
+    if any(not value for value in values) or len(set(values)) != len(values):
+        raise ValueError(f"Constraint {constraint_id} contains an invalid or repeated stable {kind} ID")
+    missing = sorted(value for value in values if value not in items)
+    if missing:
+        raise ValueError(f"Constraint {constraint_id} references missing {kind} ID(s): {', '.join(missing)}")
+    return values
+
+
+def _resolve_required_id(
+    constraint: dict[str, Any],
+    parameter_key: str,
+    selector_key: str,
+    items: dict[str, dict[str, Any]],
+    kind: str,
+) -> str:
+    selector = constraint.get("selector") or {}
+    params = constraint.get("parameters") or {}
+    selected = _resolve_stable_selector(selector, selector_key, items, kind, str(constraint["id"]))
+    parameter_id = str(params.get(parameter_key) or "")
+    if selected:
+        if len(selected) != 1:
+            raise ValueError(f"Constraint {constraint['id']} must identify exactly one required {kind}")
+        if parameter_id and parameter_id != selected[0]:
+            raise ValueError(f"Constraint {constraint['id']} {parameter_key} disagrees with {selector_key}")
+        parameter_id = selected[0]
+    if parameter_id and parameter_id not in items:
+        raise ValueError(f"Constraint {constraint['id']} references missing {kind} ID {parameter_id!r}")
+    if not parameter_id:
+        raise ValueError(f"Constraint {constraint['id']} does not identify a required {kind}")
+    return parameter_id
 
 
 def _resolve_teacher_selector(
@@ -338,17 +389,25 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
         if isinstance(override_id, str):
             overrides_by_base.setdefault(override_id, []).append(candidate)
 
-    governance = problem["constraintModel"].get("governanceAssertions") or []
-    default_deny = any(item.get("ruleId") == "CUR-007" for item in governance)
+    # Qualification is always default-deny. Historical models remain readable,
+    # but a schedule cannot rely on the optional legacy governance assertion to
+    # make an unqualified teacher assignment safe.
+    default_deny = True
+    covered_teacher_ids = {
+        str(teacher_id)
+        for node in constraints
+        if node["kind"] == "TEACHER_SUBJECT_DOMAIN"
+        for teacher_id in (node.get("selector") or {}).get("teacherIds", [])
+    }
+    covered_teacher_names = {
+        _normalize(str(name))
+        for node in constraints
+        if node["kind"] == "TEACHER_SUBJECT_DOMAIN"
+        for name in (node.get("selector") or {}).get("teacherNames", [])
+    }
     if default_deny:
-        covered_teacher_names = {
-            _normalize(name)
-            for node in constraints
-            if node["kind"] == "TEACHER_SUBJECT_DOMAIN"
-            for name in (node.get("selector") or {}).get("teacherNames", [])
-        }
         for teacher_id, teacher in teachers.items():
-            if _normalize(str(teacher.get("name", ""))) in covered_teacher_names:
+            if teacher_id in covered_teacher_ids or _normalize(str(teacher.get("name", ""))) in covered_teacher_names:
                 continue
             for item in session_vars.values():
                 model.add(item.teacher[teacher_id] == 0)
@@ -419,10 +478,11 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
             max_gap_slots = maximum // SLOT_MINUTES
             resource = params.get("resource")
             if resource == "TEACHER":
-                teacher_names = selector.get("teacherNames") or []
-                for teacher_id, teacher in teachers.items():
-                    if not _text_matches(str(teacher.get("name", "")), teacher_names):
-                        continue
+                teacher_ids = _resolve_teacher_selector(teachers, selector, constraint["id"])
+                if not teacher_ids:
+                    teacher_ids = list(teachers)
+                for teacher_id in teacher_ids:
+                    teacher = teachers[teacher_id]
                     for day_index, day_name in enumerate(DAYS):
                         candidates = [(item, teacher_day_presence(item, teacher_id, day_index)) for item in session_vars.values()]
                         _sequence_circuit(model, candidates, f"gap_teacher__{constraint['id']}__{teacher_id}__{day_name}", max_gap_slots)
@@ -440,10 +500,10 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
 
         elif kind == "MAX_WORKDAYS":
             maximum = int(params.get("maxDays", 0))
-            teacher_names = selector.get("teacherNames") or []
-            for teacher_id, teacher in teachers.items():
-                if not _text_matches(str(teacher.get("name", "")), teacher_names):
-                    continue
+            teacher_ids = _resolve_teacher_selector(teachers, selector, constraint["id"])
+            if not teacher_ids:
+                teacher_ids = list(teachers)
+            for teacher_id in teacher_ids:
                 day_used = []
                 for day_index, day_name in enumerate(DAYS):
                     present = [teacher_day_presence(item, teacher_id, day_index) for item in session_vars.values()]
@@ -473,31 +533,43 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
 
         elif kind == "REQUIRED_ROOM":
             room_name = params.get("roomName") or ((selector.get("roomNames") or [None])[0])
-            if not room_name:
-                raise ValueError(f"Constraint {constraint['id']} does not identify a required room")
-            room_id = _resolve_unique_by_name(rooms, str(room_name), "room", constraint["id"])
+            room_id = _resolve_required_id(constraint, "roomId", "roomIds", rooms, "room") if (
+                selector.get("roomIds") is not None or params.get("roomId")
+            ) else None
+            if room_id is None:
+                if not room_name:
+                    raise ValueError(f"Constraint {constraint['id']} does not identify a required room")
+                room_id = _resolve_unique_by_name(rooms, str(room_name), "room", constraint["id"])
             for item in matching:
                 model.add(item.room[room_id] == 1)
 
         elif kind == "REQUIRED_TEACHER":
             teacher_name = params.get("teacherName") or ((selector.get("teacherNames") or [None])[0])
-            if not teacher_name:
-                raise ValueError(f"Constraint {constraint['id']} does not identify a required teacher")
-            teacher_id = _resolve_unique_by_name(teachers, str(teacher_name), "teacher", constraint["id"])
+            teacher_id = _resolve_required_id(constraint, "teacherId", "teacherIds", teachers, "teacher") if (
+                selector.get("teacherIds") is not None or params.get("teacherId")
+            ) else None
+            if teacher_id is None:
+                if not teacher_name:
+                    raise ValueError(f"Constraint {constraint['id']} does not identify a required teacher")
+                teacher_id = _resolve_unique_by_name(teachers, str(teacher_name), "teacher", constraint["id"])
             for item in matching:
                 model.add(item.teacher[teacher_id] == 1)
 
         elif kind == "TEACHER_SUBJECT_DOMAIN":
-            teacher_names = selector.get("teacherNames") or []
+            teacher_ids = _resolve_teacher_selector(teachers, selector, constraint["id"])
             allowed_subjects = list(params.get("allowedSubjects", []))
             prohibited_subjects = list(params.get("prohibitedSubjects", []))
             allowed_levels = list(params.get("allowedLevels", []))
             prohibited_levels = list(params.get("prohibitedLevels", []))
             exception_classes = list(params.get("exceptionClasses", []))
-            for teacher_name in teacher_names:
-                teacher_id = _resolve_unique_by_name(teachers, str(teacher_name), "teacher", constraint["id"])
+            exception_class_ids = [str(value) for value in (params.get("exceptionClassIds") or [])]
+            for teacher_id in teacher_ids:
                 for item in session_vars.values():
-                    explicit_exception = bool(exception_classes) and _text_matches(str(item.klass["name"]), exception_classes)
+                    explicit_exception = (
+                        item.klass["id"] in exception_class_ids
+                        if exception_class_ids
+                        else bool(exception_classes) and _text_matches(str(item.klass["name"]), exception_classes)
+                    )
                     prohibited_subject = bool(prohibited_subjects) and _subject_matches(item.klass, prohibited_subjects)
                     prohibited_level = bool(prohibited_levels) and _level_matches(str(item.klass["level"]), prohibited_levels)
                     subject_allowed = explicit_exception or not allowed_subjects or _subject_matches(item.klass, allowed_subjects)
@@ -529,14 +601,17 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
                         model.add(item.start + item.duration_slots <= _slot(str(end_limit))).only_enforce_if(present)
 
         elif kind == "DIRECTLY_AFTER":
-            predecessor = str(params.get("predecessor") or ((selector.get("classNames") or [None, None])[0]) or "")
-            successor = str(params.get("successor") or ((selector.get("classNames") or [None, None])[-1]) or "")
+            stable_class_ids = _resolve_stable_selector(selector, "classIds", classes, "class", constraint["id"])
+            predecessor_id = str(params.get("predecessorClassId") or (stable_class_ids[0] if len(stable_class_ids) >= 2 else ""))
+            successor_id = str(params.get("successorClassId") or (stable_class_ids[1] if len(stable_class_ids) >= 2 else ""))
+            predecessor = str(params.get("predecessor") or ((selector.get("classNames") or [None, None])[0]) or predecessor_id)
+            successor = str(params.get("successor") or ((selector.get("classNames") or [None, None])[-1]) or successor_id)
             gap_minutes = int(params.get("gapMinutes", 0))
             if gap_minutes % SLOT_MINUTES:
                 raise ValueError(f"Constraint {constraint['id']} gap is not on the {SLOT_MINUTES}-minute grid")
             gap = gap_minutes // SLOT_MINUTES
-            predecessor_ids = class_name_to_ids.get(_normalize(predecessor), [])
-            successor_ids = class_name_to_ids.get(_normalize(successor), [])
+            predecessor_ids = [predecessor_id] if predecessor_id else class_name_to_ids.get(_normalize(predecessor), [])
+            successor_ids = [successor_id] if successor_id else class_name_to_ids.get(_normalize(successor), [])
             if len(predecessor_ids) != 1 or len(successor_ids) != 1:
                 raise ValueError(f"Constraint {constraint['id']} cannot uniquely resolve sequence {predecessor} -> {successor}")
             pred_sessions = [item for item in session_vars.values() if item.klass["id"] == predecessor_ids[0]]
@@ -580,12 +655,22 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
                     model.add(item.start == _slot(str(params["start"]))).only_enforce_if(active)
                 if params.get("end"):
                     model.add(item.start + item.duration_slots == _slot(str(params["end"]))).only_enforce_if(active)
+                teacher_ids = _resolve_stable_selector(selector, "teacherIds", teachers, "teacher", constraint["id"])
+                room_ids = _resolve_stable_selector(selector, "roomIds", rooms, "room", constraint["id"])
                 teacher_name = ((selector.get("teacherNames") or [None])[0])
                 room_name = ((selector.get("roomNames") or [None])[0])
-                if teacher_name:
+                if teacher_ids:
+                    if len(teacher_ids) != 1:
+                        raise ValueError(f"Constraint {constraint['id']} must identify at most one fixed teacher")
+                    model.add(item.teacher[teacher_ids[0]] == 1).only_enforce_if(active)
+                elif teacher_name:
                     teacher_id = _resolve_unique_by_name(teachers, str(teacher_name), "teacher", constraint["id"])
                     model.add(item.teacher[teacher_id] == 1).only_enforce_if(active)
-                if room_name:
+                if room_ids:
+                    if len(room_ids) != 1:
+                        raise ValueError(f"Constraint {constraint['id']} must identify at most one fixed room")
+                    model.add(item.room[room_ids[0]] == 1).only_enforce_if(active)
+                elif room_name:
                     room_id = _resolve_unique_by_name(rooms, str(room_name), "room", constraint["id"])
                     model.add(item.room[room_id] == 1).only_enforce_if(active)
             model.add_bool_or(anchors).only_enforce_if(literal)
@@ -594,8 +679,13 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
             maximum = int(params.get("maxDancers", 0))
             exempt_levels = list(params.get("exemptLevels", []))
             room_names = selector.get("roomNames") or []
-            room_ids = [_resolve_unique_by_name(rooms, str(room_name), "room", constraint["id"]) for room_name in room_names]
+            room_ids = _resolve_stable_selector(selector, "roomIds", rooms, "room", constraint["id"])
+            if not room_ids:
+                room_ids = [_resolve_unique_by_name(rooms, str(room_name), "room", constraint["id"]) for room_name in room_names]
+            class_ids = set(_resolve_stable_selector(selector, "classIds", classes, "class", constraint["id"]))
             for item in session_vars.values():
+                if class_ids and item.klass["id"] not in class_ids:
+                    continue
                 exempt = bool(exempt_levels) and _level_matches(str(item.klass["level"]), exempt_levels)
                 if exempt or len(item.klass.get("rosterStudentIds", [])) <= maximum:
                     continue
@@ -603,17 +693,24 @@ def _build_model(problem: dict[str, Any], diagnostic: bool) -> BuiltModel:
                     model.add(item.room[room_id] == 0)
 
         elif kind == "RELATIONSHIP_START_WINDOW":
+            teacher_ids = _resolve_stable_selector(selector, "teacherIds", teachers, "teacher", constraint["id"])
             teacher_name = ((selector.get("teacherNames") or [None])[0])
-            if not teacher_name:
-                raise ValueError(f"Constraint {constraint['id']} does not identify a teacher relationship")
-            teacher_id = _resolve_unique_by_name(teachers, str(teacher_name), "teacher", constraint["id"])
+            if teacher_ids:
+                if len(teacher_ids) != 1:
+                    raise ValueError(f"Constraint {constraint['id']} must identify exactly one teacher relationship")
+                teacher_id = teacher_ids[0]
+            else:
+                if not teacher_name:
+                    raise ValueError(f"Constraint {constraint['id']} does not identify a teacher relationship")
+                teacher_id = _resolve_unique_by_name(teachers, str(teacher_name), "teacher", constraint["id"])
             daughter_names = list(params.get("daughterClassNames", []))
-            daughter_ids: set[str] = set()
-            for class_name in daughter_names:
-                ids = class_name_to_ids.get(_normalize(str(class_name)), [])
-                if len(ids) != 1:
-                    raise ValueError(f"Constraint {constraint['id']} cannot uniquely resolve daughter class {class_name}")
-                daughter_ids.add(ids[0])
+            daughter_ids = set(_resolve_stable_selector(params, "daughterClassIds", classes, "class", constraint["id"]))
+            if not daughter_ids:
+                for class_name in daughter_names:
+                    ids = class_name_to_ids.get(_normalize(str(class_name)), [])
+                    if len(ids) != 1:
+                        raise ValueError(f"Constraint {constraint['id']} cannot uniquely resolve daughter class {class_name}")
+                    daughter_ids.add(ids[0])
             maximum = int(params.get("maxStartDifferenceMinutes", 0))
             if maximum % SLOT_MINUTES:
                 raise ValueError(f"Constraint {constraint['id']} relationship window is not on the {SLOT_MINUTES}-minute grid")

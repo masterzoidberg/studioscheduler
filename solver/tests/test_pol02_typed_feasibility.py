@@ -64,7 +64,17 @@ def _problem(constraints, *, capacity=10, features=None, roster_size=0, rooms=No
                 "lockedPlacement": None,
             }
         ],
-        "constraintModel": _constraint_model(constraints),
+        "constraintModel": _constraint_model([
+            *constraints,
+            {
+                "id": "fixture-qualification",
+                "kind": "TEACHER_SUBJECT_DOMAIN",
+                "ruleIds": ["FIXTURE-QUALIFICATION"],
+                "selector": {"teacherIds": [teacher["id"] for teacher in teacher_rows]},
+                "parameters": {},
+                "explanation": "The fixture explicitly supplies a reviewed qualification domain.",
+            },
+        ]),
         "preflight": {"validatedDelegatedConstraintIds": []},
     }
 

@@ -12,6 +12,7 @@ const pythonBinary = process.env.PYTHON_BINARY?.trim() || "python";
 const fixed = (id: string, className: string, day: string, start: string, end: string, teacherName?: string) => ({ id, kind: "FIXED_ASSIGNMENT", ruleIds: [id], selector: { classNames: [className], ...(teacherName ? { teacherNames: [teacherName] } : {}) }, parameters: { day, start, end }, explanation: id });
 
 function problem(hardConstraints: Array<Record<string, unknown>>): FeasibilitySolverProblem {
+  const qualification = { id: "fixture-qualification", kind: "TEACHER_SUBJECT_DOMAIN", ruleIds: ["FIXTURE-QUALIFICATION"], selector: { teacherIds: ["teacher-a", "teacher-b"] }, parameters: {}, explanation: "The fixture explicitly supplies a reviewed qualification domain." };
   return {
     contractVersion: "1.0", context: { studioId: "pol03-parity", rulebookVersion: 6, planningDatasetVersion: 1, compilerVersion: "dwde-ir-0.6" },
     teachers: [{ id: "teacher-a", name: "Teacher A" }, { id: "teacher-b", name: "Teacher B" }], rooms: [{ id: "room", name: "Room", capacity: 20, features: [] }],
@@ -22,7 +23,7 @@ function problem(hardConstraints: Array<Record<string, unknown>>): FeasibilitySo
       { id: "class-c", name: "Class C", subject: "C", level: "L1", durationMinutes: 60, weeklyFrequency: 1, rosterStudentIds: ["student-a"], companyOnly: false },
     ],
     sessions: [{ id: "session-a", classId: "class-a", ordinal: 1, durationMinutes: null, locked: false, lockedPlacement: null }, { id: "session-b", classId: "class-b", ordinal: 1, durationMinutes: null, locked: false, lockedPlacement: null }, { id: "session-c", classId: "class-c", ordinal: 1, durationMinutes: null, locked: false, lockedPlacement: null }],
-    constraintModel: { schemaVersion: "1.0", compilerVersion: "dwde-ir-0.6", rulebookVersion: 6, planningDatasetVersion: 1, activeRuleCount: hardConstraints.length, hardConstraints: hardConstraints as unknown as FeasibilitySolverProblem["constraintModel"]["hardConstraints"], objectivePrioritySpine: [], readinessRuleIds: [], governanceAssertions: [], uncompiledConstraintRuleIds: [], completeHardConstraintCompilation: true },
+    constraintModel: { schemaVersion: "1.0", compilerVersion: "dwde-ir-0.6", rulebookVersion: 6, planningDatasetVersion: 1, activeRuleCount: hardConstraints.length + 1, hardConstraints: [...hardConstraints, qualification] as unknown as FeasibilitySolverProblem["constraintModel"]["hardConstraints"], objectivePrioritySpine: [], readinessRuleIds: [], governanceAssertions: [], uncompiledConstraintRuleIds: [], completeHardConstraintCompilation: true },
     preflight: { validatedDelegatedConstraintIds: [] },
   };
 }

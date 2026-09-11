@@ -32,6 +32,7 @@ def _shared_problem() -> tuple[dict, dict]:
                 _constraint("teacher-no-overlap", "RESOURCE_NO_OVERLAP", parameters={"resource": "TEACHER"}),
                 _constraint("room-no-overlap", "RESOURCE_NO_OVERLAP", parameters={"resource": "ROOM"}),
                 _constraint("grid", "TIME_GRID", parameters={"minutes": 15}),
+                _constraint("fixture-qualification", "TEACHER_SUBJECT_DOMAIN", selector={"teacherIds": [item["id"] for item in fixture["teachers"]]}),
             ],
             "governanceAssertions": [],
         },

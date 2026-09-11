@@ -6,6 +6,14 @@ from dwde_solver.typed_feasibility import solve_feasibility
 
 
 def _problem(constraints):
+    qualified = {
+        "id": "fixture-qualification",
+        "kind": "TEACHER_SUBJECT_DOMAIN",
+        "ruleIds": ["FIXTURE-QUALIFICATION"],
+        "selector": {"teacherIds": ["teacher-a", "teacher-b"]},
+        "parameters": {},
+        "explanation": "The fixture explicitly supplies a reviewed qualification domain.",
+    }
     return {
         "contractVersion": "1.0",
         "context": {"studioId": "pol03", "rulebookVersion": 6, "planningDatasetVersion": 1, "compilerVersion": "dwde-ir-0.6"},
@@ -22,7 +30,7 @@ def _problem(constraints):
             {"id": "session-b", "classId": "class-b", "ordinal": 1, "durationMinutes": None, "locked": False, "lockedPlacement": None},
             {"id": "session-c", "classId": "class-c", "ordinal": 1, "durationMinutes": None, "locked": False, "lockedPlacement": None},
         ],
-        "constraintModel": {"schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.6", "rulebookVersion": 6, "planningDatasetVersion": 1, "activeRuleCount": len(constraints), "hardConstraints": constraints, "objectivePrioritySpine": [], "objectivePolicies": [], "readinessRuleIds": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": True},
+        "constraintModel": {"schemaVersion": "1.0", "compilerVersion": "dwde-ir-0.6", "rulebookVersion": 6, "planningDatasetVersion": 1, "activeRuleCount": len(constraints) + 1, "hardConstraints": [*constraints, qualified], "objectivePrioritySpine": [], "governanceAssertions": [], "uncompiledConstraintRuleIds": [], "completeHardConstraintCompilation": True},
         "preflight": {"validatedDelegatedConstraintIds": []},
     }
 
