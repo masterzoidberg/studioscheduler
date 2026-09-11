@@ -1,17 +1,17 @@
 # Next autonomous run
 
-**R4 — UX-02: complete editing, locks and recovery journey**
+**R4 — UX-03: deliver usable schedule print/export and responsive review**
 **Execution class: STANDARD IMPLEMENTATION**
 **Milestone: A — DWDE Operational**
 **Status: SELECTED; the only READY task and next run.**
 
-Execute R4 from implementation HEAD `675878a1c9efbcd45cacd6d0d109b284b4b3ba42` on branch `feat/pre-cami-hardening`. UX-01 completed the manager-facing Build schedule flow, bounded generation progress and cancellation, candidate review before adoption, understandable solver outcome classification, actionable recovery links and stale-result protection. PR #55 remains open; no merge, push or deployment is authorized.
+Execute R4 from implementation HEAD `2fb44a07d6778b6c0394f0077c5917e34f304cd6` on branch `feat/pre-cami-hardening`. UX-02 and LOCK-01 completed the manager-facing editing, recovery, effective lock, governed lock/unlock, context staleness and authenticated disposable verification paths. PR #55 remains open; no merge, push or deployment is authorized.
 
-Authority: read [TASKS](TASKS.md), [MASTER_PLAN](MASTER_PLAN.md), [DECISIONS](DECISIONS.md), [CODEX_EXECUTION_RULES](CODEX_EXECUTION_RULES.md), [TEST_STRATEGY](TEST_STRATEGY.md), and the bounded [UX-02 prompt](prompts/UX-02.md). `TASKS.md` owns status and dependencies; this file selects exactly one run. SET-07 and UX-01 are complete; UX-02 is the only selected task.
+Authority: read [TASKS](TASKS.md), [MASTER_PLAN](MASTER_PLAN.md), [DECISIONS](DECISIONS.md), [CODEX_EXECUTION_RULES](CODEX_EXECUTION_RULES.md), [TEST_STRATEGY](TEST_STRATEGY.md), and the bounded [UX-03 prompt](prompts/UX-03.md). `TASKS.md` owns status and dependencies; this file selects exactly one run. SET-07, UX-01, UX-02 and LOCK-01 are complete; UX-03 is the only selected task.
 
-Complete only UX-02: make the inspector explicit about valid, incomplete, allowed preference warning, locked and rejected changes; support keyboard/tap assignment without drag, an unscheduled tray, lock/regenerate explanation, preview recovery before canonical mutation and usable version-history labels. Correct inspector duration to `sessionDurationMinutes` and render every configured room; existing room truncation and class-default duration must not mislead legality.
+Complete only UX-03: add printable weekly and teacher/room views with readable pagination plus schedule CSV across all configured rooms and the configured horizon. Label draft/stale exports and allow reviewed final export only under current complete certification; redact student rosters by default and keep privileged data export separate.
 
-Preserve canonical Rulebook/ConstraintModel/PlanningDataset/Schedule version authority, exact tenant/current-role authorization, deterministic HARD legality, review/certification context and stale/no-write rejection. Reuse the existing solver gateway and authoritative adoption route. Do not add an optimizer, minimum-unsatisfiable-core algorithm, background job service, deployment, production/private-data access, paid services, merge, push, external messages or destructive actions.
+Preserve canonical Rulebook/ConstraintModel/PlanningDataset/Schedule version authority, exact tenant/current-role authorization, deterministic HARD legality, review/certification context and stale/no-write rejection. Reuse existing schedule/version data and browser print where sufficient. Do not add a public share link, student portal, PDF service dependency, deployment, production/private-data access, paid services, merge, push, external messages or destructive actions.
 
 Required verification from the repository root with explicit disposable configuration:
 
@@ -20,10 +20,7 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
-npm run test:db
-$env:PYTHON_BINARY='C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe'; npm run test:parity
-$env:PYTHONPATH='solver'; Push-Location solver; & 'C:\Users\nicol\AppData\Local\Temp\studio-scheduler-audit-venv\Scripts\python.exe' -m pytest -q -p no:cacheprovider; Pop-Location
 npm run test:e2e
 ```
 
-On acceptance, create one bounded UX-02 commit, record exact criteria/evidence/commands/exit codes/artifacts/limitations and start/final heads in `TASKS.md`, update derived planning views atomically, and select exactly one next run. Do not claim milestone A or external acceptance from this run alone.
+After implementation, run `npm run test:e2e` for the changed authenticated journey. Run the pinned Python/parity and disposable DB suites if the changed path affects their authority or solver context. On acceptance, record exact criteria/evidence/commands/exit codes/artifacts/limitations and start/final heads in `TASKS.md`, update derived planning views atomically, and select exactly one next run. Do not claim milestone A or external acceptance from this run alone.
