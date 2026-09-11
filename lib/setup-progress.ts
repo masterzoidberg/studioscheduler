@@ -185,7 +185,7 @@ export function buildSetupProgress(state: StudioState): SetupProgress {
         description: "The current planning snapshot is manager-confirmed. Any meaningful setup edit will create a new snapshot that needs review again.",
         status: "READY_FOR_NOW",
         href: "/readiness",
-        actionLabel: "View current review",
+        actionLabel: "Build schedule",
       };
 
   const sections = [studio, teachers, classes, students, requirements, preferences, review];

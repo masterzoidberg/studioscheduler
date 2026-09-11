@@ -90,4 +90,37 @@ describe("SET-02 setup progress", () => {
 
     expect(progress.sections.find((section) => section.id === "review")?.status).toBe("NEEDS_ACTION");
   });
+
+  it("offers Build schedule from a manager-confirmed Review", () => {
+    const progress = buildSetupProgress(state({
+      rooms: [{ id: "room-1", name: "Studio A", capacity: 20, features: [] }],
+      teachers: [{ id: "teacher-1", name: "Teacher One", subjects: [] }],
+      planningDatasetVersions: [{
+        id: "planning-1",
+        version: 1,
+        createdAt: "2026-09-08T00:00:00Z",
+        actor: "Verify Owner",
+        reason: "Synthetic test",
+        snapshot: {
+          schemaVersion: "1.3",
+          studioId: "11111111-1111-4111-8111-111111111111",
+          teacherIds: ["teacher-1"],
+          rooms: [{ id: "room-1", name: "Studio A", capacity: 20, features: [] }],
+          students: [],
+          cohorts: [],
+          classes: [],
+          sessions: [],
+        },
+        snapshotHash: "synthetic",
+        status: "CURRENT",
+        confirmedForSchedulingAt: "2026-09-08T01:00:00Z",
+      }],
+    }));
+
+    expect(progress.sections.find((section) => section.id === "review")).toMatchObject({
+      status: "READY_FOR_NOW",
+      href: "/readiness",
+      actionLabel: "Build schedule",
+    });
+  });
 });
