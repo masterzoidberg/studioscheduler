@@ -1743,6 +1743,8 @@ async function runHarness(onlyPol04 = false) {
     process.stdout.write(incrementalOutput);
     const recoveryOutput = psql(container, 'postgres', authoritativeRecoverySql, 'T12 authoritative rebase/undo recovery integration tests');
     process.stdout.write(recoveryOutput);
+    const lockCommandOutput = psql(container, 'postgres', authoritativeSessionLockSql, 'LOCK-01 governed session lock integration tests');
+    process.stdout.write(lockCommandOutput);
     const bypassClosureOutput = psql(container, 'postgres', legacyWriteBypassClosureSql, 'T13 legacy write bypass closure integration tests');
     process.stdout.write(bypassClosureOutput);
   } finally {
@@ -1963,6 +1965,220 @@ where sv.id=a.schedule_version_id and sv.studio_id='11111111-1111-4111-8111-1111
 
 drop function public.t12_test_solver_context(uuid);
 select 'T12 PASS: archive-aware REBASE preserves history; current-policy UNDO normalizes duration; stale replay and effective-lock rollback reject atomically' as result;
+`;
+
+const authoritativeSessionLockSql = String.raw`
+set search_path=public,extensions;
+
+create or replace function public.t14_test_solver_context(p_studio uuid)
+returns jsonb
+language sql
+security definer
+set search_path=''
+as $function$ select private.build_solver_context_token_v43(p_studio) $function$;
+revoke all on function public.t14_test_solver_context(uuid) from public,anon,authenticated;
+grant execute on function public.t14_test_solver_context(uuid) to service_role;
+
+set role postgres;
+insert into public.class_sessions(id,studio_id,class_id,ordinal,duration_minutes,locked)
+values('t14-session-2','11111111-1111-4111-8111-111111111111','t04-class',2,60,false)
+on conflict(id) do nothing;
+set role service_role;
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111';
+  v_other uuid:='22222222-2222-4222-8222-222222222222';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_viewer uuid:='10000000-0000-4000-8000-000000000003';
+  v_context jsonb;
+  v_new_context jsonb;
+  v_result jsonb;
+  v_old_schedule uuid;
+  v_new_schedule uuid;
+  v_old_schedule_version integer;
+  v_old_planning_version integer;
+  v_new_planning_version integer;
+  v_before_count integer;
+  v_after_count integer;
+  v_rejected boolean;
+begin
+  v_context:=public.t14_test_solver_context(v_studio);
+  v_old_schedule:=(v_context->>'scheduleId')::uuid;
+  v_old_schedule_version:=(v_context->>'scheduleVersion')::integer;
+  v_old_planning_version:=(v_context->>'planningDatasetVersion')::integer;
+  if v_old_schedule is null then raise exception 'LOCK-01 fixture has no current schedule'; end if;
+  if (select count(*) from public.assignments where schedule_version_id=v_old_schedule and session_id='t04-session')<>1 then
+    raise exception 'LOCK-01 fixture requires one current target placement';
+  end if;
+
+  v_result:=public.apply_authoritative_session_lock_v61(
+    v_studio,v_owner,'T14 owner','t04-session',true,
+    'T14 lock the selected session placement',v_context
+  );
+  v_new_schedule:=(v_result->>'scheduleId')::uuid;
+  v_new_planning_version:=(v_result->>'planningDatasetVersion')::integer;
+  if v_result->>'status' is distinct from 'LOCKED' or (v_result->>'effectiveLock')::boolean is distinct from true then
+    raise exception 'LOCK-01 lock result did not report effective LOCKED state';
+  end if;
+  if (v_result->>'scheduleVersion')::integer<>v_old_schedule_version+1 then
+    raise exception 'LOCK-01 lock did not create exactly one next ScheduleVersion';
+  end if;
+  if v_new_planning_version<=v_old_planning_version then
+    raise exception 'LOCK-01 lock did not create a new PlanningDatasetVersion';
+  end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>((select count(*) from public.schedule_versions where studio_id=v_studio and version<=v_old_schedule_version)+1) then
+    raise exception 'LOCK-01 lock changed an unexpected number of ScheduleVersions';
+  end if;
+  if not exists(
+    select 1 from public.class_sessions
+    where studio_id=v_studio and id='t04-session' and locked=true
+  ) then raise exception 'LOCK-01 session lock flag was not persisted'; end if;
+  if not exists(
+    select 1 from public.assignments
+    where schedule_version_id=v_new_schedule and session_id='t04-session' and locked=true
+  ) then raise exception 'LOCK-01 target assignment lock was not mirrored'; end if;
+  if exists(
+    select 1 from public.class_sessions
+    where studio_id=v_studio and id='t14-session-2' and locked=true
+  ) then raise exception 'LOCK-01 lock incorrectly affected a sibling session'; end if;
+  if not exists(
+    select 1 from public.planning_dataset_versions pd
+    where pd.studio_id=v_studio and pd.version=v_new_planning_version and pd.status='CURRENT'
+      and pd.confirmed_for_scheduling_at is null
+      and exists(select 1 from jsonb_array_elements(pd.snapshot->'sessions') item where item->>'id'='t04-session' and (item->>'locked')::boolean=true)
+  ) then raise exception 'LOCK-01 did not make the changed planning snapshot current and uncertified'; end if;
+  if (v_result->>'certificationStale')::boolean is distinct from true or (v_result->>'candidateStale')::boolean is distinct from true then
+    raise exception 'LOCK-01 did not identify certification/candidate staleness';
+  end if;
+  if not exists(
+    select 1 from public.assignments
+    where schedule_version_id=v_old_schedule and id='t11-assignment' and locked=false
+  ) then raise exception 'LOCK-01 rewrote the historical assignment'; end if;
+  if not exists(
+    select 1 from public.planning_dataset_versions pd
+    where pd.studio_id=v_studio and pd.version=v_old_planning_version
+      and exists(select 1 from jsonb_array_elements(pd.snapshot->'sessions') item where item->>'id'='t04-session' and (item->>'locked')::boolean=false)
+  ) then raise exception 'LOCK-01 rewrote the historical planning snapshot'; end if;
+  if not exists(
+    select 1 from public.audit_events e
+    where e.studio_id=v_studio and e.action='SCHEDULE_SESSION_LOCK_CHANGED'
+      and e.entity_id='t04-session' and e.payload->>'authority'='SERVER_SESSION_LOCK_V61'
+  ) then raise exception 'LOCK-01 authoritative audit evidence is missing'; end if;
+
+  -- Replaying the old context must fail before any new version or flag change.
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  v_rejected:=false;
+  begin
+    perform public.apply_authoritative_session_lock_v61(
+      v_studio,v_owner,'T14 owner','t04-session',false,
+      'T14 stale unlock rejection',v_context
+    );
+  exception when others then
+    if position('STALE_SESSION_LOCK_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'LOCK-01 stale lock replay was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'LOCK-01 stale rejection persisted a ScheduleVersion'; end if;
+  if not exists(select 1 from public.class_sessions where studio_id=v_studio and id='t04-session' and locked=true) then
+    raise exception 'LOCK-01 stale rejection changed the session lock';
+  end if;
+
+  -- An unassigned session, viewer, and wrong-tenant context are all rejected
+  -- without touching the current canonical state.
+  v_new_context:=public.t14_test_solver_context(v_studio);
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  v_rejected:=false;
+  begin
+    perform public.apply_authoritative_session_lock_v61(
+      v_studio,v_owner,'T14 owner','t14-session-2',true,
+      'T14 unassigned rejection',v_new_context
+    );
+  exception when others then
+    if position('SESSION_LOCK_PLACEMENT_REQUIRED' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'LOCK-01 unassigned session was accepted'; end if;
+  begin
+    perform public.apply_authoritative_session_lock_v61(
+      v_studio,v_viewer,'T14 viewer','t04-session',false,
+      'T14 viewer rejection',v_new_context
+    );
+  exception when others then
+    if position('Editor membership required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'LOCK-01 viewer lock change was accepted'; end if;
+  begin
+    perform public.apply_authoritative_session_lock_v61(
+      v_other,v_owner,'T14 wrong tenant','t04-session',false,
+      'T14 wrong tenant rejection',v_new_context
+    );
+  exception when others then
+    if position('SESSION_LOCK_CONTEXT_INVALID' in sqlerrm)=0 then raise; end if;
+  end;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'LOCK-01 rejection cases were not atomic'; end if;
+
+  -- Unlock clears both the planning-session and current-assignment flags in
+  -- one command, while retaining the lock-change version history.
+  v_result:=public.apply_authoritative_session_lock_v61(
+    v_studio,v_owner,'T14 owner','t04-session',false,
+    'T14 unlock the selected session placement',v_new_context
+  );
+  v_new_schedule:=(v_result->>'scheduleId')::uuid;
+  if v_result->>'status' is distinct from 'UNLOCKED' then raise exception 'LOCK-01 unlock result was not UNLOCKED'; end if;
+  if exists(select 1 from public.class_sessions where studio_id=v_studio and id='t04-session' and locked=true) then
+    raise exception 'LOCK-01 unlock did not clear session lock';
+  end if;
+  if exists(select 1 from public.assignments where schedule_version_id=v_new_schedule and session_id='t04-session' and locked=true) then
+    raise exception 'LOCK-01 unlock did not clear assignment lock';
+  end if;
+  if (v_result->>'scheduleVersion')::integer<>(v_new_context->>'scheduleVersion')::integer+1 then
+    raise exception 'LOCK-01 unlock did not advance one ScheduleVersion';
+  end if;
+
+  -- Assignment-only legacy lock state is also cleared by the same governed
+  -- action; there is no second writable user control.
+  update public.assignments
+  set locked=true
+  where schedule_version_id=v_new_schedule and session_id='t04-session';
+  v_new_context:=public.t14_test_solver_context(v_studio);
+  v_result:=public.apply_authoritative_session_lock_v61(
+    v_studio,v_owner,'T14 owner','t04-session',false,
+    'T14 clear legacy assignment-only lock',v_new_context
+  );
+  v_new_schedule:=(v_result->>'scheduleId')::uuid;
+  if exists(select 1 from public.assignments where schedule_version_id=v_new_schedule and session_id='t04-session' and locked=true) then
+    raise exception 'LOCK-01 assignment-only unlock left an effective assignment lock';
+  end if;
+  if exists(select 1 from public.class_sessions where studio_id=v_studio and id='t04-session' and locked=true) then
+    raise exception 'LOCK-01 assignment-only unlock left a session lock';
+  end if;
+
+  -- A repeated request for the already-effective state is a conflicting
+  -- command, not a reason to create another ScheduleVersion.
+  v_new_context:=public.t14_test_solver_context(v_studio);
+  select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
+  v_rejected:=false;
+  begin
+    perform public.apply_authoritative_session_lock_v61(
+      v_studio,v_owner,'T14 owner','t04-session',false,
+      'T14 unchanged lock rejection',v_new_context
+    );
+  exception when others then
+    if position('SESSION_LOCK_STATE_UNCHANGED' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'LOCK-01 unchanged lock request was accepted'; end if;
+  select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
+  if v_after_count<>v_before_count then raise exception 'LOCK-01 duplicate rejection persisted a ScheduleVersion'; end if;
+end
+$block$;
+reset role;
+drop function public.t14_test_solver_context(uuid);
+
+select 'LOCK-01 PASS: exact tenant/role/context lock transition, one-placement requirement, session/assignment precedence, immutable history, stale/no-write rejection, and certification/candidate staleness' as result;
 `;
 
 const legacyWriteBypassClosureSql = String.raw`

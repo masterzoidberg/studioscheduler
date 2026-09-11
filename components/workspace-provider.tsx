@@ -29,6 +29,7 @@ import { emptyValidation, validateSchedule } from "@/lib/validator";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { applySetupTypedPolicies as applySetupTypedPoliciesClient } from "@/lib/setup-policy-client";
 import type { SetupTypedPolicyMutationResult, SetupTypedPolicyPatch } from "@/lib/setup-policy";
+import type { SolverSnapshotContextToken } from "@/lib/server-studio-state";
 
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -54,6 +55,7 @@ interface WorkspaceContextValue {
   currentScheduleRulebookVersion: number;
   currentScheduleEnforcementVersion: number;
   currentSchedulePlanningDatasetVersion: number;
+  solverContextToken: SolverSnapshotContextToken | null;
   scheduleIsStale: boolean;
   validation: ValidationResult;
   refresh: () => Promise<void>;
@@ -62,6 +64,7 @@ interface WorkspaceContextValue {
   applyRulePatch: (patch: RulePatch) => Promise<MutationResult>;
   applySetupTypedPolicies: (policies: SetupTypedPolicyPatch[], reason: string) => Promise<SetupTypedPolicyMutationResult>;
   applySchedulePatch: (patch: SchedulePatch) => Promise<MutationResult>;
+  toggleSessionLock: (sessionId: string, locked: boolean, reason: string) => Promise<MutationResult>;
   previewScheduleRecovery: (operation: "REBASE" | "UNDO") => Promise<MutationResult>;
   rebaseSchedule: () => Promise<MutationResult>;
   undoSchedule: () => Promise<MutationResult>;
@@ -82,6 +85,11 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 const time = (value: string) => value.slice(0, 5);
 const object = (value: unknown) => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
 const source = (value: unknown) => ({ type: "IMPORT", ...object(value) }) as StudioRule["source"];
+
+function isSolverSnapshotContextToken(value: unknown, studioId: string): value is SolverSnapshotContextToken {
+  const token = object(value);
+  return token.schemaVersion === "1.0" && token.studioId === studioId;
+}
 
 function mapRule(row: Record<string, unknown>): StudioRule {
   const strength = row.strength ? row.strength as StudioRule["strength"] : null;
@@ -165,6 +173,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StudioState | null>(null);
   const [members, setMembers] = useState<StudioMember[]>([]);
   const [invites, setInvites] = useState<StudioInvite[]>([]);
+  const [solverContextToken, setSolverContextToken] = useState<SolverSnapshotContextToken | null>(null);
   const accessMode: WorkspaceContextValue["accessMode"] = session ? "AUTHENTICATED" : "NONE";
   const canEdit = role === "OWNER" || role === "EDITOR";
   const isOwner = role === "OWNER";
@@ -172,22 +181,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async (activeSession?: Session | null) => {
     const sess = activeSession === undefined ? session : activeSession;
     if (!sess) {
-      setRole(null); setState(null); setMembers([]); setInvites([]); setLoading(false); setError(null); return;
+      setRole(null); setState(null); setMembers([]); setInvites([]); setSolverContextToken(null); setLoading(false); setError(null); return;
     }
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setSolverContextToken(null);
     try {
       const supabase = getBrowserSupabase();
       const membershipQ = await supabase.from("studio_members").select("studio_id,role").eq("studio_id", STUDIO_ID).eq("user_id", sess.user.id).maybeSingle();
       if (membershipQ.error) throw membershipQ.error;
       if (!membershipQ.data) {
-        setRole(null); setState(null); setMembers([]); setInvites([]);
+        setRole(null); setState(null); setMembers([]); setInvites([]); setSolverContextToken(null);
         setError("This account is signed in but has not been invited to the DWDE Studio workspace.");
         return;
       }
       const nextRole = membershipQ.data.role as StudioRole;
       setRole(nextRole);
 
-      const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ] = await Promise.all([
+      const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ, contextTokenQ] = await Promise.all([
         supabase.from("studios").select("*").eq("id", STUDIO_ID).single(),
         supabase.from("teachers").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
         supabase.from("rooms").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
@@ -205,9 +214,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         supabase.from("scenarios").select("*").eq("studio_id", STUDIO_ID).order("created_at", { ascending: false }),
         supabase.from("audit_events").select("*").eq("studio_id", STUDIO_ID).order("created_at", { ascending: false }).limit(100),
         supabase.rpc("list_studio_members_v21"),
+        supabase.rpc("get_solver_context_token_v43", { p_studio_id: STUDIO_ID }),
       ]);
-      const queryError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ].find((query) => query.error)?.error;
+      const queryError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ, contextTokenQ].find((query) => query.error)?.error;
       if (queryError) throw queryError;
+      if (!isSolverSnapshotContextToken(contextTokenQ.data, STUDIO_ID)) {
+        throw new Error("The current solver context token is missing or malformed.");
+      }
+      setSolverContextToken(contextTokenQ.data);
 
       const currentScheduleRow = (scheduleQ.data || []).find((row) => row.is_current);
       const assignmentQ = currentScheduleRow
@@ -318,7 +332,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   async function signOut() {
     await getBrowserSupabase().auth.signOut();
-    setSession(null); setRole(null); setState(null); setMembers([]); setInvites([]);
+    setSession(null); setRole(null); setState(null); setMembers([]); setInvites([]); setSolverContextToken(null);
   }
 
   async function applyRulePatch(patch: RulePatch): Promise<MutationResult> {
@@ -379,6 +393,48 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         ok: true,
         version: Number(payload.scheduleVersion || 0),
         validation: payload.validation as ValidationResult | undefined,
+        details: payload,
+      };
+    } catch (caught) { return fail(caught); }
+  }
+
+  async function toggleSessionLock(sessionId: string, locked: boolean, reason: string): Promise<MutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required." };
+    if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
+    if (!solverContextToken) return { ok: false, error: "The current scheduling context is still loading. Refresh and retry." };
+    if (!sessionId.trim()) return { ok: false, error: "An explicit session is required." };
+    if (!reason.trim()) return { ok: false, error: "A reason is required for a governed lock change." };
+    if (scheduleIsStale) return {
+      ok: false,
+      error: `Schedule v${currentScheduleVersion} needs revalidation before its lock can change. Review the current scheduling context first.`,
+    };
+    try {
+      const response = await fetch("/api/schedule/lock", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          studioId: state.studioId,
+          sessionId: sessionId.trim(),
+          locked,
+          reason: reason.trim(),
+          expectedContext: solverContextToken,
+        }),
+      });
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: String(payload.error || "The governed session lock change was rejected."),
+          details: payload,
+        };
+      }
+      await load();
+      return {
+        ok: true,
+        version: Number(payload.scheduleVersion || 0),
         details: payload,
       };
     } catch (caught) { return fail(caught); }
@@ -583,8 +639,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const value: WorkspaceContextValue = {
     loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
     currentPlanningDatasetVersion,currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,currentSchedulePlanningDatasetVersion,
-    scheduleIsStale,validation,
-    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySetupTypedPolicies,applySchedulePatch,previewScheduleRecovery,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
+    solverContextToken,scheduleIsStale,validation,
+    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySetupTypedPolicies,applySchedulePatch,toggleSessionLock,previewScheduleRecovery,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
     updateTeacher,updateRoom,updateClass,createScenario,inviteMember,setMemberRole,removeMember,cancelInvite,
   };
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
