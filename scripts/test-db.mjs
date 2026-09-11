@@ -87,6 +87,7 @@ function parseArgs(argv) {
       argv.includes('--allow-disposable') || process.env.STUDIO_SCHEDULER_TEST_DB_ALLOW_DISPOSABLE === '1',
     checkTarget: argv.includes('--check-target'),
     onlyPol04: argv.includes('--only-pol04'),
+    onlyOps01: argv.includes('--only-ops01'),
     target: targetArgument ? targetArgument.slice('--target='.length) : null,
   };
 }
@@ -1645,12 +1646,16 @@ drop function public.t11_test_solver_context(uuid);
 select 'T11 PASS: server-authoritative ASSIGN/UNASSIGN persist canonical duration; stale retry, archived/unknown/duplicate targets, and locks reject atomically' as result;
 `;
 
-function psql(container, user, sql, label) {
-  const result = runProcess(
+function psqlResult(container, user, sql, database = 'postgres') {
+  return runProcess(
     'docker',
-    ['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-U', user, '-d', 'postgres', '-f', '-'],
+    ['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-U', user, '-d', database, '-f', '-'],
     sql,
   );
+}
+
+function psql(container, user, sql, label, database = 'postgres') {
+  const result = psqlResult(container, user, sql, database);
   if (result.status !== 0) {
     throw new DatabaseHarnessError(`${label} failed:\n${outputFor(result)}`);
   }
@@ -1668,6 +1673,126 @@ function applyFile(container, file, kind) {
   return psql(container, 'postgres', transaction(sql), `${kind} migration ${name}`);
 }
 
+const ops01CanonicalSummarySql = String.raw`
+select jsonb_build_object(
+  'studios', (select jsonb_build_object(
+    'count', count(*)::integer,
+    'hash', md5(coalesce(string_agg(concat_ws('|',id::text,slug,name), E'\n' order by id),''))
+  ) from public.studios),
+  'rulebookVersions', (select jsonb_build_object(
+    'count', count(*)::integer,
+    'hash', md5(coalesce(string_agg(concat_ws('|',studio_id::text,version::text,coalesce(source_hash,'')), E'\n' order by studio_id,version),''))
+  ) from public.rulebook_versions),
+  'planningDatasetVersions', (select jsonb_build_object(
+    'count', count(*)::integer,
+    'hash', md5(coalesce(string_agg(concat_ws('|',studio_id::text,version::text,coalesce(snapshot_hash,'')), E'\n' order by studio_id,version),''))
+  ) from public.planning_dataset_versions),
+  'constraintModelVersions', (select jsonb_build_object(
+    'count', count(*)::integer,
+    'hash', md5(coalesce(string_agg(concat_ws('|',studio_id::text,version::text,coalesce(snapshot_hash,'')), E'\n' order by studio_id,version),''))
+  ) from public.constraint_model_versions),
+  'scheduleVersions', (select jsonb_build_object(
+    'count', count(*)::integer,
+    'hash', md5(coalesce(string_agg(concat_ws('|',studio_id::text,version::text,is_current::text,rulebook_version::text,planning_dataset_version::text,constraint_model_version::text), E'\n' order by studio_id,version),''))
+  ) from public.schedule_versions),
+  'currentSchedules', (select coalesce(jsonb_agg(jsonb_build_object('studioId',studio_id::text,'id',id::text,'version',version) order by studio_id,version),'[]'::jsonb) from public.schedule_versions where is_current),
+  'assignments', (select jsonb_build_object(
+    'count', count(*)::integer,
+    'hash', md5(coalesce(string_agg(concat_ws('|',a.studio_id::text,a.schedule_version_id::text,a.id,a.session_id,a.day,a.start_time::text,a.end_time::text,a.teacher_id,a.room_id,a.locked::text,a.status), E'\n' order by a.studio_id,a.schedule_version_id,a.id),''))
+  ) from public.assignments a)
+)::text;
+`;
+
+function psqlScalar(container, user, sql, label, database = 'postgres') {
+  const output = psql(
+    container,
+    user,
+    `\\pset format unaligned\n\\pset tuples_only on\n${sql}`,
+    label,
+    database,
+  );
+  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) throw new DatabaseHarnessError(`${label} returned no scalar result.`);
+  return lines.at(-1);
+}
+
+function dumpDatabase(container, database) {
+  const result = runProcess('docker', [
+    'exec', container, 'pg_dump',
+    '--format=plain',
+    '--no-owner',
+    '--no-privileges',
+    '--no-comments',
+    '--host', '127.0.0.1',
+    '--username', 'postgres',
+    '--dbname', database,
+  ]);
+  if (result.status !== 0) throw new DatabaseHarnessError(`Disposable backup export failed:\n${outputFor(result)}`);
+  return result.stdout;
+}
+
+function runOps01RestoreRehearsal(container) {
+  const database = `ops01_restore_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
+  let databaseCreated = false;
+  try {
+    const sourceSummary = psqlScalar(container, 'postgres', ops01CanonicalSummarySql, 'OPS-01 source reconciliation summary');
+    process.stdout.write('OPS-01: exporting ephemeral disposable pg_dump\n');
+    const dump = dumpDatabase(container, 'postgres');
+
+    psql(container, 'postgres', `drop database if exists ${database};\ncreate database ${database};`, 'OPS-01 isolated restore database');
+    databaseCreated = true;
+    psql(container, 'postgres', dump, 'OPS-01 restore from ephemeral pg_dump', database);
+    const restoredSummary = psqlScalar(container, 'postgres', ops01CanonicalSummarySql, 'OPS-01 restored reconciliation summary', database);
+    if (JSON.stringify(JSON.parse(sourceSummary)) !== JSON.stringify(JSON.parse(restoredSummary))) {
+      throw new DatabaseHarnessError('OPS-01 restore reconciliation failed: canonical version/hash/assignment summaries differ.');
+    }
+    process.stdout.write('OPS-01: restored canonical version/hash/assignment summaries match\n');
+
+    const rehearsalSchema = `ops01_rehearsal_${process.pid}`;
+    const failedObject = `${rehearsalSchema}.failed_migration_object`;
+    psql(container, 'postgres', `
+create schema ${rehearsalSchema};
+create table ${rehearsalSchema}.migration_history(version text primary key);
+insert into ${rehearsalSchema}.migration_history(version) values ('baseline');
+`, 'OPS-01 migration rollback fixture', database);
+    const failedMigration = psqlResult(container, 'postgres', `
+begin;
+insert into ${rehearsalSchema}.migration_history(version) values ('intentional-failure');
+create table ${failedObject}(id integer primary key);
+do $failure$
+begin
+  raise exception 'OPS01 intentional migration failure';
+end
+$failure$;
+commit;
+`, database);
+    if (failedMigration.status === 0) {
+      throw new DatabaseHarnessError('OPS-01 migration rollback fixture unexpectedly succeeded.');
+    }
+    const rollbackSummary = JSON.parse(psqlScalar(container, 'postgres', `
+select jsonb_build_object(
+  'historyCount', (select count(*)::integer from ${rehearsalSchema}.migration_history),
+  'baselinePresent', exists(select 1 from ${rehearsalSchema}.migration_history where version='baseline'),
+  'failedHistoryPresent', exists(select 1 from ${rehearsalSchema}.migration_history where version='intentional-failure'),
+  'failedObjectPresent', to_regclass('${failedObject}') is not null
+)::text;
+`, 'OPS-01 migration rollback assertion', database));
+    if (rollbackSummary.historyCount !== 1
+      || rollbackSummary.baselinePresent !== true
+      || rollbackSummary.failedHistoryPresent !== false
+      || rollbackSummary.failedObjectPresent !== false) {
+      throw new DatabaseHarnessError('OPS-01 migration rollback changed history or left a failed object behind.');
+    }
+    psql(container, 'postgres', `drop schema ${rehearsalSchema} cascade;`, 'OPS-01 migration rollback cleanup', database);
+    process.stdout.write('OPS-01: failed migration rolled back without history rewrite or residual object\n');
+  } finally {
+    if (databaseCreated) {
+      const result = psqlResult(container, 'postgres', `drop database if exists ${database};`);
+      if (result.status !== 0) process.stderr.write(`Warning: OPS-01 restore database cleanup failed: ${outputFor(result)}\n`);
+    }
+  }
+}
+
 async function waitForDatabase(container) {
   for (let attempt = 1; attempt <= 45; attempt += 1) {
     const result = runProcess('docker', ['exec', container, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres', '-d', 'postgres']);
@@ -1677,7 +1802,7 @@ async function waitForDatabase(container) {
   throw new DatabaseHarnessError('PostgreSQL did not become ready within 45 seconds. Check Docker Desktop and retry.');
 }
 
-async function runHarness(onlyPol04 = false) {
+async function runHarness(onlyPol04 = false, onlyOps01 = false) {
   const archiveDirectory = path.join(repoRoot, 'supabase', 'production-ledger');
   const migrationDirectory = path.join(repoRoot, 'supabase', 'migrations');
   const archiveFiles = sqlFiles(archiveDirectory);
@@ -1719,6 +1844,14 @@ async function runHarness(onlyPol04 = false) {
     const pol04Output = psql(container, 'postgres', transaction(pol04TypedSqlRegressionSql), 'POL-04 disposable regression');
     process.stdout.write(pol04Output);
     if (onlyPol04) {
+      return;
+    }
+    if (onlyOps01) {
+      const constraintModelOutput = psql(container, 'postgres', constraintModelRoundTripSql, 'OPS-01 Constraint Model fixture');
+      process.stdout.write(constraintModelOutput);
+      psql(container, 'postgres', candidateIntervalFixtureSql, 'OPS-01 canonical schedule fixture');
+      psql(container, 'postgres', planningConfirmationSql, 'OPS-01 planning certification fixture');
+      runOps01RestoreRehearsal(container);
       return;
     }
     const output = psql(container, 'authenticated', roleTestSql, 'owner/editor/viewer/nonmember integration tests');
@@ -2967,7 +3100,7 @@ export async function main(argv = process.argv.slice(2)) {
       'Refusing to run without an explicit disposable opt-in. Use npm run test:db or pass --allow-disposable.',
     );
   }
-  await runHarness(args.onlyPol04);
+  await runHarness(args.onlyPol04, args.onlyOps01);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
