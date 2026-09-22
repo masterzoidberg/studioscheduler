@@ -24,6 +24,7 @@ import {
   listClassSetupReviewStatus,
   type ClassSetupReviewStatus,
 } from "@/lib/class-setup-client";
+import { currentTenantPolicyRequirements } from "@/lib/tenant-policy";
 
 function newClass(): ClassDefinition {
   return {
@@ -89,7 +90,11 @@ export function ClassesView() {
   }, [state, studentSearch]);
 
   const structureRepairs = useMemo(
-    () => state ? rulebookClassStructureRepairs({ classes: state.classes, sessions: state.sessions }) : [],
+    () => state ? rulebookClassStructureRepairs({
+      classes: state.classes,
+      sessions: state.sessions,
+      requirements: currentTenantPolicyRequirements(state).structure,
+    }) : [],
     [state],
   );
 
@@ -195,7 +200,7 @@ export function ClassesView() {
   }
 
   async function save() {
-    if (!editing || !canEdit || saving) return;
+    if (!state || !editing || !canEdit || saving) return;
 
     if (activeRepair && !creating) {
       if (!original || activeRepair.classId !== editing.id) {
@@ -227,6 +232,7 @@ export function ClassesView() {
       setSaving(true);
       setNotice("");
       const result = await applyRulebookStructureRepair({
+        studioId: state.studioId,
         classId: editing.id,
         reason: `Applied atomic reviewed Rulebook structure repair for ${editing.name} (${activeRepair.ruleIds.join(", ")})`,
         expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
@@ -261,6 +267,7 @@ export function ClassesView() {
     setSaving(true);
     setNotice("");
     const result = await mutatePlanningEntity({
+      studioId: state.studioId,
       operation: creating ? "CREATE" : "UPDATE",
       entityType: "CLASS",
       entityId: creating ? null : editing.id,
@@ -335,11 +342,12 @@ export function ClassesView() {
   }
 
   async function archiveClass() {
-    if (!editing || creating || activeRepair || !canEdit || saving) return;
+    if (!state || !editing || creating || activeRepair || !canEdit || saving) return;
     if (!window.confirm(`Archive ${editing.name} and its weekly sessions from active planning? Historical schedule records will be preserved and the class can be restored later.`)) return;
     setSaving(true);
     setNotice("");
     const result = await setPlanningEntityArchived({
+      studioId: state.studioId,
       entityType: "CLASS", entityId: editing.id, archive: true,
       reason: `Archived class ${editing.name} from active planning inventory`,
       expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
@@ -353,7 +361,7 @@ export function ClassesView() {
   }
 
   async function saveSessionDurations() {
-    if (!editing || creating || !canEdit || savingSessions || !editingSessions.length) return;
+    if (!state || !editing || creating || !canEdit || savingSessions || !editingSessions.length) return;
     if (classFieldsDirty) {
       setNotice("Save or discard the class/roster changes first. Session-duration overrides are a separate atomic planning-data change so they cannot be mixed with unsaved class edits.");
       return;
@@ -377,6 +385,7 @@ export function ClassesView() {
     setSavingSessions(true);
     setNotice("");
     const result = await updateClassSessionDurations({
+      studioId: state.studioId,
       classId: editing.id,
       sessionDurations: payload,
       reason: `Updated weekly session durations for ${editing.name}`,

@@ -1,5 +1,5 @@
 import type { ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
-import type { Assignment, StudioState } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type StudioState } from "@/lib/domain";
 import { placementEndTime, sessionDurationMinutes } from "@/lib/schedule-builder";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
 import { validateDelegatedSolverPreconditions, type DelegatedSolverPreflightReport } from "@/lib/delegated-solver-preflight";
@@ -33,7 +33,7 @@ export interface FeasibilitySolverProblem {
     durationMinutes: number | null;
     locked: boolean;
     lockedPlacement: {
-      day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+      day: (typeof SCHEDULE_DAYS)[number];
       startTime: string;
       teacherId: string;
       roomId: string;
@@ -65,7 +65,7 @@ const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 
 const sortStrings = (values: string[] | undefined) => [...(values || [])].sort(compareCanonicalStrings);
 const SOLVE_REMEDIABLE_READINESS_CODES = new Set(["SCHEDULE_PLANNING_DATASET_STALE"]);
 
-const CANONICAL_LOCK_DAYS = new Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
+const CANONICAL_LOCK_DAYS = new Set(SCHEDULE_DAYS);
 const CANONICAL_LOCK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 type RuntimeLockState = {

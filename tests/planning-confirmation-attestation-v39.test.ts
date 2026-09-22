@@ -45,7 +45,7 @@ describe("Planning Dataset confirmation attestation v39", () => {
   });
 
   it("routes the browser through server-prepared v60 with snapshot-bound evidence", () => {
-    expect(confirmationUi).toContain('rpc("confirm_current_planning_dataset_v60"');
+    expect(confirmationUi).toContain('rpc("confirm_current_planning_dataset_v63"');
     expect(confirmationUi).toContain('fetch("/api/planning/confirmation"');
     expect(confirmationUi).toContain("p_expected_snapshot_hash: context.currentPlanningSnapshotHash");
     expect(confirmationUi).toContain("p_evidence: confirmationEvidence");

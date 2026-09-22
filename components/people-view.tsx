@@ -88,11 +88,12 @@ export function PeopleView() {
   }
 
   async function saveTeacher() {
-    if (!teacher || !canEdit || saving) return;
+    if (!state || !teacher || !canEdit || saving) return;
     setSaving(true);
     setNotice("");
     const operation = creatingTeacher ? "CREATE" : "UPDATE";
     const result = await mutatePlanningEntity({
+      studioId: state.studioId,
       operation,
       entityType: "TEACHER",
       entityId: creatingTeacher ? null : teacher.id,
@@ -116,11 +117,12 @@ export function PeopleView() {
   }
 
   async function saveStudent() {
-    if (!student || !canEdit || saving) return;
+    if (!state || !student || !canEdit || saving) return;
     setSaving(true);
     setNotice("");
     const operation = creatingStudent ? "CREATE" : "UPDATE";
     const result = await mutatePlanningEntity({
+      studioId: state.studioId,
       operation,
       entityType: "STUDENT",
       entityId: creatingStudent ? null : student.id,
@@ -138,11 +140,12 @@ export function PeopleView() {
   }
 
   async function archiveEntity(entityType: "TEACHER" | "STUDENT" | "ROOM", entityId: string, name: string) {
-    if (!canEdit || saving) return;
+    if (!state || !canEdit || saving) return;
     if (!window.confirm(`Archive ${name} from the active planning inventory? The record will remain in history and can be restored later.`)) return;
     setSaving(true);
     setNotice("");
     const result = await setPlanningEntityArchived({
+      studioId: state.studioId,
       entityType, entityId, archive: true,
       reason: `Archived ${entityType.toLowerCase()} ${name} from active planning inventory`,
       expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
@@ -156,11 +159,12 @@ export function PeopleView() {
   }
 
   async function saveRoom() {
-    if (!room || !canEdit || saving) return;
+    if (!state || !room || !canEdit || saving) return;
     setSaving(true);
     setNotice("");
     const operation = creatingRoom ? "CREATE" : "UPDATE";
     const result = await mutatePlanningEntity({
+      studioId: state.studioId,
       operation,
       entityType: "ROOM",
       entityId: creatingRoom ? null : room.id,

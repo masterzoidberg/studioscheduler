@@ -5,18 +5,20 @@ const SUPABASE_URL=Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY=Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const APP_URL="https://studioscheduler-three.vercel.app";
-const STUDIO_ID="11111111-1111-4111-8111-111111111111";
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_ORIGINS=new Set([APP_URL,"http://localhost:3000","http://127.0.0.1:3000"]);
 const ALLOWED_MODELS=new Set(["openai/gpt-5.6-luna","openai/gpt-5.6-luna-pro","openai/gpt-5.6-terra","openai/gpt-5.6-terra-pro","openai/gpt-5.6-sol","openai/gpt-5.6-sol-pro"]);
-function cors(req:Request){const origin=req.headers.get("origin")||APP_URL;return{"Access-Control-Allow-Origin":ALLOWED_ORIGINS.has(origin)?origin:APP_URL,"Vary":"Origin","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"GET, PUT, POST, DELETE, OPTIONS"}}
+function selectedStudioId(req:Request){const value=req.headers.get("x-studio-id")?.trim()||"";return UUID.test(value)?value:null}
+function cors(req:Request){const origin=req.headers.get("origin")||APP_URL;return{"Access-Control-Allow-Origin":ALLOWED_ORIGINS.has(origin)?origin:APP_URL,"Vary":"Origin","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type, x-studio-id","Access-Control-Allow-Methods":"GET, PUT, POST, DELETE, OPTIONS"}}
 function json(req:Request,data:unknown,status=200){return new Response(JSON.stringify(data),{status,headers:{...cors(req),"Content-Type":"application/json"}})}
 async function getUser(req:Request){const auth=req.headers.get("Authorization")||"",jwt=auth.replace(/^Bearer\s+/i,"").trim();if(!jwt)return null;const client=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false}});const {data,error}=await client.auth.getUser(jwt);if(error||!data.user)return null;return data.user}
 async function verifyOpenRouterKey(key:string){try{const response=await fetch("https://openrouter.ai/api/v1/key",{method:"GET",headers:{Authorization:`Bearer ${key}`},signal:AbortSignal.timeout(10_000)});if(response.ok)return{ok:true as const};const payload=await response.json().catch(()=>null) as {error?:{message?:string}}|null;return{ok:false as const,message:payload?.error?.message||`OpenRouter rejected the key (${response.status}).`}}catch(e){return{ok:false as const,message:e instanceof Error?e.message:"Could not reach OpenRouter."}}}
 Deno.serve(async(req:Request)=>{
   if(req.method==="OPTIONS")return new Response("ok",{headers:cors(req)});
   const user=await getUser(req);if(!user)return json(req,{error:"Authentication required."},401);
+  const studioId=selectedStudioId(req);if(!studioId)return json(req,{error:"An explicit studio selection is required."},400);
   const admin=createClient(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
-  const {data:membership,error:membershipError}=await admin.from("studio_members").select("role").eq("studio_id",STUDIO_ID).eq("user_id",user.id).maybeSingle();
+  const {data:membership,error:membershipError}=await admin.from("studio_members").select("role").eq("studio_id",studioId).eq("user_id",user.id).maybeSingle();
   if(membershipError)return json(req,{error:"Could not verify studio membership."},500);if(!membership)return json(req,{error:"DWDE studio membership required."},403);
   if(req.method==="GET"){const {data,error}=await admin.rpc("admin_get_user_ai_credential_status",{p_user_id:user.id});if(error)return json(req,{error:error.message},500);const status=Array.isArray(data)?data[0]:data;return json(req,{configured:Boolean(status?.configured),keyHint:status?.key_hint||null,updatedAt:status?.updated_at||null})}
   if(req.method==="PUT"){const body=await req.json().catch(()=>({})) as {apiKey?:string};const apiKey=body.apiKey?.trim()||"";if(apiKey.length<20||apiKey.length>500)return json(req,{error:"Enter a valid OpenRouter API key."},400);const verification=await verifyOpenRouterKey(apiKey);if(!verification.ok)return json(req,{error:verification.message},400);const {data,error}=await admin.rpc("admin_save_user_openrouter_key",{p_user_id:user.id,p_key:apiKey});if(error)return json(req,{error:error.message},500);const saved=Array.isArray(data)?data[0]:data;return json(req,{configured:true,keyHint:saved?.key_hint||null,updatedAt:saved?.updated_at||null})}

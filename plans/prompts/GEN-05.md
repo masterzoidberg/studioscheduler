@@ -1,6 +1,6 @@
 # GEN-05 — Prove independent second-studio acceptance
 
-Execution class: **STANDARD IMPLEMENTATION**. Milestone: **B**. Dependencies: **GEN-04**.
+Execution class: **STANDARD IMPLEMENTATION**. Milestone: **B**. Dependencies: **GEN-04, IMPORT-01**.
 Status is owned by [TASKS](../TASKS.md); do not infer readiness from this prompt existing.
 
 ## Outcome and current state

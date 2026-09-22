@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
       : operation === "REBASE"
         ? `Revalidate Schedule v${currentSchedule.version} against the current scheduling context`
         : `Undo Schedule v${currentSchedule.version} by re-adopting Schedule v${sourceScheduleVersion} placements under current policy`;
-    const result = await admin.rpc("apply_authoritative_schedule_recovery_v48", {
+    const result = await admin.rpc("apply_authoritative_schedule_recovery_v63", {
       p_operation: operation,
       p_studio_id: studioId,
       p_actor_user_id: authorized.userId,

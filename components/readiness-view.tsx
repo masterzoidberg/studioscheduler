@@ -39,6 +39,7 @@ export function ReadinessView() {
     currentScheduleVersion,
   } = useWorkspace();
   const [published, setPublished] = useState<PublishedModel | null>(null);
+  const [publishedStudioId, setPublishedStudioId] = useState<string | null>(null);
   const [publishedLoaded, setPublishedLoaded] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState("");
@@ -58,8 +59,9 @@ export function ReadinessView() {
 
   useEffect(() => {
     if (!state) return;
+    autoSyncAttempted.current = false;
     let active = true;
-    void getBrowserSupabase()
+      void getBrowserSupabase()
       .from("constraint_model_versions")
       .select("version,rulebook_version,compiler_version,snapshot_hash,complete_hard_constraint_compilation")
       .eq("studio_id", state.studioId)
@@ -73,6 +75,7 @@ export function ReadinessView() {
         } else {
           setPublished(data ? mapPublished(data as Record<string, unknown>) : null);
         }
+        setPublishedStudioId(state.studioId);
         setPublishedLoaded(true);
       });
     return () => { active = false; };
@@ -90,7 +93,8 @@ export function ReadinessView() {
     ) return;
 
     autoSyncAttempted.current = true;
-    const stale = !published
+    const stale = publishedStudioId !== state.studioId
+      || !published
       || published.rulebookVersion !== definition.rulebookVersion
       || published.compilerVersion !== definition.compilerVersion
       || !published.complete;
@@ -99,7 +103,7 @@ export function ReadinessView() {
     let active = true;
     void fetch("/api/planning/confirmation", {
       method: "POST",
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${session.access_token}`, "x-studio-id": state.studioId },
       cache: "no-store",
     }).then(async (response) => {
       const payload = await response.json() as { error?: string; model?: PublishedModel };
@@ -124,7 +128,7 @@ export function ReadinessView() {
       if (!query.error) setPublished(query.data ? mapPublished(query.data as Record<string, unknown>) : null);
     });
     return () => { active = false; };
-  }, [state, publishedLoaded, canEdit, definition, model, published, currentRulebookVersion, session?.access_token]);
+  }, [state, publishedLoaded, canEdit, definition, model, published, publishedStudioId, currentRulebookVersion, session?.access_token]);
 
   async function syncModel() {
     if (!state || !definition || !canEdit || syncing || !session?.access_token) return;
@@ -132,7 +136,7 @@ export function ReadinessView() {
     setNotice("");
     const response = await fetch("/api/planning/confirmation", {
       method: "POST",
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${session.access_token}`, "x-studio-id": state.studioId },
       cache: "no-store",
     });
     const payload = await response.json() as { error?: string; model?: PublishedModel };
@@ -154,6 +158,7 @@ export function ReadinessView() {
       .eq("status", "CURRENT")
       .maybeSingle();
     if (!query.error) setPublished(query.data ? mapPublished(query.data as Record<string, unknown>) : null);
+    setPublishedStudioId(state.studioId);
     setSyncing(false);
   }
 

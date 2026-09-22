@@ -10,6 +10,8 @@ import { registerSet06StudentSetupTest } from './set06-student-setup.spec.mjs';
 import { registerUx02ScheduleEditingTest } from './ux02-schedule-editing.spec.mjs';
 import { registerLock01SessionLockTest } from './lock01-session-lock.spec.mjs';
 import { registerUx03ScheduleExportTest } from './ux03-schedule-export.spec.mjs';
+import { registerImport01ReviewedCsvTest } from './import01-reviewed-csv.spec.mjs';
+import './gen04-empty-workspace.spec.mjs';
 
 const appUrl = process.env.E2E_APP_URL;
 const supabaseUrl = process.env.E2E_SUPABASE_URL;
@@ -144,7 +146,7 @@ test('OWNER login, governed inventory write, and conflicting authoritative MOVE 
   await page.goto(appUrl);
   await page.getByLabel('Email address').fill(ownerEmail);
   await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
-  await expect(page.getByText('Check your email for the DWDE sign-in link.')).toBeVisible();
+  await expect(page.getByText('Check your email for the sign-in link.')).toBeVisible();
 
   const magicLink = await latestMagicLink();
   await page.goto(magicLink);
@@ -271,3 +273,4 @@ registerSet05ClassSetupTest();
 registerSet06StudentSetupTest();
 registerSet02SetupDashboardTest();
 registerUx03ScheduleExportTest();
+registerImport01ReviewedCsvTest();

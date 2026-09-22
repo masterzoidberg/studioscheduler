@@ -1,4 +1,4 @@
-import type { Day } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Day } from "@/lib/domain";
 import {
   parseTypedPolicy,
   ROOM_REQUIRED_FEATURES_POLICY_KIND,
@@ -18,11 +18,12 @@ export const TEACHER_QUALIFICATION_RULE_ID = "AIM-001" as const;
 export const SET04_TEACHER_AVAILABILITY_PREFIX = "SET04-TEACHER-AVAILABILITY-" as const;
 export const SET04_TEACHER_QUALIFICATION_PREFIX = "SET04-TEACHER-QUALIFICATION-" as const;
 
-export const SETUP_DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+export const SETUP_DAYS: Day[] = [...SCHEDULE_DAYS];
 
 export const DEFAULT_STUDIO_OPERATING_WINDOWS: PolicyTimeWindowV1[] = [
   ...SETUP_DAYS.slice(0, 5).map((day) => ({ day, start: "16:45", end: "21:30" })),
   { day: "Saturday", start: "09:00", end: "15:00" },
+  { day: "Sunday", start: "09:00", end: "15:00" },
 ];
 
 export interface SetupPolicyDraft {

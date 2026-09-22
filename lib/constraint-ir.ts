@@ -1,3 +1,5 @@
+import type { RuleStrength } from "@/lib/domain";
+
 export type ConstraintIRKind =
   | "RESOURCE_NO_OVERLAP"
   | "TIME_GRID"
@@ -52,6 +54,7 @@ export interface ConstraintIRNode {
 }
 
 export type TypedPreferenceIRKind = "PREFERRED_TEACHER" | "PREFERRED_ROOM" | "PREFERRED_DAY" | "AVOID_DAY";
+export type ObjectiveStrengthTier = Exclude<RuleStrength, "HARD">;
 
 export interface ObjectivePriorityIR {
   ruleId: string;
@@ -64,7 +67,9 @@ export interface ObjectivePriorityIR {
   kind?: TypedPreferenceIRKind;
   selector?: ConstraintSelectorIR;
   parameters?: Record<string, unknown>;
-  /** POL-02 records preference meaning only. OPT-01 owns deterministic scoring. */
+  /** Reviewed soft-policy strength used as a lexicographic tie-breaker, never as a global weight. */
+  strength?: ObjectiveStrengthTier;
+  /** OPT-01 supports deterministic scoring for explicit typed preference records. */
   scoringEnabled?: boolean;
 }
 

@@ -11,12 +11,13 @@ type CredentialStatus = {
   updatedAt?: string | null;
 };
 
-async function credentialRequest(accessToken: string, method: "GET" | "PUT" | "DELETE", apiKey?: string) {
+async function credentialRequest(accessToken: string, studioId: string, method: "GET" | "PUT" | "DELETE", apiKey?: string) {
   const response = await fetch(`${SUPABASE_URL}/functions/v1/user-openrouter`, {
     method,
     headers: {
       Authorization: `Bearer ${accessToken}`,
       apikey: SUPABASE_PUBLISHABLE_KEY,
+      "x-studio-id": studioId,
       "Content-Type": "application/json",
     },
     body: method === "PUT" ? JSON.stringify({ apiKey }) : undefined,
@@ -27,7 +28,7 @@ async function credentialRequest(accessToken: string, method: "GET" | "PUT" | "D
 }
 
 export function OpenRouterAccountCard() {
-  const { session } = useWorkspace();
+  const { session, selectedStudioId } = useWorkspace();
   const [status, setStatus] = useState<CredentialStatus | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,9 +37,9 @@ export function OpenRouterAccountCard() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!session?.access_token) { setStatus(null); return; }
+      if (!session?.access_token || !selectedStudioId) { setStatus(null); return; }
       try {
-        const next = await credentialRequest(session.access_token, "GET");
+        const next = await credentialRequest(session.access_token, selectedStudioId, "GET");
         if (!cancelled) setStatus(next);
       } catch (error) {
         if (!cancelled) setMessage(error instanceof Error ? error.message : String(error));
@@ -46,14 +47,14 @@ export function OpenRouterAccountCard() {
     }
     void load();
     return () => { cancelled = true; };
-  }, [session?.access_token]);
+  }, [session?.access_token, selectedStudioId]);
 
   async function connect() {
     const key = apiKey.trim();
-    if (!session?.access_token || !key) return;
+    if (!session?.access_token || !selectedStudioId || !key) return;
     setBusy(true); setMessage("");
     try {
-      const next = await credentialRequest(session.access_token, "PUT", key);
+      const next = await credentialRequest(session.access_token, selectedStudioId, "PUT", key);
       setStatus(next); setApiKey("");
       setMessage("OpenRouter is connected to this account. The saved key will follow this login across devices.");
     } catch (error) {
@@ -62,10 +63,10 @@ export function OpenRouterAccountCard() {
   }
 
   async function remove() {
-    if (!session?.access_token) return;
+    if (!session?.access_token || !selectedStudioId) return;
     setBusy(true); setMessage("");
     try {
-      await credentialRequest(session.access_token, "DELETE");
+      await credentialRequest(session.access_token, selectedStudioId, "DELETE");
       setStatus({ configured: false });
       setMessage("OpenRouter key removed from this account.");
     } catch (error) {

@@ -130,7 +130,7 @@ export function StudioSetupForm() {
       <form className="mt-5 space-y-6" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <fieldset className="space-y-3">
           <legend className="text-sm font-semibold text-slate-950">Operating days and hours</legend>
-          <p className="text-xs leading-5 text-slate-500">Use same-day 15-minute intervals. Sunday is intentionally outside the currently supported setup days.</p>
+          <p className="text-xs leading-5 text-slate-500">Use same-day 15-minute intervals. The supported calendar is Monday–Sunday, one timezone, and no overnight sessions.</p>
           <div className="space-y-2">
             {SETUP_DAYS.map((day) => {
               const windows = draft.operatingWindows.filter((window) => window.day === day);

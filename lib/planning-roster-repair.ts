@@ -1,4 +1,5 @@
 import type { ClassDefinition, Student } from "@/lib/domain";
+import type { TenantRosterRequirement } from "@/lib/tenant-policy";
 
 export type RulebookRosterRepairStatus =
   | "ROSTER_MISSING"
@@ -20,6 +21,7 @@ export interface RulebookRosterRepair {
 }
 
 type Requirement = {
+  classId?: string;
   className: string;
   studentIds: string[];
   ruleIds: string[];
@@ -46,6 +48,7 @@ const KARLY_DAUGHTER_CLASS_NAMES = [
 
 function aggregateRequirements(requirements: Requirement[]) {
   const grouped = new Map<string, {
+    classId?: string;
     className: string;
     studentIds: Set<string>;
     ruleIds: Set<string>;
@@ -53,8 +56,9 @@ function aggregateRequirements(requirements: Requirement[]) {
   }>();
 
   for (const requirement of requirements) {
-    const key = normalizeName(requirement.className);
+    const key = requirement.classId ?? normalizeName(requirement.className);
     const current = grouped.get(key) ?? {
+      classId: requirement.classId,
       className: requirement.className,
       studentIds: new Set<string>(),
       ruleIds: new Set<string>(),
@@ -72,57 +76,71 @@ function aggregateRequirements(requirements: Requirement[]) {
 export function rulebookRosterRepairs(input: {
   classes: ClassDefinition[];
   students: Student[];
+  /** Current tenant Rulebook roster requirements. Omit only for historical fixtures. */
+  requirements?: TenantRosterRequirement[] | null;
 }): RulebookRosterRepair[] {
   const requirements: Requirement[] = [];
   const standaloneFindings: RulebookRosterRepair[] = [];
   const studentById = new Map(input.students.map((student) => [student.id, student]));
 
-  for (const requirement of ADVANCED_BALLET_REQUIREMENTS) {
-    const dancers = input.students.filter((student) => student.level === requirement.level);
-    if (!dancers.length) continue;
-    for (const className of requirement.classNames) {
+  if (input.requirements !== undefined && input.requirements !== null) {
+    for (const requirement of input.requirements) {
       requirements.push({
-        className,
-        studentIds: dancers.map((student) => student.id),
-        ruleIds: [requirement.ruleId, "STU-002"],
-        relationshipLabel: `${requirement.level} Ballet participation`,
+        classId: requirement.classId,
+        className: input.classes.find((klass) => klass.id === requirement.classId)?.name ?? requirement.classId,
+        studentIds: [...requirement.studentIds],
+        ruleIds: [...requirement.ruleIds],
+        relationshipLabel: requirement.relationshipLabel,
       });
     }
-  }
-
-  const daughterMatches = input.students.filter(
-    (student) => normalizeName(student.name) === normalizeName("Karly's daughter"),
-  );
-  if (daughterMatches.length !== 1) {
-    standaloneFindings.push({
-      status: daughterMatches.length === 0 ? "STUDENT_MISSING" : "STUDENT_AMBIGUOUS",
-      className: null,
-      classId: null,
-      ruleIds: ["KAR-008", "KAR-009"],
-      requiredStudentIds: daughterMatches.map((student) => student.id),
-      requiredStudentNames: daughterMatches.map((student) => student.name),
-      duplicateClassIds: [],
-      relationshipLabels: ["Karly / daughter scheduling relationship"],
-      detail: daughterMatches.length === 0
-        ? "KAR-008 identifies Karly's daughter as a scheduling fact, but that student record is missing."
-        : `KAR-008 identifies one daughter relationship, but ${daughterMatches.length} matching student records exist.`,
-    });
   } else {
-    const daughter = daughterMatches[0];
-    for (const className of KARLY_DAUGHTER_CLASS_NAMES) {
-      requirements.push({
-        className,
-        studentIds: [daughter.id],
-        ruleIds: ["KAR-008", "STU-002"],
-        relationshipLabel: "Karly's daughter required enrollment",
+    for (const requirement of ADVANCED_BALLET_REQUIREMENTS) {
+      const dancers = input.students.filter((student) => student.level === requirement.level);
+      if (!dancers.length) continue;
+      for (const className of requirement.classNames) {
+        requirements.push({
+          className,
+          studentIds: dancers.map((student) => student.id),
+          ruleIds: [requirement.ruleId, "STU-002"],
+          relationshipLabel: `${requirement.level} Ballet participation`,
+        });
+      }
+    }
+
+    const daughterMatches = input.students.filter(
+      (student) => normalizeName(student.name) === normalizeName("Karly's daughter"),
+    );
+    if (daughterMatches.length !== 1) {
+      standaloneFindings.push({
+        status: daughterMatches.length === 0 ? "STUDENT_MISSING" : "STUDENT_AMBIGUOUS",
+        className: null,
+        classId: null,
+        ruleIds: ["KAR-008", "KAR-009"],
+        requiredStudentIds: daughterMatches.map((student) => student.id),
+        requiredStudentNames: daughterMatches.map((student) => student.name),
+        duplicateClassIds: [],
+        relationshipLabels: ["Karly / daughter scheduling relationship"],
+        detail: daughterMatches.length === 0
+          ? "A reviewed relationship identifies a required student, but that student record is missing."
+          : `A reviewed relationship identifies one required student, but ${daughterMatches.length} matching student records exist.`,
       });
+    } else {
+      const daughter = daughterMatches[0];
+      for (const className of KARLY_DAUGHTER_CLASS_NAMES) {
+        requirements.push({
+          className,
+          studentIds: [daughter.id],
+          ruleIds: ["KAR-008", "STU-002"],
+          relationshipLabel: "Karly's daughter required enrollment",
+        });
+      }
     }
   }
 
   const findings = aggregateRequirements(requirements).flatMap<RulebookRosterRepair>((requirement) => {
-    const matching = input.classes.filter(
-      (klass) => normalizeName(klass.name) === normalizeName(requirement.className),
-    );
+    const matching = requirement.classId
+      ? input.classes.filter((klass) => klass.id === requirement.classId)
+      : input.classes.filter((klass) => normalizeName(klass.name) === normalizeName(requirement.className));
     const requiredStudentIds = sorted(requirement.studentIds);
     const requiredStudentNames = requiredStudentIds.map(
       (id) => studentById.get(id)?.name ?? `Unknown student ${id}`,

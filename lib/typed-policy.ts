@@ -1,4 +1,4 @@
-import type { Day, StudioRule } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Day, type StudioRule } from "@/lib/domain";
 
 export const TYPED_POLICY_ENVELOPE_KEY = "policy";
 export const TYPED_POLICY_SCHEMA_VERSION = "1.0" as const;
@@ -22,7 +22,7 @@ export const DIRECT_AFTER_POLICY_KIND = "DIRECT_AFTER" as const;
 export const LINKED_ARRIVAL_POLICY_KIND = "LINKED_ARRIVAL" as const;
 export const PARTICIPANT_LATEST_FINISH_POLICY_KIND = "PARTICIPANT_LATEST_FINISH" as const;
 
-const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAYS: Day[] = [...SCHEDULE_DAYS];
 const DAY_SET = new Set<string>(DAYS);
 const DAY_ORDER = new Map(DAYS.map((day, index) => [day, index]));
 const TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;

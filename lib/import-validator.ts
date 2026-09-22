@@ -1,9 +1,9 @@
-import type { CanonicalImportPackage, RuleType, StudioRule } from "@/lib/domain";
+import { SCHEDULE_DAYS, type CanonicalImportPackage, type RuleType, type StudioRule } from "@/lib/domain";
 
 const strengths = new Set(["HARD", "VERY_STRONG", "MODERATE", "LIGHT", "BASELINE"]);
 const statuses = new Set(["ACTIVE", "NEEDS_REVIEW", "DISABLED", "RETIRED"]);
 const verificationStatuses = new Set(["VERIFIED", "NEEDS_REVIEW", "UNVERIFIED"]);
-const days = new Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
+const days = new Set<string>(SCHEDULE_DAYS);
 const ruleTypes = new Set<RuleType>(["REQUIRED_ROOM","PREFERRED_ROOM","TEACHER_QUALIFICATION","TEACHER_UNAVAILABLE","TEACHER_AVAILABLE_WINDOW","REQUIRED_TEACHER","PREFERRED_TEACHER","MAX_TEACHER_GAP","MAX_TEACHER_WORKDAYS","MAX_STUDENT_GAP","MAX_STUDENT_ATTENDANCE_DAYS","MIN_STUDENT_ATTENDANCE_DAYS","LATEST_FINISH","EARLIEST_START","DIRECTLY_AFTER","NO_OVERLAP","FIXED_ASSIGNMENT","ROOM_CAPACITY","ROOM_CAPACITY_EXCEPTION","REQUIRED_LOWER_LEVEL","NO_DAY","PREFERRED_DAY","AVOID_DAY","RELATIONSHIP_ARRIVAL_WINDOW"]);
 
 export interface ImportIssue { level: "ERROR" | "WARNING"; path: string; message: string }

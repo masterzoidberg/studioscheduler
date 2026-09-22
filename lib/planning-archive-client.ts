@@ -2,6 +2,7 @@ import { getBrowserSupabase } from "@/lib/supabase";
 import type { PlanningEntityType } from "@/lib/planning-inventory-client";
 
 export interface PlanningArchiveMutationInput {
+  studioId: string;
   entityType: PlanningEntityType;
   entityId: string;
   archive: boolean;
@@ -29,7 +30,8 @@ export async function setPlanningEntityArchived(
   input: PlanningArchiveMutationInput,
 ): Promise<PlanningArchiveMutationResult> {
   try {
-    const { data, error } = await getBrowserSupabase().rpc("set_planning_entity_archive_v40", {
+    const { data, error } = await getBrowserSupabase().rpc("set_planning_entity_archive_v63", {
+      p_studio_id: input.studioId,
       p_entity_type: input.entityType,
       p_entity_id: input.entityId,
       p_archive: input.archive,

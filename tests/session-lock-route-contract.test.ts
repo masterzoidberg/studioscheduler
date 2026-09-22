@@ -26,7 +26,7 @@ describe("LOCK-01 session lock route contract", () => {
   });
 
   it("uses the service-role governed RPC and exposes explicit staleness", () => {
-    expect(route).toContain('admin.rpc("apply_authoritative_session_lock_v61"');
+    expect(route).toContain('admin.rpc("apply_authoritative_session_lock_v63"');
     expect(route).toContain("p_expected_context: body.expectedContext");
     expect(route).toContain("certificationStale: true");
     expect(route).toContain("candidateStale: true");

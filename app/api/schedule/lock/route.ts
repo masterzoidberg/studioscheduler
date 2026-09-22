@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    const result = await admin.rpc("apply_authoritative_session_lock_v61", {
+    const result = await admin.rpc("apply_authoritative_session_lock_v63", {
       p_studio_id: studioId,
       p_actor_user_id: authorized.userId,
       p_actor_label: authorized.actorLabel,

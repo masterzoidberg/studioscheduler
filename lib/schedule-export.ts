@@ -1,3 +1,4 @@
+import { SCHEDULE_DAYS } from "@/lib/domain";
 import type {
   Assignment,
   ClassDefinition,
@@ -14,12 +15,7 @@ import type { ScheduleReadinessReport } from "@/lib/schedule-readiness";
 import type { SolverSnapshotContextToken } from "@/lib/server-studio-state";
 
 export const SCHEDULE_HORIZON: readonly Day[] = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
+  ...SCHEDULE_DAYS,
 ];
 
 export type ScheduleExportView = "WEEK" | "TEACHER" | "ROOM";

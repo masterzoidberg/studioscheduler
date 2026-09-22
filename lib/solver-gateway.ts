@@ -1,8 +1,9 @@
-import type { Assignment, StudioState } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type StudioState } from "@/lib/domain";
 import type { ConstraintEngineResult } from "@/lib/constraint-engine";
 import type { ConstraintModelDefinitionV1 } from "@/lib/constraint-model-version";
 import { constraintModelDefinition, constraintModelDefinitionsMatch } from "@/lib/constraint-model-version";
 import { validateConstraintModelSchedule } from "@/lib/constraint-engine-v2";
+import { scoreScheduleQuality, type ScheduleQualityReport } from "@/lib/schedule-quality";
 import { sessionDurationMinutes, timeFromMinutes } from "@/lib/schedule-builder";
 import type { FeasibilitySolverProblem } from "@/lib/solver-problem";
 
@@ -29,7 +30,17 @@ export interface SolverAssignmentCandidate {
   roomId: string;
 }
 
-const CANONICAL_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+export interface SolverObjectiveValue {
+  ruleId: string;
+  rank: number;
+  strength: string;
+  metric: string;
+  unit: string;
+  direction: "MAXIMIZE" | "MINIMIZE";
+  value: number;
+}
+
+const CANONICAL_DAYS = SCHEDULE_DAYS;
 const CANONICAL_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const CANONICAL_ASSIGNMENT_KEYS = ["sessionId", "day", "startTime", "endTime", "teacherId", "roomId"] as const;
 
@@ -169,6 +180,9 @@ export interface SolverServicePayload {
     delegatedConstraintIds?: string[];
     missingPreconditionConstraintIds?: string[];
     blockingConstraintIds?: string[];
+    objectiveValues?: SolverObjectiveValue[];
+    optimizationStatus?: "FEASIBILITY_ONLY" | "OPTIMAL" | "FEASIBLE_INCUMBENT" | "NO_FEASIBLE_SOLUTION" | "INFEASIBLE";
+    provenOptimal?: boolean;
     wallTimeSeconds?: number;
     branches?: number;
     conflicts?: number;
@@ -281,10 +295,12 @@ export function validateFeasibleSolverCandidate(
   state: StudioState,
   problem: FeasibilitySolverProblem,
   payload: SolverServicePayload,
+  options: { requireReportedObjectiveScore?: boolean } = {},
 ): {
   ok: boolean;
   assignments: Assignment[];
   validation: ConstraintEngineResult | null;
+  quality: ScheduleQualityReport | null;
   blockers: SolverGatewayBlocker[];
 } {
   const blockers: SolverGatewayBlocker[] = [];
@@ -303,14 +319,14 @@ export function validateFeasibleSolverCandidate(
       message: `Candidate validation requires a FEASIBLE solver result; received ${result?.status || "missing status"}.`,
       entityIds: [],
     });
-    return { ok: false, assignments: [], validation: null, blockers };
+    return { ok: false, assignments: [], validation: null, quality: null, blockers };
   }
 
   const rawAssignments = Array.isArray(result.assignments) ? result.assignments : [];
   const canonicalized = rawAssignments.map((assignment) => canonicalizeSolverAssignment(assignment, problem));
   const structuralBlockers = canonicalized.flatMap((item) => item.blockers);
   if (structuralBlockers.length > 0) {
-    return { ok: false, assignments: [], validation: null, blockers: [...blockers, ...structuralBlockers] };
+    return { ok: false, assignments: [], validation: null, quality: null, blockers: [...blockers, ...structuralBlockers] };
   }
 
   const canonicalCandidates = canonicalized.map((item) => item.assignment!);
@@ -330,7 +346,7 @@ export function validateFeasibleSolverCandidate(
       message: `Solver candidate must assign every canonical session exactly once. Missing ${missing.length}, unknown ${unknown.length}, duplicate ${new Set(duplicateSessionIds).size}.`,
       entityIds: [...new Set([...missing, ...unknown, ...duplicateSessionIds])],
     });
-    return { ok: false, assignments: [], validation: null, blockers };
+    return { ok: false, assignments: [], validation: null, quality: null, blockers };
   }
 
   const rawBySession = new Map(canonicalCandidates.map((assignment) => [assignment.sessionId, assignment]));
@@ -384,10 +400,52 @@ export function validateFeasibleSolverCandidate(
     });
   }
 
+  const quality = scoreScheduleQuality(state, problem.constraintModel, assignments);
+  if (!quality.comparable) {
+    blockers.push({
+      code: "SOLVER_CANDIDATE_QUALITY_NOT_COMPARABLE",
+      message: "The independently rescored candidate is not comparable because HARD legality or compilation is incomplete.",
+      entityIds: quality.unsupportedConstraintIds,
+    });
+  }
+  const expectedObjectiveValues: SolverObjectiveValue[] = quality.tiers.flatMap((tier) => tier.components.map((component) => ({
+    ruleId: tier.ruleId,
+    rank: tier.rank,
+    strength: tier.strength,
+    metric: component.metric,
+    unit: component.unit,
+    direction: component.direction,
+    value: component.value,
+  })));
+  const actualObjectiveValues = result.objectiveValues;
+  const objectiveValuesMatch = Array.isArray(actualObjectiveValues)
+    && actualObjectiveValues.length === expectedObjectiveValues.length
+    && actualObjectiveValues.every((actual, index) => {
+      const expected = expectedObjectiveValues[index];
+      return Boolean(expected)
+        && actual.ruleId === expected.ruleId
+        && actual.rank === expected.rank
+        && actual.strength === expected.strength
+        && actual.metric === expected.metric
+        && actual.unit === expected.unit
+        && actual.direction === expected.direction
+        && actual.value === expected.value;
+    });
+  if (options.requireReportedObjectiveScore !== false
+    && !objectiveValuesMatch
+    && (expectedObjectiveValues.length > 0 || actualObjectiveValues !== undefined)) {
+    blockers.push({
+      code: "SOLVER_OBJECTIVE_SCORE_MISMATCH",
+      message: "The solver-reported objective score does not match the independent TypeScript rescore of the returned candidate.",
+      entityIds: expectedObjectiveValues.map((item) => item.ruleId),
+    });
+  }
+
   return {
     ok: blockers.length === 0 && validation.valid,
     assignments,
     validation,
+    quality,
     blockers,
   };
 }

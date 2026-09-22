@@ -420,6 +420,104 @@ $block$;
 select 'T02 PASS: owner/editor writes, viewer/nonmember rejection, RLS visibility, stale-version atomicity, and legacy RPC privilege boundary' as result;
 `;
 
+const reviewedCsvImportSql = String.raw`
+set search_path=public,extensions;
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111';
+  v_expected integer;
+  v_after integer;
+  v_result jsonb;
+  v_replay jsonb;
+  v_before jsonb;
+  v_rejected boolean;
+begin
+  select version into v_expected from public.planning_dataset_versions where studio_id=v_studio and status='CURRENT';
+  v_result:=public.apply_reviewed_csv_import_v67(
+    v_studio,
+    'import01-batch-001',
+    '[
+      {"entityType":"CLASS","operation":"CREATE","entityId":"import-class-a","changes":{"name":"Import Class A","subject":"Jazz","level":"1","durationMinutes":45,"weeklyFrequency":1,"companyOnly":false,"rosterStudentIds":["import-student-a"]}},
+      {"entityType":"STUDENT","operation":"CREATE","entityId":"import-student-a","changes":{"name":"Import Student A","level":"Level 1"}},
+      {"entityType":"TEACHER","operation":"CREATE","entityId":"import-teacher-a","changes":{"name":"Import Teacher A"}}
+    ]'::jsonb,
+    v_expected,
+    'IMPORT-01 disposable reviewed batch',
+    true,
+    '{"format":"CSV","schemaVersion":"1.0","fixture":"deidentified"}'::jsonb
+  );
+  if v_result->>'status'<>'APPLIED' or (v_result->'importCounts'->>'rows')::integer<>3 then
+    raise exception 'reviewed CSV batch result is incorrect: %',v_result;
+  end if;
+  if (v_result->>'planningDatasetVersion')::integer<=v_expected then raise exception 'batch did not advance PlanningDataset'; end if;
+  if exists(select 1 from public.planning_dataset_versions where studio_id=v_studio and status='CURRENT' and (confirmed_for_scheduling_at is not null or certification_rulebook_version is not null or certification_constraint_model_version is not null or certification_review_set_fingerprint is not null)) then
+    raise exception 'planning confirmation/certification was not invalidated by the imported PlanningDataset change';
+  end if;
+  if not exists(select 1 from public.teachers where studio_id=v_studio and id='import-teacher-a')
+     or not exists(select 1 from public.students where studio_id=v_studio and id='import-student-a')
+     or not exists(select 1 from public.class_definitions where studio_id=v_studio and id='import-class-a' and roster_student_ids=array['import-student-a']::text[])
+     or not exists(select 1 from public.class_sessions where studio_id=v_studio and class_id='import-class-a') then
+    raise exception 'reviewed CSV batch did not persist canonical inventory';
+  end if;
+  if not exists(select 1 from public.audit_events where studio_id=v_studio and action='PLANNING_IMPORT_APPLIED' and entity_id='import01-batch-001' and payload->'importCounts'->>'rows'='3') then
+    raise exception 'reviewed CSV provenance/count audit is missing';
+  end if;
+
+  select version into v_after from public.planning_dataset_versions where studio_id=v_studio and status='CURRENT';
+  v_before:=jsonb_build_object('teachers',(select count(*) from public.teachers where studio_id=v_studio),'students',(select count(*) from public.students where studio_id=v_studio),'classes',(select count(*) from public.class_definitions where studio_id=v_studio),'planning',(select count(*) from public.planning_dataset_versions where studio_id=v_studio));
+  v_replay:=public.apply_reviewed_csv_import_v67(
+    v_studio,'import01-batch-001','[{"entityType":"CLASS","operation":"CREATE","entityId":"import-class-a","changes":{"name":"Import Class A","subject":"Jazz","level":"1","durationMinutes":45,"weeklyFrequency":1,"companyOnly":false,"rosterStudentIds":["import-student-a"]}},{"entityType":"STUDENT","operation":"CREATE","entityId":"import-student-a","changes":{"name":"Import Student A","level":"Level 1"}},{"entityType":"TEACHER","operation":"CREATE","entityId":"import-teacher-a","changes":{"name":"Import Teacher A"}}]'::jsonb,
+    v_expected,'Retry reviewed batch',true,'{"format":"CSV","schemaVersion":"1.0","fixture":"deidentified"}'::jsonb
+  );
+  if v_replay->>'replayed'<>'true' or (v_replay->>'planningDatasetVersion')::integer<>v_after then raise exception 'batch replay did not return the original result: %',v_replay; end if;
+  if v_before<>jsonb_build_object('teachers',(select count(*) from public.teachers where studio_id=v_studio),'students',(select count(*) from public.students where studio_id=v_studio),'classes',(select count(*) from public.class_definitions where studio_id=v_studio),'planning',(select count(*) from public.planning_dataset_versions where studio_id=v_studio)) then raise exception 'batch replay changed canonical state'; end if;
+
+  v_before:=jsonb_build_object('teachers',(select count(*) from public.teachers where studio_id=v_studio),'students',(select count(*) from public.students where studio_id=v_studio),'classes',(select count(*) from public.class_definitions where studio_id=v_studio),'planning',(select count(*) from public.planning_dataset_versions where studio_id=v_studio),'audits',(select count(*) from public.audit_events where studio_id=v_studio));
+  v_rejected:=false;
+  begin
+    perform public.apply_reviewed_csv_import_v67(v_studio,'import01-invalid-roster','[{"entityType":"CLASS","operation":"CREATE","entityId":"import-invalid-class","changes":{"name":"Invalid Class","subject":"Jazz","level":"1","durationMinutes":45,"weeklyFrequency":1,"companyOnly":false,"rosterStudentIds":["missing-student"]}}]'::jsonb,v_after,'Invalid roster',true,'{"format":"CSV"}'::jsonb);
+  exception when others then
+    if position('MISSING_ROSTER_REFERENCE' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'missing roster reference was accepted'; end if;
+  if v_before<>jsonb_build_object('teachers',(select count(*) from public.teachers where studio_id=v_studio),'students',(select count(*) from public.students where studio_id=v_studio),'classes',(select count(*) from public.class_definitions where studio_id=v_studio),'planning',(select count(*) from public.planning_dataset_versions where studio_id=v_studio),'audits',(select count(*) from public.audit_events where studio_id=v_studio)) then raise exception 'invalid roster batch wrote state'; end if;
+
+  v_rejected:=false;
+  begin
+    perform public.apply_reviewed_csv_import_v67(v_studio,'import01-stale','[{"entityType":"TEACHER","operation":"CREATE","entityId":"import-stale-teacher","changes":{"name":"Stale Teacher"}}]'::jsonb,v_expected,'Stale batch',true,'{"format":"CSV"}'::jsonb);
+  exception when others then
+    if position('STALE_PLANNING_DATASET' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected or exists(select 1 from public.teachers where studio_id=v_studio and id='import-stale-teacher') then raise exception 'stale batch was not rejected without a write'; end if;
+
+  v_rejected:=false;
+  begin
+    perform public.apply_reviewed_csv_import_v67(v_studio,'import01-formula','[{"entityType":"TEACHER","operation":"CREATE","entityId":"import-formula-teacher","changes":{"name":"=HYPERLINK(\"https://evil.test\")"}}]'::jsonb,v_after,'Formula batch',true,'{"format":"CSV"}'::jsonb);
+  exception when others then
+    if position('FORMULA_LIKE_VALUE' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected or exists(select 1 from public.teachers where studio_id=v_studio and id='import-formula-teacher') then raise exception 'formula-like batch was not rejected without a write'; end if;
+
+  perform set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000003',false);
+  v_rejected:=false;
+  begin
+    perform public.apply_reviewed_csv_import_v67(v_studio,'import01-viewer','[{"entityType":"TEACHER","operation":"CREATE","entityId":"import-viewer-teacher","changes":{"name":"Viewer Teacher"}}]'::jsonb,v_after,'Viewer batch',true,'{"format":"CSV"}'::jsonb);
+  exception when others then
+    if position('Editor membership required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'viewer CSV batch was accepted'; end if;
+end
+$block$;
+reset role;
+select 'IMPORT-01 PASS: reviewed CSV rows, exact IDs, roster references, formula rejection, stale/no-write, tenant role boundary, provenance and idempotent replay' as result;
+`;
+
 const constraintModelRoundTripSql = String.raw`
 set search_path=public,extensions;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
@@ -508,6 +606,149 @@ end
 $block$;
 
 select 'T03 PASS: JSONB publication/read-back preserves semantic model and historical version/fingerprint across object-key reordering' as result;
+`;
+
+const cand01CandidateReviewSql = String.raw`
+set search_path=public,extensions;
+do $block$
+declare
+  v_studio uuid := '11111111-1111-4111-8111-111111111111';
+  v_owner uuid := '10000000-0000-4000-8000-000000000001';
+  v_context jsonb;
+  v_candidate jsonb;
+  v_result jsonb;
+  v_candidate_id uuid;
+  v_before_schedules integer;
+  v_before_audits integer;
+  v_rejected boolean := false;
+  v_old_lock boolean;
+begin
+  select private.build_solver_candidate_context_v44(v_studio) into v_context;
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id',coalesce(a.id,'solver:'||s.id),
+    'sessionId',s.id,
+    'day',coalesce(a.day,'Monday'),
+    'startTime',coalesce(to_char(a.start_time,'HH24:MI'),'17:00'),
+    'endTime',coalesce(to_char(a.end_time,'HH24:MI'),to_char((time '17:00' + make_interval(mins=>coalesce(s.duration_minutes,c.duration_minutes))),'HH24:MI')),
+    'teacherId',coalesce(a.teacher_id,(select t.id from public.teachers t where t.studio_id=v_studio and t.archived_at is null order by t.id limit 1)),
+    'roomId',coalesce(a.room_id,(select r.id from public.rooms r where r.studio_id=v_studio and r.archived_at is null order by r.id limit 1)),
+    'locked',coalesce(a.locked,false),
+    'status',coalesce(a.status,'AI_PROPOSED')
+  ) order by s.id),'[]'::jsonb)
+  into v_candidate
+  from public.class_sessions s
+  join public.class_definitions c on c.studio_id=s.studio_id and c.id=s.class_id and c.archived_at is null
+  left join lateral (
+    select a.*
+    from public.assignments a
+    join public.schedule_versions sv on sv.id=a.schedule_version_id and sv.is_current
+    where a.studio_id=v_studio and a.session_id=s.id
+    order by a.id
+    limit 1
+  ) a on true
+  where s.studio_id=v_studio and s.archived_at is null;
+
+  select count(*) into v_before_schedules from public.schedule_versions where studio_id=v_studio;
+  select count(*) into v_before_audits from public.audit_events where studio_id=v_studio;
+  v_result:=public.create_solver_candidate_review_v68(
+    v_studio,v_owner,'CAND-01 owner','CAND-01 persisted candidate',v_context,v_candidate,
+    '{"status":"FEASIBLE","comparable":true,"hardViolations":0}'::jsonb,
+    'OPTIMAL',true,'cand01-fixture'
+  );
+  v_candidate_id:=(v_result->>'id')::uuid;
+  if v_candidate_id is null then raise exception 'CAND-01 create returned no candidate ID'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_before_schedules
+     or (select count(*) from public.audit_events where studio_id=v_studio)<>v_before_audits then
+    raise exception 'CAND-01 create changed canonical schedule/history';
+  end if;
+  if (select count(*) from public.solver_candidate_reviews where studio_id=v_studio and id=v_candidate_id)<>1 then
+    raise exception 'CAND-01 candidate row was not persisted';
+  end if;
+  perform set_config('cand01.candidate_id',v_candidate_id::text,false);
+
+  select locked into v_old_lock
+  from public.assignments a
+  join public.schedule_versions sv on sv.id=a.schedule_version_id and sv.is_current
+  where a.studio_id=v_studio limit 1;
+  update public.assignments a set locked=not coalesce(a.locked,false)
+  from public.schedule_versions sv
+  where sv.id=a.schedule_version_id and sv.is_current and a.studio_id=v_studio;
+  v_rejected:=false;
+  begin
+    perform public.create_solver_candidate_review_v68(
+      v_studio,v_owner,'CAND-01 owner','CAND-01 stale candidate',v_context,v_candidate,
+      '{"status":"FEASIBLE","comparable":true,"hardViolations":0}'::jsonb,
+      'OPTIMAL',true,'cand01-fixture'
+    );
+  exception when others then
+    if position('STALE_SOLVER_CANDIDATE_CONTEXT' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'CAND-01 stale candidate was persisted'; end if;
+  update public.assignments a set locked=v_old_lock
+  from public.schedule_versions sv
+  where sv.id=a.schedule_version_id and sv.is_current and a.studio_id=v_studio;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_before_schedules
+     or (select count(*) from public.audit_events where studio_id=v_studio)<>v_before_audits then
+    raise exception 'CAND-01 stale rejection changed canonical schedule/history';
+  end if;
+end
+$block$;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+do $block$
+declare v_studio uuid:='11111111-1111-4111-8111-111111111111'; v_id uuid:=current_setting('cand01.candidate_id')::uuid; v_rejected boolean:=false;
+begin
+  if (select count(*) from public.list_solver_candidate_reviews_v68(v_studio) where list_solver_candidate_reviews_v68->>'id'=v_id::text)<>1 then raise exception 'CAND-01 owner could not reload exact candidate'; end if;
+  if (select count(*) from public.solver_candidate_reviews where studio_id=v_studio and id=v_id)<>1 then raise exception 'CAND-01 member RLS read did not expose candidate'; end if;
+  perform set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000003',false);
+  if (select count(*) from public.list_solver_candidate_reviews_v68(v_studio) where list_solver_candidate_reviews_v68->>'id'=v_id::text)<>1 then raise exception 'CAND-01 viewer could not read candidate review'; end if;
+  perform set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000004',false);
+  begin
+    perform count(*) from public.list_solver_candidate_reviews_v68(v_studio);
+  exception when others then
+    if position('Studio membership required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'CAND-01 foreign tenant read was accepted'; end if;
+end
+$block$;
+reset role;
+
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111';
+  v_other uuid:='22222222-2222-4222-8222-222222222222';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_id uuid:=current_setting('cand01.candidate_id')::uuid;
+  v_before_schedules integer;
+  v_before_audits integer;
+  v_rejected boolean:=false;
+begin
+  v_before_schedules:=(select count(*) from public.schedule_versions where studio_id=v_studio);
+  v_before_audits:=(select count(*) from public.audit_events where studio_id=v_studio);
+  begin
+    perform public.delete_solver_candidate_review_v68(v_other,v_owner,v_id);
+  exception when others then
+    -- The actor may also be a member of the other disposable tenant. In that
+    -- case the exact-tenant delete is authorized but must safely disclose only
+    -- that the candidate does not exist there.
+    if position('Studio membership required' in sqlerrm)=0
+       and position('Editor membership required' in sqlerrm)=0
+       and position('SOLVER_CANDIDATE_NOT_FOUND' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'CAND-01 foreign tenant delete was accepted'; end if;
+  perform public.delete_solver_candidate_review_v68(v_studio,v_owner,v_id);
+  if exists(select 1 from public.solver_candidate_reviews where id=v_id) then raise exception 'CAND-01 delete left review row'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_before_schedules
+     or (select count(*) from public.audit_events where studio_id=v_studio)<>v_before_audits then
+    raise exception 'CAND-01 delete changed canonical schedule/history';
+  end if;
+end
+$block$;
+select 'CAND-01 PASS: exact tenant-scoped candidate reload, viewer read, foreign-tenant denial, stale/no-write rejection, and delete isolation' as result;
 `;
 
 const candidateIntervalFixtureSql = String.raw`
@@ -1284,6 +1525,123 @@ $block$;
 select 'T09 PASS: assignment OR session lock precedence survives reviewed adoption; assignment-only lock persists and movement rejects atomically' as result;
 `;
 
+const gen03TenantScopingSql = String.raw`
+set search_path=public,extensions;
+
+-- Keep this fixture independent of T10: the same owner is OWNER in the
+-- primary studio and VIEWER in a second studio, which exercises both the
+-- selected-tenant success path and the opposite-role rejection path.
+set role postgres;
+insert into public.studios(id,slug,name)
+values ('22222222-2222-4222-8222-222222222222','gen03-other-studio','GEN-03 Other Studio')
+on conflict(id) do nothing;
+insert into public.studio_members(studio_id,user_id,role)
+values ('22222222-2222-4222-8222-222222222222','10000000-0000-4000-8000-000000000001','VIEWER')
+on conflict(studio_id,user_id) do update set role=excluded.role;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+do $block$
+declare
+  v_primary uuid:='11111111-1111-4111-8111-111111111111';
+  v_other uuid:='22222222-2222-4222-8222-222222222222';
+  v_fake uuid:='33333333-3333-4333-8333-333333333333';
+  v_count integer;
+  v_rejected boolean:=false;
+begin
+  select count(*) into v_count from public.list_studio_members_v63(v_primary);
+  if v_count<>3 then raise exception 'GEN-03 primary membership read returned % rows',v_count; end if;
+  select count(*) into v_count from public.list_studio_members_v63(v_other);
+  if v_count<>1 then raise exception 'GEN-03 selected second-tenant membership read returned % rows',v_count; end if;
+  begin
+    perform public.list_studio_members_v63(v_fake);
+  exception when others then
+    if position('Studio membership required for selected workspace' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'GEN-03 fabricated tenant membership read was accepted'; end if;
+end
+$block$;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+do $block$
+declare
+  v_primary uuid:='11111111-1111-4111-8111-111111111111';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_proposal uuid;
+begin
+  v_proposal:=public.record_ai_proposal_v63(
+    v_primary,'QUESTION','GEN-03 selected tenant proposal','GEN-03 disposable evidence','{}'::jsonb,'{}'::jsonb
+  );
+  if not exists(
+    select 1 from public.ai_proposals
+    where id=v_proposal and studio_id=v_primary and user_id=v_owner
+  ) then raise exception 'GEN-03 selected tenant command wrote outside the selected studio'; end if;
+end
+$block$;
+
+set role service_role;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+do $block$
+declare
+  v_primary uuid:='11111111-1111-4111-8111-111111111111';
+  v_other uuid:='22222222-2222-4222-8222-222222222222';
+  v_fake uuid:='33333333-3333-4333-8333-333333333333';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_before_schedule integer;
+  v_before_audit integer;
+  v_rejected boolean:=false;
+begin
+  select count(*) into v_before_schedule from public.schedule_versions where studio_id=v_primary;
+  select count(*) into v_before_audit from public.audit_events where studio_id=v_primary;
+
+  -- The historical implicit writer must fail closed once the actor has more
+  -- than one membership, even when its payload names the primary studio.
+  perform set_config('app.selected_studio_id','',true);
+  begin
+    perform public.apply_authoritative_move_v46(
+      v_primary,v_owner,'gen03-no-write','{}'::jsonb,'GEN-03 implicit writer rejection','{}'::jsonb,'{}'::jsonb,false
+    );
+  exception when others then
+    if position('Explicit studio selection is required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'GEN-03 implicit multi-membership writer was accepted'; end if;
+
+  v_rejected:=false;
+  begin
+    perform public.apply_authoritative_move_v63(
+      v_other,v_owner,'gen03-no-write','{}'::jsonb,'GEN-03 viewer tenant rejection','{}'::jsonb,'{}'::jsonb,false
+    );
+  exception when others then
+    if position('Editor membership required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'GEN-03 wrong-role tenant writer was accepted'; end if;
+
+  v_rejected:=false;
+  begin
+    perform public.record_ai_proposal_v63(
+      v_fake,'QUESTION','GEN-03 fabricated tenant','GEN-03 disposable rejection','{}'::jsonb,'{}'::jsonb
+    );
+  exception when others then
+    if position('Studio membership required for selected workspace' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'GEN-03 fabricated tenant command was accepted'; end if;
+
+  if (select count(*) from public.schedule_versions where studio_id=v_primary)<>v_before_schedule
+     or (select count(*) from public.audit_events where studio_id=v_primary)<>v_before_audit then
+    raise exception 'GEN-03 rejected commands changed canonical/version/audit counts';
+  end if;
+end
+$block$;
+reset role;
+
+select 'GEN-03 PASS: selected-tenant membership/read/write success, opposite-role and fabricated-tenant rejection, implicit-writer fail-closed behavior, and canonical/audit no-write evidence' as result;
+`;
+
 const authoritativeManualMoveSql = String.raw`
 set search_path=public,extensions;
 
@@ -1339,7 +1697,7 @@ begin
   v_context:=public.t10_test_solver_context(v_studio);
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
 
-  v_result:=public.apply_authoritative_move_v46(
+  v_result:=public.apply_authoritative_move_v63(
     v_studio,v_owner,v_assignment_id,
     '{"day":"Monday","startTime":"17:15","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
     'T10 valid authoritative manual move',v_context,
@@ -1378,7 +1736,7 @@ begin
 
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
   begin
-    perform public.apply_authoritative_move_v46(
+    perform public.apply_authoritative_move_v63(
       v_studio,v_owner,v_assignment_id,
       '{"day":"Monday","startTime":"17:30","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
       'T10 stale-context rejection',v_context,
@@ -1392,15 +1750,19 @@ begin
   select count(*) into v_after_count from public.schedule_versions where studio_id=v_studio;
   if v_after_count<>v_before_count then raise exception 'T10 stale-context rejection was not atomic'; end if;
 
+  perform set_config('app.selected_studio_id','',true);
   begin
     perform public.apply_authoritative_move_v46(
       v_other,v_owner,'anything','{}'::jsonb,'T10 wrong selected workspace','{}'::jsonb,'{}'::jsonb,false
     );
   exception when others then
-    if position('WORKSPACE_SELECTION_MISMATCH' in sqlerrm)=0 then raise; end if;
+    if position('Explicit studio selection is required' in sqlerrm)=0 then raise; end if;
     v_workspace_rejected:=true;
   end;
   if not v_workspace_rejected then raise exception 'T10 wrong selected workspace was silently accepted'; end if;
+  if (select count(*) from public.schedule_versions where studio_id=v_studio)<>v_before_count then
+    raise exception 'T10 implicit multi-membership rejection was not atomic';
+  end if;
 
   update public.assignments a set locked=true
   from public.schedule_versions sv
@@ -1408,7 +1770,7 @@ begin
   v_context:=public.t10_test_solver_context(v_studio);
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
   begin
-    perform public.apply_authoritative_move_v46(
+    perform public.apply_authoritative_move_v63(
       v_studio,v_owner,v_assignment_id,
       '{"day":"Monday","startTime":"17:30","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
       'T10 locked rejection',v_context,
@@ -1470,7 +1832,7 @@ begin
   if v_assignment is null then raise exception 'T11 fixture current t04 assignment is missing'; end if;
   v_context:=public.t11_test_solver_context(v_studio);
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
-  v_result:=public.apply_authoritative_incremental_command_v47(
+  v_result:=public.apply_authoritative_incremental_command_v63(
     'UNASSIGN',v_studio,v_owner,v_assignment,'t04-session','{}'::jsonb,
     'T11 valid unassign',v_context,
     '{"valid":true,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
@@ -1482,7 +1844,7 @@ begin
   end if;
   if coalesce((v_result->'validation'->>'scheduleComplete')::boolean,true) then raise exception 'T11 partial schedule was incorrectly marked complete'; end if;
   begin
-    perform public.apply_authoritative_incremental_command_v47(
+    perform public.apply_authoritative_incremental_command_v63(
       'UNASSIGN',v_studio,v_owner,v_assignment,'t04-session','{}'::jsonb,
       'T11 stale retry',v_context,'{}'::jsonb,'{}'::jsonb,false
     );
@@ -1519,7 +1881,7 @@ declare
 begin
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
   begin
-    perform public.apply_authoritative_incremental_command_v47(
+    perform public.apply_authoritative_incremental_command_v63(
       'ASSIGN',v_studio,v_owner,'t11-archived-room','t04-session',
       '{"day":"Monday","startTime":"17:15","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
       'T11 archived room rejection',v_context,'{}'::jsonb,
@@ -1557,7 +1919,7 @@ declare
   v_unknown_rejected boolean := false;
 begin
   v_context:=public.t11_test_solver_context(v_studio);
-  v_result:=public.apply_authoritative_incremental_command_v47(
+  v_result:=public.apply_authoritative_incremental_command_v63(
     'ASSIGN',v_studio,v_owner,'t11-assignment','t04-session',
     '{"day":"Monday","startTime":"17:15","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
     'T11 valid assign',v_context,
@@ -1581,7 +1943,7 @@ begin
   v_context:=public.t11_test_solver_context(v_studio);
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
   begin
-    perform public.apply_authoritative_incremental_command_v47(
+    perform public.apply_authoritative_incremental_command_v63(
       'ASSIGN',v_studio,v_owner,'t11-duplicate','t04-session',
       '{"day":"Monday","startTime":"18:45","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
       'T11 duplicate session rejection',v_context,'{}'::jsonb,'{}'::jsonb,false
@@ -1593,7 +1955,7 @@ begin
   if not v_duplicate_rejected then raise exception 'T11 duplicate session was accepted'; end if;
 
   begin
-    perform public.apply_authoritative_incremental_command_v47(
+    perform public.apply_authoritative_incremental_command_v63(
       'ASSIGN',v_studio,v_owner,'t11-unknown','does-not-exist',
       '{"day":"Monday","startTime":"18:45","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}'::jsonb,
       'T11 unknown session rejection',v_context,'{}'::jsonb,'{}'::jsonb,false
@@ -1624,7 +1986,7 @@ declare
 begin
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
   begin
-    perform public.apply_authoritative_incremental_command_v47(
+    perform public.apply_authoritative_incremental_command_v63(
       'UNASSIGN',v_studio,v_owner,'t11-assignment','t04-session','{}'::jsonb,
       'T11 locked unassign rejection',v_context,'{}'::jsonb,'{}'::jsonb,false
     );
@@ -1870,6 +2232,8 @@ async function runHarness(onlyPol04 = false, onlyOps01 = false) {
     process.stdout.write(candidateStaleOutput);
     const sessionLockOutput = psql(container, 'postgres', sessionSpecificLockAdoptionSql, 'T09 session-specific lock adoption integration tests');
     process.stdout.write(sessionLockOutput);
+    const gen03TenantScopingOutput = psql(container, 'postgres', gen03TenantScopingSql, 'GEN-03 explicit tenant-scoping integration tests');
+    process.stdout.write(gen03TenantScopingOutput);
     const manualMoveOutput = psql(container, 'postgres', authoritativeManualMoveSql, 'T10 authoritative manual MOVE integration tests');
     process.stdout.write(manualMoveOutput);
     const incrementalOutput = psql(container, 'postgres', authoritativeIncrementalSql, 'T11 authoritative incremental ASSIGN/UNASSIGN integration tests');
@@ -1880,6 +2244,10 @@ async function runHarness(onlyPol04 = false, onlyOps01 = false) {
     process.stdout.write(lockCommandOutput);
     const bypassClosureOutput = psql(container, 'postgres', legacyWriteBypassClosureSql, 'T13 legacy write bypass closure integration tests');
     process.stdout.write(bypassClosureOutput);
+    const reviewedCsvImportOutput = psql(container, 'authenticated', reviewedCsvImportSql, 'IMPORT-01 reviewed CSV integration tests');
+    process.stdout.write(reviewedCsvImportOutput);
+    const cand01Output = psql(container, 'postgres', cand01CandidateReviewSql, 'CAND-01 persisted candidate review integration tests');
+    process.stdout.write(cand01Output);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);
@@ -1903,6 +2271,7 @@ grant execute on function public.t12_test_solver_context(uuid) to service_role;
 -- now excludes the class/session and deliberately makes that schedule context stale.
 set role authenticated;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+select set_config('app.selected_studio_id','11111111-1111-4111-8111-111111111111',false);
 select public.set_planning_entity_archive_v40(
   'CLASS','t04-class',true,'T12 archive-before-rebase',
   (select version from public.planning_dataset_versions where studio_id='11111111-1111-4111-8111-111111111111' and status='CURRENT')
@@ -1935,7 +2304,7 @@ begin
   if not exists(select 1 from public.assignments where schedule_version_id=v_source and id='t11-assignment') then
     raise exception 'T12 historical source assignment missing before rebase';
   end if;
-  v_result:=public.apply_authoritative_schedule_recovery_v48(
+  v_result:=public.apply_authoritative_schedule_recovery_v63(
     'REBASE',v_studio,v_owner,v_source,'T12 archive-aware rebase',v_context,'[]'::jsonb,
     '{"valid":true,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
     '{"mode":"REBASE","scheduleComplete":true,"publishable":true,"unscheduledSessionIds":[],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[],"retiredAssignmentIds":["t11-assignment"]}'::jsonb
@@ -1960,7 +2329,7 @@ begin
 
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
   begin
-    perform public.apply_authoritative_schedule_recovery_v48(
+    perform public.apply_authoritative_schedule_recovery_v63(
       'REBASE',v_studio,v_owner,v_source,'T12 stale rebase replay',v_context,'[]'::jsonb,'{}'::jsonb,'{}'::jsonb
     );
   exception when others then
@@ -2020,7 +2389,7 @@ begin
     raise exception 'T12 expected immutable 90-minute historical source assignment';
   end if;
 
-  v_result:=public.apply_authoritative_schedule_recovery_v48(
+  v_result:=public.apply_authoritative_schedule_recovery_v63(
     'UNDO',v_studio,v_owner,v_source,'T12 current-policy undo with duration normalization',v_context,
     '[{"assignmentId":"t11-assignment","sessionId":"t04-session","day":"Monday","startTime":"17:15","endTime":"19:00","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}]'::jsonb,
     '{"valid":true,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
@@ -2041,7 +2410,7 @@ begin
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
   v_rejected:=false;
   begin
-    perform public.apply_authoritative_schedule_recovery_v48(
+    perform public.apply_authoritative_schedule_recovery_v63(
       'UNDO',v_studio,v_owner,v_source,'T12 stale undo replay',v_context,
       '[{"assignmentId":"t11-assignment","sessionId":"t04-session","day":"Monday","startTime":"17:15","endTime":"19:00","teacherId":"t04-teacher","roomId":"t04-room","status":"NORMAL"}]'::jsonb,
       '{}'::jsonb,'{}'::jsonb
@@ -2076,7 +2445,7 @@ begin
   select id into v_source from public.schedule_versions where studio_id=v_studio and version=(v_context->>'scheduleVersion')::integer-1;
   select count(*) into v_before_count from public.schedule_versions where studio_id=v_studio;
   begin
-    perform public.apply_authoritative_schedule_recovery_v48(
+    perform public.apply_authoritative_schedule_recovery_v63(
       'UNDO',v_studio,v_owner,v_source,'T12 locked undo rejection',v_context,'[]'::jsonb,
       '{"valid":false,"hardViolations":0,"violations":[],"unsupportedConstraintIds":[]}'::jsonb,
       '{"mode":"UNDO","scheduleComplete":false,"publishable":false,"unscheduledSessionIds":["t04-session"],"duplicateSessionIds":[],"unknownAssignmentSessionIds":[],"completenessObligationKeys":[],"retiredAssignmentIds":[]}'::jsonb
@@ -2358,6 +2727,50 @@ begin
     end if;
     if has_function_privilege('authenticated',v_sig,'execute') then
       raise exception 'T13 canonical service boundary leaked to authenticated: %',v_sig;
+    end if;
+  end loop;
+
+  foreach v_sig in array array[
+    'public.apply_authoritative_move_v63(uuid,uuid,text,jsonb,text,jsonb,jsonb,boolean)',
+    'public.apply_authoritative_incremental_command_v63(text,uuid,uuid,text,text,jsonb,text,jsonb,jsonb,jsonb,boolean)',
+    'public.apply_authoritative_schedule_recovery_v63(text,uuid,uuid,uuid,text,jsonb,jsonb,jsonb,jsonb)',
+    'public.publish_server_constraint_model_v63(uuid,uuid,jsonb,text,integer)',
+    'public.adopt_solver_candidate_v63(uuid,uuid,text,text,jsonb,jsonb,jsonb)',
+    'public.apply_authoritative_session_lock_v63(uuid,uuid,text,text,boolean,text,jsonb)'
+  ] loop
+    if to_regprocedure(v_sig) is null then raise exception 'T13 GEN-03 service wrapper is missing: %',v_sig; end if;
+    if not has_function_privilege('service_role',v_sig,'execute')
+       or has_function_privilege('authenticated',v_sig,'execute') then
+      raise exception 'T13 GEN-03 service-only wrapper privilege drift: %',v_sig;
+    end if;
+  end loop;
+
+  foreach v_sig in array array[
+    'public.apply_rule_patch_v63(uuid,text,text,jsonb,text,integer,boolean)',
+    'public.convert_reviewed_rulebook_to_tenant_records_v63(uuid,integer,text,jsonb,text)',
+    'public.propose_rule_enforcement_mapping_v63(uuid,text,jsonb,text,integer,integer,text)',
+    'public.review_rule_enforcement_mapping_v63(uuid,uuid,text,text,integer,integer)',
+    'public.update_studio_entity_v63(uuid,text,text,jsonb,text,integer,integer)',
+    'public.create_scenario_v63(uuid,text,jsonb,jsonb,integer,integer)',
+    'public.mutate_planning_entity_v63(uuid,text,text,text,jsonb,text,integer)',
+    'public.create_reviewed_required_class_v63(uuid,jsonb,text,integer,jsonb)',
+    'public.apply_rulebook_structure_repair_v63(uuid,text,text,integer)',
+    'public.apply_rulebook_roster_repair_v63(uuid,text,text,integer)',
+    'public.update_class_session_durations_v63(uuid,text,jsonb,text,integer)',
+    'public.set_planning_entity_archive_v63(uuid,text,text,boolean,text,integer)',
+    'public.apply_setup_typed_policies_v63(uuid,jsonb,text,integer,integer,integer)',
+    'public.confirm_current_planning_dataset_v63(uuid,integer,text,integer,integer,text,text,integer,text,jsonb)',
+    'public.list_studio_members_v63(uuid)',
+    'public.invite_studio_member_v63(uuid,text,text)',
+    'public.set_studio_member_role_v63(uuid,uuid,text)',
+    'public.remove_studio_member_v63(uuid,uuid)',
+    'public.cancel_studio_invite_v63(uuid,uuid)',
+    'public.record_ai_proposal_v63(uuid,text,text,text,jsonb,jsonb)'
+  ] loop
+    if to_regprocedure(v_sig) is null then raise exception 'T13 GEN-03 authenticated wrapper is missing: %',v_sig; end if;
+    if not has_function_privilege('authenticated',v_sig,'execute')
+       or not has_function_privilege('service_role',v_sig,'execute') then
+      raise exception 'T13 GEN-03 authenticated wrapper privilege drift: %',v_sig;
     end if;
   end loop;
 end

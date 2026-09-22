@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
     }
 
     const after = decision.comparison.candidate.after;
-    const result = await admin.rpc("apply_authoritative_move_v46", {
+    const result = await admin.rpc("apply_authoritative_move_v63", {
       p_studio_id: studioId,
       p_actor_user_id: authorized.userId,
       p_assignment_id: after.id,

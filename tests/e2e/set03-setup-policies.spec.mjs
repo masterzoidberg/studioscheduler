@@ -42,7 +42,7 @@ test('SET-03 saves typed setup policy and reviews an explicit no-restriction roo
   await page.goto(appUrl);
   await page.getByLabel('Email address').fill(ownerEmail);
   await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
-  await expect(page.getByText('Check your email for the DWDE sign-in link.')).toBeVisible();
+  await expect(page.getByText('Check your email for the sign-in link.')).toBeVisible();
   await page.goto(await nextMagicLink(previousMail));
   await expect(page.getByText(`${ownerEmail} · OWNER`)).toBeVisible({ timeout: 30_000 });
   await page.setViewportSize({ width: 390, height: 844 });

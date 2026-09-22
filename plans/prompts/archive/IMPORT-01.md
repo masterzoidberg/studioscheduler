@@ -1,13 +1,13 @@
-# OPT-02 — Optimize within proven HARD feasibility
+# IMPORT-01 — Add reviewed CSV intake
 
-Execution class: **STANDARD IMPLEMENTATION**. Milestone: **C**. Dependencies: **OPT-01, UX-02**.
+Execution class: **STANDARD IMPLEMENTATION**. Milestone: **B**. Dependencies: **GEN-04**.
 Status is owned by [TASKS](../TASKS.md); do not infer readiness from this prompt existing.
 
 ## Outcome and current state
 
-Bound optimization by existing service deadline; lexicographically improve reviewed objectives, retain feasible incumbent, independently validate/rescore results. Explain best-found vs proven optimal. Return feasible incumbent when time expires; never relax HARD policy.
+Provide teacher/student/class/roster CSV templates and preview with explicit ID matching, duplicate/missing-reference errors and no name-only auto-merge. Apply one reviewed batch through canonical planning mutation with expected version; chunk preview only, not partial canonical commits. Review states invalidate relevant slices.
 
-Current evidence at audit HEAD `9120439`: Feasibility is available; quality search must retain all same safety context and locks. For later tasks, predecessor behavior above is an expected contract, not a claim that it exists in this baseline.
+Current evidence at audit HEAD `9120439`: Existing import validation/package types do not establish safe normal-manager CSV onboarding. For later tasks, predecessor behavior above is an expected contract, not a claim that it exists in this baseline.
 
 ## Architectural decisions already made
 
@@ -15,14 +15,15 @@ Read [DECISIONS](../DECISIONS.md) and [execution rules](../CODEX_EXECUTION_RULES
 
 ## Scope and required behavior
 
-Bound optimization by existing service deadline; lexicographically improve reviewed objectives, retain feasible incumbent, independently validate/rescore results. Explain best-found vs proven optimal. Return feasible incumbent when time expires; never relax HARD policy.
+Provide teacher/student/class/roster CSV templates and preview with explicit ID matching, duplicate/missing-reference errors and no name-only auto-merge. Apply one reviewed batch through canonical planning mutation with expected version; chunk preview only, not partial canonical commits. Review states invalidate relevant slices.
 
 ## Expected inspection points
 
-- [solver/dwde_solver/feasibility.py](../../solver/dwde_solver/feasibility.py)
-- [lib/solver-problem.ts](../../lib/solver-problem.ts)
-- [lib/solver-gateway.ts](../../lib/solver-gateway.ts)
-- [app/api/solver/feasibility/route.ts](../../app/api/solver/feasibility/route.ts)
+- [lib/import-validator.ts](../../lib/import-validator.ts)
+- [lib/planning-inventory-client.ts](../../lib/planning-inventory-client.ts)
+- [components/settings-view.tsx](../../components/settings-view.tsx)
+- [components/classes-view.tsx](../../components/classes-view.tsx)
+- [scripts/test-db.mjs](../../scripts/test-db.mjs)
 
 Inspect successor migrations/callers and relevant assertions before editing. Add forward migrations only; historical paths above are evidence, not edit targets. Implement this coherent slice; if more than one independent migration/semantic family is needed, execute and verify each sequentially under this task with criterion-level evidence.
 
@@ -36,12 +37,13 @@ Expose structured actionable error codes/messages to the caller, keeping stack t
 
 ## Non-goals
 
-No solver replacement or unbounded multi-stage search.
+No integrations, arbitrary spreadsheet formulas or external storage.
 
 ## Tests and acceptance criteria
 
-- Known small optimum, timeout with incumbent, timeout without solution, stable lock context and unchanged HARD parity
-- Independent TS score equals returned score; worse-than-baseline candidate cannot be described as improved.
+- Malformed rows, duplicates, unresolved roster references, formula-like exported strings and stale batch covered
+- Failed batch writes no entities/version; replay cannot duplicate
+- Roundtrip deidentified CSV preserves IDs/structure.
 
 Add regressions that fail for the identified missing behavior, including rejection/no-write cases. Existing green tests are necessary but insufficient. DB tasks require executed transaction/RLS tests, not SQL substring checks. Browser workflow assertions must observe both UI and authoritative persisted state.
 
@@ -55,7 +57,6 @@ npm run typecheck
 npm test
 npm run build
 npm run test:db
-npm run test:parity
 ```
 
 VERIFY-01 introduces test:parity and test:e2e. Do not run or claim them before that dependency exists; after it is DONE, user-facing tasks additionally run npm run test:e2e for the changed journey. For solver/IR changes run pinned Python pytest as well. Missing Docker/credentials is a verification blocker, never a pass. No production fallback.
@@ -67,4 +68,3 @@ Record changed files, new test names, commands and exit codes, demonstrated beha
 ## Escalation conditions
 
 Escalate with a concrete reproducer if schema cannot preserve authority without duplicate truth; a required HARD semantic is unsupported; dependency-closed policy replacement cannot be proven; current code conflicts with accepted decisions; historical migrations would need rewriting; or this bounded scope expands materially. Resolve routine file/API uncertainty by inspection. Complete independent authorized work before asking for an external decision. No task prompt authorizes deployment, paid services, messages to others, or destructive customer-data operations.
-

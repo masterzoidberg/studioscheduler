@@ -27,7 +27,7 @@ export function VersionsView() {
       </div>
     </section>
 
-    <p className="text-sm leading-6 text-slate-600">DWDE now keeps three independent histories: human Rulebook truth, approved machine-enforcement mappings, and schedule assignments. No layer silently rewrites another.</p>
+    <p className="text-sm leading-6 text-slate-600">This workspace keeps three independent histories: human Rulebook truth, approved machine-enforcement mappings, and schedule assignments. No layer silently rewrites another.</p>
 
     <div className="grid gap-5 xl:grid-cols-3">
       <section className="rounded-2xl border border-slate-200 bg-white p-5">

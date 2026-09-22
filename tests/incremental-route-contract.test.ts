@@ -18,7 +18,7 @@ describe("T11 incremental server route contract", () => {
   });
 
   it("commits only through the service-role V4.7 transaction", () => {
-    expect(route).toContain('admin.rpc("apply_authoritative_incremental_command_v47"');
+    expect(route).toContain('admin.rpc("apply_authoritative_incremental_command_v63"');
     expect(route).not.toContain('apply_schedule_command_v25');
   });
 

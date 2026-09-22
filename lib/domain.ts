@@ -2,7 +2,8 @@ export type RuleStrength = "HARD" | "VERY_STRONG" | "MODERATE" | "LIGHT" | "BASE
 export type RuleStatus = "ACTIVE" | "NEEDS_REVIEW" | "DISABLED" | "RETIRED";
 export type VerificationStatus = "VERIFIED" | "NEEDS_REVIEW" | "UNVERIFIED";
 export type EnforcementStatus = "IMPLEMENTED" | "PARTIAL" | "NOT_IMPLEMENTED" | "NOT_APPLICABLE";
-export type Day = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+export const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+export type Day = typeof SCHEDULE_DAYS[number];
 export type StudioRole = "OWNER" | "EDITOR" | "VIEWER";
 
 // Legacy V2.1 rule typing is retained on StudioRule for provenance/import compatibility only.

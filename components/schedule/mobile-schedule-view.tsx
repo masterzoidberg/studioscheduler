@@ -2,14 +2,14 @@
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronLeft, ChevronRight, GripVertical, LockKeyhole, X } from "lucide-react";
-import type { Assignment, Day, Room, SchedulePatch } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type Day, type Room, type SchedulePatch } from "@/lib/domain";
 import { applyAssignmentChanges, validateSchedule } from "@/lib/validator";
 import { sessionDurationForAssignment } from "@/lib/schedule-editing";
 import { safeTeacherColor, subjectMarker, translucentHex } from "@/lib/schedule-visuals";
 import { useWorkspace } from "@/components/workspace-provider";
 import { useScheduleEditMode } from "@/components/schedule/schedule-edit-mode";
 
-const days: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const days: Day[] = [...SCHEDULE_DAYS];
 type MobileViewMode = 1 | 2 | 3 | "week";
 type RoomFilter = "ALL" | string;
 
@@ -39,7 +39,7 @@ const samePlacement = (a: Assignment, b: Assignment) =>
   a.day === b.day && a.startTime === b.startTime && a.endTime === b.endTime && a.roomId === b.roomId;
 
 function windowFor(day: Day) {
-  return day === "Saturday" ? { start: 9 * 60, end: 15 * 60 } : { start: 16 * 60 + 15, end: 22 * 60 };
+  return day === "Saturday" || day === "Sunday" ? { start: 9 * 60, end: 15 * 60 } : { start: 16 * 60 + 15, end: 22 * 60 };
 }
 
 export function MobileScheduleView() {

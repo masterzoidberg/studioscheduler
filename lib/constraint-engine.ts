@@ -1,4 +1,4 @@
-import type { Assignment, ClassDefinition, StudioState, Teacher } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type ClassDefinition, type StudioState, type Teacher } from "@/lib/domain";
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 import { canonicalBindingName } from "@/lib/constraint-data-binding";
 
@@ -19,7 +19,7 @@ export interface ConstraintEngineResult {
   unsupportedConstraintIds: string[];
 }
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+const DAYS = SCHEDULE_DAYS;
 const normalize = canonicalBindingName;
 const minutes = (value: string) => {
   const [hour = "0", minute = "0"] = value.slice(0, 5).split(":");

@@ -31,7 +31,7 @@ describe("OPS-01 operational rehearsal contracts", () => {
       solverService: "1.0",
       solverPython: "3.12",
       ortools: "9.15.6755",
-      migrationHead: "20260911041845_lock01_governed_session_lock_v61.sql",
+      migrationHead: "20260912100000_cand01_persisted_solver_candidates_v68.sql",
     });
   });
 

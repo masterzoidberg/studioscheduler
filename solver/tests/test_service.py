@@ -99,6 +99,9 @@ def test_solve_echoes_version_context_and_returns_candidate(monkeypatch):
     assert body["context"] == problem()["context"]
     assert body["serviceVersion"] == "1.0"
     assert body["result"]["status"] == "FEASIBLE"
+    assert body["result"]["optimizationStatus"] == "FEASIBILITY_ONLY"
+    assert body["result"]["provenOptimal"] is False
+    assert body["result"]["objectiveValues"] == []
     assert body["result"]["assignments"][0]["sessionId"] == "session"
 
 

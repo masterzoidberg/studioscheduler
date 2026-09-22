@@ -131,6 +131,25 @@ function payloadFor(p: FeasibilitySolverProblem, overrides: Partial<SolverServic
   };
 }
 
+function optimizedProblem(): FeasibilitySolverProblem {
+  const p = problem();
+  p.constraintModel = {
+    ...p.constraintModel,
+    objectivePrioritySpine: [{
+      ruleId: "PREF-DAY",
+      rank: 1,
+      title: "Preferred day",
+      description: "Prefer Monday.",
+      kind: "PREFERRED_DAY",
+      selector: { classIds: ["class"] },
+      parameters: { days: ["Monday"] },
+      strength: "VERY_STRONG",
+      scoringEnabled: true,
+    }],
+  };
+  return p;
+}
+
 function payload(overrides: Partial<SolverServicePayload> = {}): SolverServicePayload {
   return payloadFor(problem(), overrides);
 }
@@ -432,5 +451,33 @@ describe("returned solver candidate boundary", () => {
     const result = validateFeasibleSolverCandidate(state(), lockedProblem, payload());
     expect(result.ok).toBe(true);
     expect(result.assignments[0].locked).toBe(true);
+  });
+
+  it("independently rescored objective values match the solver-reported score", () => {
+    const optimized = optimizedProblem();
+    const result = validateFeasibleSolverCandidate(state(), optimized, payloadFor(optimized, {
+      result: {
+        status: "FEASIBLE",
+        assignments: [{ sessionId: "session", day: "Monday", startTime: "17:00", endTime: "18:00", teacherId: "teacher", roomId: "room" }],
+        objectiveValues: [{ ruleId: "PREF-DAY", rank: 1, strength: "VERY_STRONG", metric: "preferredDayMatches", unit: "days", direction: "MAXIMIZE", value: 1 }],
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.quality?.tiers[0]?.components[0]).toMatchObject({ metric: "preferredDayMatches", value: 1 });
+  });
+
+  it("rejects a solver score that disagrees with independent TypeScript rescoring", () => {
+    const optimized = optimizedProblem();
+    const result = validateFeasibleSolverCandidate(state(), optimized, payloadFor(optimized, {
+      result: {
+        status: "FEASIBLE",
+        assignments: [{ sessionId: "session", day: "Monday", startTime: "17:00", endTime: "18:00", teacherId: "teacher", roomId: "room" }],
+        objectiveValues: [{ ruleId: "PREF-DAY", rank: 1, strength: "VERY_STRONG", metric: "preferredDayMatches", unit: "days", direction: "MAXIMIZE", value: 0 }],
+      },
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.blockers.map((item) => item.code)).toContain("SOLVER_OBJECTIVE_SCORE_MISMATCH");
   });
 });

@@ -29,8 +29,8 @@ export function LoginScreen() {
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-950 sm:grid sm:place-items-center">
       <div className="mx-auto w-full max-w-md overflow-hidden rounded-[28px] bg-white shadow-2xl">
         <div className="bg-slate-900 px-6 py-7 text-white">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-white text-sm font-black text-slate-950">DW</div>
-          <p className="mt-6 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">DWDE Studio Scheduler</p>
+          <div className="flex size-12 items-center justify-center rounded-2xl bg-white text-sm font-black text-slate-950">SS</div>
+          <p className="mt-6 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Studio Scheduler</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">One rulebook. One schedule.</h1>
           <p className="mt-3 text-sm leading-6 text-slate-300">Sign in to review rules, validate changes, edit the schedule, and collaborate from your phone or desktop.</p>
         </div>

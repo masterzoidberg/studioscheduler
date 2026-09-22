@@ -11,7 +11,7 @@ from dwde_solver.typed_feasibility import solve_feasibility
 
 SERVICE_VERSION = "1.0"
 MAX_SOLVE_SECONDS = 30.0
-VALID_DAYS = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
+VALID_DAYS = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
 
 
 class SolveRequest(BaseModel):

@@ -9,12 +9,13 @@ const dbHarness = readFileSync("scripts/test-db.mjs", "utf8");
 
 describe("T08 candidate stale-schedule binding", () => {
   it("returns a separate versioned review context without changing the solver-service problem contract", () => {
-    expect(feasibilityRoute).toContain("candidateContext: buildReviewedSolverCandidateContext(problem, gateway.snapshot.contextToken)");
+    expect(feasibilityRoute).toContain("const candidateContext = buildReviewedSolverCandidateContext(problem, gateway.snapshot.contextToken)");
+    expect(feasibilityRoute).toContain("p_candidate_context: candidateContext");
     expect(feasibilityRoute).toContain("body: JSON.stringify({ problem, maxSeconds: service.maxSeconds })");
   });
 
   it("passes the submitted reviewed context unchanged into the hardened transactional adoption boundary", () => {
-    expect(adoptionRoute).toContain('admin.rpc("adopt_solver_candidate_v49"');
+    expect(adoptionRoute).toContain('admin.rpc("adopt_solver_candidate_v63"');
     expect(adoptionRoute).toContain("p_expected_context: reviewedContext");
     expect(adoptionRoute).not.toContain("p_expected_schedule_version: currentSchedule.version");
     expect(migration).toContain("v_current_context is distinct from p_expected_context");

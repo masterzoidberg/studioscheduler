@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Play, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
+import type { Day } from "@/lib/domain";
 import type { ReviewedSolverCandidateContextV1 } from "@/lib/solver-candidate-context";
 import {
   cancelledSolverOutcome,
@@ -30,7 +31,7 @@ type GatewayStatus = {
 };
 type SolverAssignment = {
   sessionId: string;
-  day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+  day: Day;
   startTime: string;
   endTime?: string;
   teacherId: string;
@@ -48,13 +49,19 @@ type SolveResult = {
   blockingConstraintIds?: string[];
   unsupportedConstraintIds?: string[];
   wallTimeSeconds?: number | null;
+  optimizationStatus?: "FEASIBILITY_ONLY" | "OPTIMAL" | "FEASIBLE_INCUMBENT" | "NO_FEASIBLE_SOLUTION" | "INFEASIBLE";
+  provenOptimal?: boolean;
+  candidateId?: string;
+  persisted?: boolean;
   context?: SolveContext;
   candidateContext?: ReviewedSolverCandidateContextV1;
   candidate?: {
     assignments?: SolverAssignment[];
     validation?: { hardViolations?: number; unsupportedConstraintIds?: string[] };
+    quality?: { comparable?: boolean; breakdown?: Record<string, number>; tiers?: unknown[] } | null;
   } | null;
-  diagnostics?: { wallTimeSeconds?: number | null; branches?: number | null; conflicts?: number | null };
+  qualityComparison?: { status?: "IMPROVED" | "UNCHANGED" | "WORSE_THAN_BASELINE" | "NOT_COMPARABLE" };
+  diagnostics?: { wallTimeSeconds?: number | null; branches?: number | null; conflicts?: number | null; objectiveValues?: unknown[] };
   adoptionMessage?: string;
 };
 type AdoptionResult = {
@@ -84,6 +91,7 @@ export function SolverFeasibilityCard() {
     session,
     canEdit,
     state,
+    selectedStudioId,
     refresh,
     currentRulebookVersion,
     currentPlanningDatasetVersion,
@@ -103,7 +111,29 @@ export function SolverFeasibilityCard() {
   const solveRequestId = useRef(0);
   const solveAbortController = useRef<AbortController | null>(null);
 
-  const authHeaders = useCallback(() => session ? { Authorization: `Bearer ${session.access_token}` } : null, [session]);
+  const authHeaders = useCallback(() => session && selectedStudioId
+    ? { Authorization: `Bearer ${session.access_token}`, "x-studio-id": selectedStudioId }
+    : null, [session, selectedStudioId]);
+
+  useEffect(() => {
+    solveRequestId.current += 1;
+    solveAbortController.current?.abort();
+    solveAbortController.current = null;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setStatus(null);
+      setResult(null);
+      setOutcome(null);
+      setReviewAcknowledged(false);
+      setReviewStale(false);
+      setAdoptionSuccess("");
+      setNotice("");
+      setRunning(false);
+      setAdopting(false);
+    });
+    return () => { active = false; };
+  }, [selectedStudioId]);
 
   const refreshStatus = useCallback(async (options: { preserveNotice?: boolean } = {}) => {
     const headers = authHeaders();
@@ -208,7 +238,7 @@ export function SolverFeasibilityCard() {
       const response = await fetch("/api/solver/feasibility", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ studioId: selectedStudioId }),
         cache: "no-store",
         signal: controller.signal,
       });
@@ -269,6 +299,7 @@ export function SolverFeasibilityCard() {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
+          studioId: selectedStudioId,
           candidateContext,
           assignments,
           reason: "Adopt reviewed CP-SAT candidate from solver feasibility review",
@@ -433,7 +464,15 @@ export function SolverFeasibilityCard() {
       {feasible ? (
         <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
           <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="size-4" /> {outcome?.title}</div>
-          <p className="mt-2">{outcome?.message} It contains {reviewRows.length} assignment{reviewRows.length === 1 ? "" : "s"}. Review every row before adoption.</p>
+          <p className="mt-2">{outcome?.message} It contains {reviewRows.length} assignment{reviewRows.length === 1 ? "" : "s"} and is saved as a candidate review. Review every row before adoption.</p>
+          <p className="mt-2 text-xs leading-5 text-emerald-800">
+            {result?.optimizationStatus === "OPTIMAL"
+              ? "Reviewed objectives reached a proven optimum."
+              : result?.optimizationStatus === "FEASIBLE_INCUMBENT"
+                ? "A feasible incumbent was found before the solver deadline; optimality was not proven."
+                : "The candidate passed HARD feasibility without a quality optimization claim."}
+            {result?.qualityComparison?.status === "WORSE_THAN_BASELINE" ? " Its reviewed objective score is worse than the current schedule." : null}
+          </p>
           <p className="mt-2 text-xs leading-5 text-emerald-800">This review is tied to the current schedule and lock context. Any change will require a fresh build and review.</p>
 
           <div className="mt-4 overflow-x-auto rounded-xl border border-emerald-200 bg-white">

@@ -103,4 +103,26 @@ describe("Rulebook roster repairs", () => {
     expect(ambiguous?.status).toBe("CLASS_AMBIGUOUS");
     expect(ambiguous?.duplicateClassIds).toEqual(["one", "two"]);
   });
+
+  it("resolves tenant roster requirements by stable class ID rather than display name", () => {
+    const target = klass("Shared class", [], "tenant-target");
+    const duplicateName = klass("Shared class", [], "tenant-other");
+    const findings = rulebookRosterRepairs({
+      students: [student("tenant-student", "Tenant student", "Level 1")],
+      classes: [target, duplicateName],
+      requirements: [{
+        classId: "tenant-target",
+        studentIds: ["tenant-student"],
+        ruleIds: ["TENANT-ROSTER"],
+        relationshipLabel: "Tenant roster requirement",
+      }],
+    });
+
+    expect(findings).toContainEqual(expect.objectContaining({
+      status: "ROSTER_MISSING",
+      classId: "tenant-target",
+      ruleIds: ["TENANT-ROSTER"],
+    }));
+    expect(findings.some((finding) => finding.status === "CLASS_AMBIGUOUS")).toBe(false);
+  });
 });

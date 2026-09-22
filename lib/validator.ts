@@ -1,3 +1,4 @@
+import { SCHEDULE_DAYS } from "@/lib/domain";
 import type {
   Assignment,
   ClassDefinition,
@@ -11,7 +12,7 @@ import type {
 } from "@/lib/domain";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+const DAYS = SCHEDULE_DAYS;
 
 function minutes(value: string) {
   const [h = "0", m = "0"] = value.slice(0, 5).split(":");

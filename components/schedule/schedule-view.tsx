@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import type { Assignment, Day, SchedulePatch } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type Day, type SchedulePatch } from "@/lib/domain";
 import { applyAssignmentChanges, validateSchedule } from "@/lib/validator";
 import { assessScheduleEdit, sessionDurationForAssignment } from "@/lib/schedule-editing";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -21,7 +21,7 @@ import { useScheduleEditMode } from "@/components/schedule/schedule-edit-mode";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { safeTeacherColor, subjectMarker, translucentHex } from "@/lib/schedule-visuals";
 
-const days: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const days: Day[] = [...SCHEDULE_DAYS];
 type ViewMode = 1 | 2 | 3 | "week";
 
 type DragState = {
@@ -54,7 +54,7 @@ const samePlacement = (a: Assignment, b: Assignment) =>
   a.teacherId === b.teacherId;
 
 function windowFor(day: Day) {
-  return day === "Saturday" ? { start: 9 * 60, end: 15 * 60 } : { start: 16 * 60 + 15, end: 22 * 60 };
+  return day === "Saturday" || day === "Sunday" ? { start: 9 * 60, end: 15 * 60 } : { start: 16 * 60 + 15, end: 22 * 60 };
 }
 
 export function ScheduleView() {

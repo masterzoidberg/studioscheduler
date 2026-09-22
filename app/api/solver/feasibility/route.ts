@@ -18,20 +18,23 @@ import {
   type PublishedConstraintModelRecord,
   type SolverServicePayload,
 } from "@/lib/solver-gateway";
+import { isStudioId, selectedStudioIdFromHeader } from "@/lib/selected-studio";
+import { compareScheduleQuality, scoreScheduleQuality } from "@/lib/schedule-quality";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 const MAX_SERVICE_SECONDS = 30;
 
 type AuthorizedWorkspace = {
   supabase: SupabaseClient;
   role: "OWNER" | "EDITOR" | "VIEWER";
   userId: string;
+  actorLabel: string;
+  studioId: string;
 };
 
-async function authorizeWorkspace(request: NextRequest): Promise<AuthorizedWorkspace | null> {
+async function authorizeWorkspace(request: NextRequest, studioId: string): Promise<AuthorizedWorkspace | null> {
   const authorization = request.headers.get("authorization");
   if (!authorization) return null;
   const supabase = getServerSupabase(authorization);
@@ -41,7 +44,7 @@ async function authorizeWorkspace(request: NextRequest): Promise<AuthorizedWorks
   const membership = await supabase
     .from("studio_members")
     .select("role")
-    .eq("studio_id", STUDIO_ID)
+    .eq("studio_id", studioId)
     .eq("user_id", user.id)
     .maybeSingle();
   if (membership.error || !membership.data) return null;
@@ -49,6 +52,8 @@ async function authorizeWorkspace(request: NextRequest): Promise<AuthorizedWorks
     supabase,
     role: membership.data.role as AuthorizedWorkspace["role"],
     userId: user.id,
+    actorLabel: user.email || user.id,
+    studioId,
   };
 }
 
@@ -64,6 +69,7 @@ function publishedModel(snapshot: CanonicalSolverSnapshot): PublishedConstraintM
 }
 
 async function publishConstraintModelForSolve(
+  studioId: string,
   actorUserId: string,
   problem: FeasibilitySolverProblem,
   published: PublishedConstraintModelRecord | null,
@@ -75,8 +81,8 @@ async function publishConstraintModelForSolve(
   // boundary. Browser-authenticated clients no longer execute V3.0 directly.
   const definition = constraintModelDefinition(problem.constraintModel);
   const admin = getServerAdminSupabase();
-  const result = await admin.rpc("publish_server_constraint_model_v49", {
-    p_studio_id: STUDIO_ID,
+  const result = await admin.rpc("publish_server_constraint_model_v63", {
+    p_studio_id: studioId,
     p_actor_user_id: actorUserId,
     p_snapshot: definition,
     p_reason: `Solver preflight sync of ${definition.compilerVersion} for Rulebook v${definition.rulebookVersion}: ${decision.reason}`,
@@ -102,9 +108,10 @@ function adoptionConfiguration() {
 
 async function buildGatewayPreflight(
   supabase: SupabaseClient,
+  studioId: string,
   options: { syncPublishedModel?: boolean; actorUserId?: string } = {},
 ) {
-  let snapshot = await loadCanonicalSolverSnapshot(supabase, STUDIO_ID);
+  let snapshot = await loadCanonicalSolverSnapshot(supabase, studioId);
   let preparation = prepareFeasibilitySolve(snapshot.state);
   if (!preparation.ok) {
     return {
@@ -121,10 +128,10 @@ async function buildGatewayPreflight(
   if (options.syncPublishedModel) {
     if (!options.actorUserId) throw new Error("Constraint Model publication requires an authenticated actor.");
   }
-  if (options.syncPublishedModel && await publishConstraintModelForSolve(options.actorUserId!, preparation.problem, published)) {
+  if (options.syncPublishedModel && await publishConstraintModelForSolve(studioId, options.actorUserId!, preparation.problem, published)) {
     // Publication is a context mutation. Reload the complete coherent snapshot
     // instead of combining the new model pointer with planning/rules read earlier.
-    snapshot = await loadCanonicalSolverSnapshot(supabase, STUDIO_ID);
+    snapshot = await loadCanonicalSolverSnapshot(supabase, studioId);
     preparation = prepareFeasibilitySolve(snapshot.state);
     if (!preparation.ok) {
       return {
@@ -158,8 +165,8 @@ async function buildGatewayPreflight(
   };
 }
 
-async function snapshotContextIsCurrent(supabase: SupabaseClient, snapshot: CanonicalSolverSnapshot) {
-  const current = await loadCurrentSolverContextToken(supabase, STUDIO_ID);
+async function snapshotContextIsCurrent(supabase: SupabaseClient, studioId: string, snapshot: CanonicalSolverSnapshot) {
+  const current = await loadCurrentSolverContextToken(supabase, studioId);
   return solverSnapshotContextTokensMatch(snapshot.contextToken, current);
 }
 
@@ -173,10 +180,12 @@ function contextChangedResponse() {
 
 export async function GET(request: NextRequest) {
   try {
-    const authorized = await authorizeWorkspace(request);
+    const studioId = selectedStudioIdFromHeader(request);
+    if (!studioId) return NextResponse.json({ error: "An explicit studio selection is required." }, { status: 400 });
+    const authorized = await authorizeWorkspace(request, studioId);
     if (!authorized) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
 
-    const gateway = await buildGatewayPreflight(authorized.supabase);
+    const gateway = await buildGatewayPreflight(authorized.supabase, authorized.studioId);
     const service = serviceConfiguration();
     const adoption = adoptionConfiguration();
     const preparation = gateway.preparation;
@@ -205,7 +214,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const authorized = await authorizeWorkspace(request);
+    const body = await request.json().catch(() => ({})) as { studioId?: unknown };
+    const studioId = isStudioId(body.studioId) ? body.studioId : null;
+    if (!studioId) return NextResponse.json({ error: "An explicit studio selection is required." }, { status: 400 });
+    const authorized = await authorizeWorkspace(request, studioId);
     if (!authorized) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
     if (authorized.role === "VIEWER") {
       return NextResponse.json({ error: "Editor access is required to run the feasibility solver." }, { status: 403 });
@@ -222,7 +234,7 @@ export async function POST(request: NextRequest) {
     // An explicit OWNER/EDITOR solve may repair a missing or plainly stale
     // deterministic ConstraintModelVersion. Any such publication is followed by
     // a full coherent-snapshot reload before the service request is constructed.
-    const gateway = await buildGatewayPreflight(authorized.supabase, {
+    const gateway = await buildGatewayPreflight(authorized.supabase, authorized.studioId, {
       syncPublishedModel: true,
       actorUserId: authorized.userId,
     });
@@ -243,7 +255,7 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
 
-    if (!await snapshotContextIsCurrent(authorized.supabase, gateway.snapshot)) {
+    if (!await snapshotContextIsCurrent(authorized.supabase, authorized.studioId, gateway.snapshot)) {
       return contextChangedResponse();
     }
 
@@ -275,7 +287,7 @@ export async function POST(request: NextRequest) {
     // The external solve may be long enough for a manager/editor to change
     // planning or policy. Discard the result if any coherent-context token field
     // changed; T08 separately binds a reviewed candidate through later adoption.
-    if (!await snapshotContextIsCurrent(authorized.supabase, gateway.snapshot)) {
+    if (!await snapshotContextIsCurrent(authorized.supabase, authorized.studioId, gateway.snapshot)) {
       return contextChangedResponse();
     }
 
@@ -284,6 +296,8 @@ export async function POST(request: NextRequest) {
     if (resultStatus === "INFEASIBLE" || resultStatus === "UNKNOWN") {
       return NextResponse.json({
         status: resultStatus,
+        optimizationStatus: payload.result?.optimizationStatus || null,
+        provenOptimal: payload.result?.provenOptimal === true,
         context: payload.context || problem.context,
         blockingConstraintIds: payload.result?.blockingConstraintIds || [],
         wallTimeSeconds: payload.result?.wallTimeSeconds ?? null,
@@ -310,25 +324,71 @@ export async function POST(request: NextRequest) {
       }, { status: 502 });
     }
 
+    const candidateContext = buildReviewedSolverCandidateContext(problem, gateway.snapshot.contextToken);
+    const qualityComparison = (() => {
+      const current = gateway.snapshot.state.scheduleVersions.find((version) => version.isCurrent);
+      const baseline = scoreScheduleQuality(gateway.snapshot.state, problem.constraintModel, current?.assignments || []);
+      return {
+        status: compareScheduleQuality(candidate.quality!, baseline),
+        baseline,
+      };
+    })();
+
+    let candidateReview: Record<string, unknown>;
+    try {
+      const admin = getServerAdminSupabase();
+      const persisted = await admin.rpc("create_solver_candidate_review_v68", {
+        p_studio_id: authorized.studioId,
+        p_actor_user_id: authorized.userId,
+        p_actor_label: authorized.actorLabel,
+        p_name: "Solver candidate",
+        p_candidate_context: candidateContext,
+        p_assignments: candidate.assignments,
+        p_quality: candidate.quality,
+        p_optimization_status: payload.result?.optimizationStatus || "FEASIBILITY_ONLY",
+        p_proven_optimal: payload.result?.provenOptimal === true,
+        p_service_version: payload.serviceVersion || null,
+      });
+      if (persisted.error) {
+        if (persisted.error.message?.includes("STALE_SOLVER_CANDIDATE_CONTEXT")) return contextChangedResponse();
+        throw persisted.error;
+      }
+      candidateReview = (persisted.data && typeof persisted.data === "object" ? persisted.data : {}) as Record<string, unknown>;
+      if (typeof candidateReview.id !== "string") throw new Error("Candidate review persistence returned an incomplete record.");
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error && error.message.includes("SUPABASE_SERVICE_ROLE_KEY")
+          ? "The server cannot persist solver reviews until its governed database credential is configured."
+          : "The validated candidate could not be saved for review. The current schedule is unchanged; retry the build.",
+        code: "SOLVER_CANDIDATE_PERSISTENCE_FAILED",
+      }, { status: 503 });
+    }
+
     return NextResponse.json({
       status: "FEASIBLE",
       context: problem.context,
-      candidateContext: buildReviewedSolverCandidateContext(problem, gateway.snapshot.contextToken),
+      candidateContext,
+      candidateId: candidateReview.id,
       serviceVersion: payload.serviceVersion || null,
+      optimizationStatus: payload.result?.optimizationStatus || "FEASIBILITY_ONLY",
+      provenOptimal: payload.result?.provenOptimal === true,
       candidate: {
         assignments: candidate.assignments,
         validation: candidate.validation,
+        quality: candidate.quality,
       },
+      qualityComparison,
       diagnostics: {
         delegatedConstraintIds: payload.result?.delegatedConstraintIds || [],
         blockingConstraintIds: payload.result?.blockingConstraintIds || [],
         wallTimeSeconds: payload.result?.wallTimeSeconds ?? null,
         branches: payload.result?.branches ?? null,
         conflicts: payload.result?.conflicts ?? null,
+        objectiveValues: payload.result?.objectiveValues || [],
       },
-      persisted: false,
+      persisted: true,
       adoptionAllowed: false,
-      adoptionMessage: "This is a validated candidate only. A separate governed adoption command must re-check versions and persist a new ScheduleVersion.",
+      adoptionMessage: "This candidate is saved for review. Adoption still uses the governed ScheduleVersion command after a fresh server-side revalidation.",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

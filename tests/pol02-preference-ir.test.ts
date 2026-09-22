@@ -34,14 +34,15 @@ describe("POL-02 typed preference Objective IR", () => {
       { schemaVersion: "1.0", kind: "AVOID_DAY", classIds: ["class-a"], days: ["Friday"] } as TypedPolicyV1,
       { kind: "AVOID_DAY", selector: { classIds: ["class-a"] }, parameters: { days: ["Friday"] } },
     ],
-  ])("records %s deterministically without enabling scoring", (_name, policy, expected) => {
+  ])("records %s deterministically for the OPT-01 scorer", (_name, policy, expected) => {
     expect(compileTypedPreferenceIR(rule(), policy, ["ROOM-010", "ROOM-011"], 1001)).toMatchObject({
       ruleId: "ROOM-010",
       ruleIds: ["ROOM-010", "ROOM-011"],
       rank: 1001,
       title: "Reviewed preference",
       description: "Reviewed preference text.",
-      scoringEnabled: false,
+      strength: "MODERATE",
+      scoringEnabled: true,
       ...expected,
     });
   });
@@ -51,5 +52,17 @@ describe("POL-02 typed preference Objective IR", () => {
       schemaVersion: "1.0", kind: "REQUIRED_ROOM", roomId: "room-a", classIds: ["class-a"],
     };
     expect(compileTypedPreferenceIR(rule(), hard, ["ROOM-009"], 1001)).toBeNull();
+  });
+
+  it("keeps a HARD-labeled preferred policy out of the quality objective layer", () => {
+    const hardPreferred = {
+      ...rule(),
+      strength: "HARD" as const,
+      classificationRaw: "HARD",
+    };
+    const preferred: TypedPolicyV1 = {
+      schemaVersion: "1.0", kind: "PREFERRED_ROOM", roomId: "room-a", classIds: ["class-a"],
+    };
+    expect(compileTypedPreferenceIR(hardPreferred, preferred, ["ROOM-010"], 1001)).toBeNull();
   });
 });

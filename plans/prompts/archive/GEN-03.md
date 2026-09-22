@@ -1,7 +1,7 @@
 # GEN-03 — Make every command explicitly tenant scoped
 
 Execution class: **STANDARD IMPLEMENTATION**. Milestone: **B**. Dependencies: **GEN-02**.
-Status is owned by [TASKS](../TASKS.md); do not infer readiness from this prompt existing.
+Status is owned by [TASKS](../../TASKS.md); do not infer readiness from this prompt existing.
 
 ## Outcome and current state
 
@@ -11,7 +11,7 @@ Current evidence at audit HEAD `9120439`: Some schedule commands accept explicit
 
 ## Architectural decisions already made
 
-Read [DECISIONS](../DECISIONS.md) and [execution rules](../CODEX_EXECUTION_RULES.md). Supabase remains operational truth: planning facts in PlanningDatasetVersion, policy in RulebookVersion, deterministic compiled meaning in ConstraintModelVersion, adopted placements in ScheduleVersion. Preserve pinned historical authority and typed unsupported-policy rejection. Review metadata never duplicates facts. Reuse existing commands/components; a planned route/schema is new work, not an existing path claim.
+Read [DECISIONS](../../DECISIONS.md) and [execution rules](../../CODEX_EXECUTION_RULES.md). Supabase remains operational truth: planning facts in PlanningDatasetVersion, policy in RulebookVersion, deterministic compiled meaning in ConstraintModelVersion, adopted placements in ScheduleVersion. Preserve pinned historical authority and typed unsupported-policy rejection. Review metadata never duplicates facts. Reuse existing commands/components; a planned route/schema is new work, not an existing path claim.
 
 ## Scope and required behavior
 
@@ -19,13 +19,13 @@ Pass selected studio through inventory/policy/review/confirmation/archive/histor
 
 ## Expected inspection points
 
-- [lib/supabase.ts](../../lib/supabase.ts)
-- [lib/server-studio-state.ts](../../lib/server-studio-state.ts)
-- [components/workspace-provider.tsx](../../components/workspace-provider.tsx)
-- [components/planning-archive-panel.tsx](../../components/planning-archive-panel.tsx)
-- [app/api/solver/feasibility/route.ts](../../app/api/solver/feasibility/route.ts)
-- [app/api/solver/adopt/route.ts](../../app/api/solver/adopt/route.ts)
-- [scripts/test-db.mjs](../../scripts/test-db.mjs)
+- [lib/supabase.ts](../../../lib/supabase.ts)
+- [lib/server-studio-state.ts](../../../lib/server-studio-state.ts)
+- [components/workspace-provider.tsx](../../../components/workspace-provider.tsx)
+- [components/planning-archive-panel.tsx](../../../components/planning-archive-panel.tsx)
+- [app/api/solver/feasibility/route.ts](../../../app/api/solver/feasibility/route.ts)
+- [app/api/solver/adopt/route.ts](../../../app/api/solver/adopt/route.ts)
+- [scripts/test-db.mjs](../../../scripts/test-db.mjs)
 
 Inspect successor migrations/callers and relevant assertions before editing. Add forward migrations only; historical paths above are evidence, not edit targets. Implement this coherent slice; if more than one independent migration/semantic family is needed, execute and verify each sequentially under this task with criterion-level evidence.
 
@@ -50,7 +50,7 @@ Add regressions that fail for the identified missing behavior, including rejecti
 
 ## Verification commands
 
-Run from repository root with explicit disposable configuration; see [TEST_STRATEGY](../TEST_STRATEGY.md) for Python and authenticated environment setup.
+Run from repository root with explicit disposable configuration; see [TEST_STRATEGY](../../TEST_STRATEGY.md) for Python and authenticated environment setup.
 
 ```powershell
 npm run lint
@@ -60,7 +60,7 @@ npm run build
 npm run test:db
 ```
 
-VERIFY-01 introduces test:parity and test:e2e. Do not run or claim them before that dependency exists; after it is DONE, user-facing tasks additionally run npm run test:e2e for the changed journey. For solver/IR changes run pinned Python pytest as well. Missing Docker/credentials is a verification blocker, never a pass. No production fallback.
+VERIFY-01 introduces test:parity and test:e2e. Do not run or claim them before that dependency exists; after that dependency is DONE, user-facing tasks additionally run `npm run test:e2e` for the changed journey. For solver/IR changes run pinned Python pytest as well. Missing Docker/credentials is a verification blocker, never a pass. No production fallback.
 
 ## Completion evidence
 
@@ -69,4 +69,3 @@ Record changed files, new test names, commands and exit codes, demonstrated beha
 ## Escalation conditions
 
 Escalate with a concrete reproducer if schema cannot preserve authority without duplicate truth; a required HARD semantic is unsupported; dependency-closed policy replacement cannot be proven; current code conflicts with accepted decisions; historical migrations would need rewriting; or this bounded scope expands materially. Resolve routine file/API uncertainty by inspection. Complete independent authorized work before asking for an external decision. No task prompt authorizes deployment, paid services, messages to others, or destructive customer-data operations.
-

@@ -5,8 +5,8 @@ import { WorkspaceProvider } from "@/components/workspace-provider";
 import { getSupabasePublicConfiguration } from "@/lib/supabase-config";
 
 export const metadata: Metadata = {
-  title: { default: "DWDE Studio Scheduler", template: "%s · DWDE Studio Scheduler" },
-  description: "A shared, validated rulebook and scheduling workspace for DWDE Studio.",
+  title: { default: "Studio Scheduler", template: "%s · Studio Scheduler" },
+  description: "A shared, validated rulebook and scheduling workspace for independent studios.",
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };

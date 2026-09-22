@@ -7,8 +7,6 @@ import { getBrowserSupabase } from "@/lib/supabase";
 import type { PlanningEntityType } from "@/lib/planning-inventory-client";
 import { setPlanningEntityArchived } from "@/lib/planning-archive-client";
 
-const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
-
 type ArchivedItem = {
   entityType: PlanningEntityType;
   id: string;
@@ -29,26 +27,26 @@ const labels: Record<PlanningEntityType, string> = {
   CLASS: "Class",
 };
 
-async function loadArchivedItems(entityTypes: PlanningEntityType[]): Promise<ArchivedLoadResult> {
+async function loadArchivedItems(studioId: string, entityTypes: PlanningEntityType[]): Promise<ArchivedLoadResult> {
   const wanted = new Set(entityTypes);
   const supabase = getBrowserSupabase();
   const queries: PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>[] = [];
   const types: PlanningEntityType[] = [];
 
   if (wanted.has("TEACHER")) {
-    queries.push(supabase.from("teachers").select("id,name,archived_at").eq("studio_id", STUDIO_ID).not("archived_at", "is", null).order("name"));
+    queries.push(supabase.from("teachers").select("id,name,archived_at").eq("studio_id", studioId).not("archived_at", "is", null).order("name"));
     types.push("TEACHER");
   }
   if (wanted.has("STUDENT")) {
-    queries.push(supabase.from("students").select("id,name,level,archived_at").eq("studio_id", STUDIO_ID).not("archived_at", "is", null).order("name"));
+    queries.push(supabase.from("students").select("id,name,level,archived_at").eq("studio_id", studioId).not("archived_at", "is", null).order("name"));
     types.push("STUDENT");
   }
   if (wanted.has("ROOM")) {
-    queries.push(supabase.from("rooms").select("id,name,capacity,archived_at").eq("studio_id", STUDIO_ID).not("archived_at", "is", null).order("name"));
+    queries.push(supabase.from("rooms").select("id,name,capacity,archived_at").eq("studio_id", studioId).not("archived_at", "is", null).order("name"));
     types.push("ROOM");
   }
   if (wanted.has("CLASS")) {
-    queries.push(supabase.from("class_definitions").select("id,name,subject,level,archived_at").eq("studio_id", STUDIO_ID).not("archived_at", "is", null).order("name"));
+    queries.push(supabase.from("class_definitions").select("id,name,subject,level,archived_at").eq("studio_id", studioId).not("archived_at", "is", null).order("name"));
     types.push("CLASS");
   }
 
@@ -83,7 +81,7 @@ async function loadArchivedItems(entityTypes: PlanningEntityType[]): Promise<Arc
 }
 
 export function PlanningArchivePanel({ entityTypes }: { entityTypes: PlanningEntityType[] }) {
-  const { canEdit, currentPlanningDatasetVersion, refresh } = useWorkspace();
+  const { state, canEdit, currentPlanningDatasetVersion, refresh } = useWorkspace();
   const [items, setItems] = useState<ArchivedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
@@ -93,20 +91,22 @@ export function PlanningArchivePanel({ entityTypes }: { entityTypes: PlanningEnt
   useEffect(() => {
     let active = true;
     const requestedTypes = entityTypeKey.split("|").filter(Boolean) as PlanningEntityType[];
-    void loadArchivedItems(requestedTypes).then((result) => {
+    if (!state) return () => { active = false; };
+    void loadArchivedItems(state.studioId, requestedTypes).then((result) => {
       if (!active) return;
       setItems(result.items);
       if (result.error) setNotice(result.error);
       setLoading(false);
     });
     return () => { active = false; };
-  }, [entityTypeKey, currentPlanningDatasetVersion]);
+  }, [entityTypeKey, currentPlanningDatasetVersion, state]);
 
   async function restore(item: ArchivedItem) {
-    if (!canEdit || restoring) return;
+    if (!canEdit || restoring || !state) return;
     setRestoring(`${item.entityType}:${item.id}`);
     setNotice("");
     const result = await setPlanningEntityArchived({
+      studioId: state.studioId,
       entityType: item.entityType,
       entityId: item.id,
       archive: false,
@@ -119,7 +119,7 @@ export function PlanningArchivePanel({ entityTypes }: { entityTypes: PlanningEnt
       return;
     }
     await refresh();
-    const reloaded = await loadArchivedItems(entityTypeKey.split("|").filter(Boolean) as PlanningEntityType[]);
+    const reloaded = await loadArchivedItems(state.studioId, entityTypeKey.split("|").filter(Boolean) as PlanningEntityType[]);
     setItems(reloaded.items);
     setNotice(
       reloaded.error

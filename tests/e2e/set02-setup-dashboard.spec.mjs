@@ -93,7 +93,7 @@ async function signIn(page) {
   await page.goto(appUrl);
   await page.getByLabel('Email address').fill(ownerEmail);
   await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
-  await expect(page.getByText('Check your email for the DWDE sign-in link.')).toBeVisible();
+  await expect(page.getByText('Check your email for the sign-in link.')).toBeVisible();
   const magicLink = await nextMagicLink(previousMail);
   await page.goto(magicLink);
   await expect(page.getByText(`${ownerEmail} · OWNER`)).toBeVisible({ timeout: 30_000 });

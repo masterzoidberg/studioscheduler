@@ -129,8 +129,8 @@ describe("UX-03 schedule export", () => {
     const emptyRows = model.rows.filter((row) => row.rowType === "EMPTY");
 
     expect(model.rooms).toHaveLength(4);
-    expect(model.days).toEqual(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
-    expect(emptyRows).toHaveLength(23);
+    expect(model.days).toEqual(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]);
+    expect(emptyRows).toHaveLength(27);
     expect(model.rows.some((row) => row.day === "Saturday" && row.roomName === "Room D" && row.rowType === "EMPTY")).toBe(true);
   });
 

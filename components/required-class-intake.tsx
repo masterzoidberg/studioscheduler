@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, ClipboardPenLine, X } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
 import { createReviewedRequiredClass } from "@/lib/planning-inventory-client";
 import { requiredClassIntakeCandidates, type RequiredClassIntakeCandidate } from "@/lib/required-class-intake";
+import { currentTenantPolicyRequirements } from "@/lib/tenant-policy";
 
 type Draft = {
   subject: string;
@@ -49,7 +50,13 @@ export function RequiredClassIntake() {
   const [notice, setNotice] = useState("");
 
   const candidates = useMemo(
-    () => state ? requiredClassIntakeCandidates({ classes: state.classes, sessions: state.sessions, students: state.students }) : [],
+    () => state ? requiredClassIntakeCandidates({
+      classes: state.classes,
+      sessions: state.sessions,
+      students: state.students,
+      structureRequirements: currentTenantPolicyRequirements(state).structure,
+      rosterRequirements: currentTenantPolicyRequirements(state).roster,
+    }) : [],
     [state],
   );
 
@@ -83,7 +90,7 @@ export function RequiredClassIntake() {
   }
 
   async function createRequiredClass() {
-    if (!active || !draft || !canEdit || saving) return;
+    if (!state || !active || !draft || !canEdit || saving) return;
     if (hasDistinctExpectedDurations(active)) {
       setNotice("This required class needs different durations across its weekly sessions. The single-duration intake is intentionally blocked rather than guessing an intermediate class structure.");
       return;
@@ -140,6 +147,7 @@ export function RequiredClassIntake() {
     setSaving(true);
     setNotice("");
     const result = await createReviewedRequiredClass({
+      studioId: state.studioId,
       changes: {
         name: active.className,
         subject,

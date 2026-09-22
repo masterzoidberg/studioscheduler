@@ -55,7 +55,7 @@ function mapRulebook(row: Record<string, unknown>): RulebookVersion {
   return {
     id: String(row.id),
     version: Number(row.version),
-    name: String(row.name || "DWDE Rulebook"),
+    name: String(row.name || "Studio Rulebook"),
     createdAt: String(row.created_at || ""),
     actor: String(row.actor_label || ""),
     reason: String(row.reason || ""),
@@ -372,7 +372,7 @@ export function parseCanonicalSolverSnapshotPayload(raw: unknown, studioId: stri
     publishedConstraintModel,
     state: {
       studioId,
-      studioName: String(raw.studio.name || "DWDE Studio"),
+      studioName: String(raw.studio.name || "Studio"),
       ...planningFacts,
       rules,
       rulebookVersions: [rulebook],

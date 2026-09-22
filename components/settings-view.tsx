@@ -5,6 +5,7 @@ import { Download, Fingerprint, LogOut, ShieldCheck, UserPlus, UsersRound, X } f
 import type { StudioRole } from "@/lib/domain";
 import { OpenRouterAccountCard } from "@/components/openrouter-account-card";
 import { useWorkspace } from "@/components/workspace-provider";
+import { ReviewedCsvImport } from "@/components/reviewed-csv-import";
 
 const roles: StudioRole[] = ["OWNER", "EDITOR", "VIEWER"];
 
@@ -18,6 +19,7 @@ export function SettingsView(){
   const [notice,setNotice]=useState("");
   const [busy,setBusy]=useState(false);
   if(!state)return null;
+  const workspaceName = state.studioName;
 
   const current=state.rulebookVersions.find(v=>v.status==="CURRENT");
   const verified=state.rules.filter(r=>(r.reviewStatus??r.verificationStatus)==="VERIFIED").length;
@@ -28,7 +30,7 @@ export function SettingsView(){
     const data=exportPackage();if(!data)return;
     const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);const a=document.createElement("a");
-    a.href=url;a.download=`DWDE-Rulebook-v${currentRulebookVersion}.json`;a.click();URL.revokeObjectURL(url);
+    a.href=url;a.download=`${workspaceName.replace(/[^a-z0-9]+/gi,"-").replace(/^-+|-+$/g,"") || "studio"}-rulebook-v${currentRulebookVersion}.json`;a.click();URL.revokeObjectURL(url);
   }
 
   async function invite(){
@@ -69,8 +71,10 @@ export function SettingsView(){
 
     <OpenRouterAccountCard/>
 
+    <ReviewedCsvImport/>
+
     <section className="grid gap-4 sm:grid-cols-2">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5"><Download className="size-5 text-slate-400"/><h2 className="mt-3 font-semibold">Export current Rulebook</h2><p className="mt-1 text-sm leading-6 text-slate-600">Exports reviewed human wording, provenance, review history, and current machine-enforcement metadata without replacing the database authority.</p><button onClick={download} className="mt-4 min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold">Export DWDE v{currentRulebookVersion}</button></div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5"><Download className="size-5 text-slate-400"/><h2 className="mt-3 font-semibold">Export current Rulebook</h2><p className="mt-1 text-sm leading-6 text-slate-600">Exports reviewed human wording, provenance, review history, and current machine-enforcement metadata without replacing the database authority.</p><button onClick={download} className="mt-4 min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold">Export Rulebook v{currentRulebookVersion}</button></div>
       <div className="rounded-2xl border border-slate-200 bg-white p-5"><ShieldCheck className="size-5 text-slate-400"/><h2 className="mt-3 font-semibold">Authority boundaries</h2><p className="mt-1 text-sm leading-6 text-slate-600">Human review, deterministic enforcement coverage, AI inference, and schedule validation remain separate. AI can propose changes; only governed versioned mutations can commit them.</p></div>
     </section>
 

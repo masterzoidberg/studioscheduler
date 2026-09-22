@@ -10,6 +10,7 @@ import {
   rulebookRosterRepairs,
   type RulebookRosterRepair,
 } from "@/lib/planning-roster-repair";
+import { currentTenantPolicyRequirements } from "@/lib/tenant-policy";
 
 function statusLabel(status: RulebookRosterRepair["status"]) {
   switch (status) {
@@ -28,11 +29,19 @@ export function PlanningRepairsView() {
   const [notice, setNotice] = useState("");
 
   const structureRepairs = useMemo(
-    () => state ? rulebookClassStructureRepairs({ classes: state.classes, sessions: state.sessions }) : [],
+    () => state ? rulebookClassStructureRepairs({
+      classes: state.classes,
+      sessions: state.sessions,
+      requirements: currentTenantPolicyRequirements(state).structure,
+    }) : [],
     [state],
   );
   const rosterRepairs = useMemo(
-    () => state ? rulebookRosterRepairs({ classes: state.classes, students: state.students }) : [],
+    () => state ? rulebookRosterRepairs({
+      classes: state.classes,
+      students: state.students,
+      requirements: currentTenantPolicyRequirements(state).roster,
+    }) : [],
     [state],
   );
   const existingStructureRepairs = structureRepairs.filter((repair) => repair.status === "MISMATCH");
@@ -81,6 +90,7 @@ export function PlanningRepairsView() {
     setSaving(true);
     setNotice("");
     const result = await applyRulebookRosterRepair({
+      studioId: workspaceState.studioId,
       classId: klass.id,
       reason: `Applied reviewed Rulebook roster additions for ${klass.name} (${activeRepair.ruleIds.join(", ")})`,
       expectedPlanningDatasetVersion: currentPlanningDatasetVersion,

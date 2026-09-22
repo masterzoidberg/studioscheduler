@@ -38,14 +38,14 @@ describe("T13 legacy write bypass closure", () => {
     expect(migration).toContain("Editor membership required for selected workspace");
     expect(migration).toContain("SERVER_CONSTRAINT_COMPILER_V49");
     expect(feasibility).toContain("getServerAdminSupabase");
-    expect(feasibility).toContain('admin.rpc("publish_server_constraint_model_v49"');
+    expect(feasibility).toContain('admin.rpc("publish_server_constraint_model_v63"');
     expect(feasibility).not.toContain('supabase.rpc("publish_constraint_model_v30"');
   });
 
   it("rechecks the human actor inside the privileged adoption transaction", () => {
     expect(migration).toContain("adopt_solver_candidate_v49");
     expect(migration).toContain("where m.studio_id=p_studio_id and m.user_id=p_actor_user_id");
-    expect(adoption).toContain('admin.rpc("adopt_solver_candidate_v49"');
+    expect(adoption).toContain('admin.rpc("adopt_solver_candidate_v63"');
   });
 
   it("removes direct service execution of the old publication and adoption primitives", () => {

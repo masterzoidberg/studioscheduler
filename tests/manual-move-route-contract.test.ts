@@ -22,7 +22,7 @@ describe("T10 manual MOVE server route contract", () => {
   it("rechecks context before the service-role-only transaction and sends only canonical derived placement fields", () => {
     expect(route).toContain("loadCurrentSolverContextToken");
     expect(route).toContain("solverSnapshotContextTokensMatch(snapshot.contextToken, currentToken)");
-    expect(route).toContain('admin.rpc("apply_authoritative_move_v46"');
+    expect(route).toContain('admin.rpc("apply_authoritative_move_v63"');
     expect(route).toContain("p_expected_context: snapshot.contextToken");
     expect(route).not.toContain("endTime: after.endTime");
   });

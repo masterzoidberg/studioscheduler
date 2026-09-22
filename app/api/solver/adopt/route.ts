@@ -18,17 +18,17 @@ import {
   type SolverAssignmentCandidate,
   type SolverServicePayload,
 } from "@/lib/solver-gateway";
+import { isStudioId } from "@/lib/selected-studio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 
 type AuthorizedWorkspace = {
   supabase: SupabaseClient;
   role: "OWNER" | "EDITOR" | "VIEWER";
   userId: string;
   actorLabel: string;
+  studioId: string;
 };
 
 type AdoptionRequest = {
@@ -37,7 +37,7 @@ type AdoptionRequest = {
   reason?: string;
 };
 
-async function authorizeWorkspace(request: NextRequest): Promise<AuthorizedWorkspace | null> {
+async function authorizeWorkspace(request: NextRequest, studioId: string): Promise<AuthorizedWorkspace | null> {
   const authorization = request.headers.get("authorization");
   if (!authorization) return null;
   const supabase = getServerSupabase(authorization);
@@ -47,7 +47,7 @@ async function authorizeWorkspace(request: NextRequest): Promise<AuthorizedWorks
   const membership = await supabase
     .from("studio_members")
     .select("role")
-    .eq("studio_id", STUDIO_ID)
+    .eq("studio_id", studioId)
     .eq("user_id", user.id)
     .maybeSingle();
   if (membership.error || !membership.data) return null;
@@ -56,6 +56,7 @@ async function authorizeWorkspace(request: NextRequest): Promise<AuthorizedWorks
     role: membership.data.role as AuthorizedWorkspace["role"],
     userId: user.id,
     actorLabel: user.email || user.id,
+    studioId,
   };
 }
 
@@ -80,13 +81,15 @@ function staleReviewResponse() {
 
 export async function POST(request: NextRequest) {
   try {
-    const authorized = await authorizeWorkspace(request);
+    const body = await request.json() as AdoptionRequest & { studioId?: unknown };
+    const studioId = isStudioId(body.studioId) ? body.studioId : null;
+    if (!studioId) return NextResponse.json({ error: "An explicit studio selection is required." }, { status: 400 });
+    const authorized = await authorizeWorkspace(request, studioId);
     if (!authorized) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
     if (authorized.role === "VIEWER") {
       return NextResponse.json({ error: "Editor access is required to adopt a solver candidate." }, { status: 403 });
     }
 
-    const body = await request.json() as AdoptionRequest;
     const reason = body.reason?.trim() || "Adopt independently validated CP-SAT candidate";
     if (!Array.isArray(body.assignments)) {
       return NextResponse.json({ error: "Candidate assignments are required." }, { status: 400 });
@@ -98,9 +101,9 @@ export async function POST(request: NextRequest) {
         code: "SOLVER_ADOPTION_REVIEW_CONTEXT_REQUIRED",
       }, { status: 400 });
     }
-    if (reviewedContext.solverContextToken.studioId !== STUDIO_ID) return staleReviewResponse();
+    if (reviewedContext.solverContextToken.studioId !== authorized.studioId) return staleReviewResponse();
 
-    const snapshot = await loadCanonicalSolverSnapshot(authorized.supabase, STUDIO_ID);
+    const snapshot = await loadCanonicalSolverSnapshot(authorized.supabase, authorized.studioId);
     const currentPublished = snapshot.publishedConstraintModel;
     if (!currentPublished) return staleReviewResponse();
     const currentReviewedContext = reviewedSolverCandidateContextFromSnapshot(
@@ -159,7 +162,12 @@ export async function POST(request: NextRequest) {
         blockingConstraintIds: [],
       },
     };
-    const candidate = validateFeasibleSolverCandidate(state, preparation.problem, syntheticPayload);
+    const candidate = validateFeasibleSolverCandidate(state, preparation.problem, syntheticPayload, {
+      // Adoption has no solver-reported score to trust: the gateway still
+      // independently recomputes the quality report from the submitted
+      // assignments before the governed write.
+      requireReportedObjectiveScore: false,
+    });
     if (!candidate.ok || !candidate.validation) {
       return NextResponse.json({
         status: "BLOCKED",
@@ -190,8 +198,8 @@ export async function POST(request: NextRequest) {
 
     // Critical T08 boundary: pass the manager-reviewed context into the database
     // unchanged. Do not substitute versions from a fresh server read here.
-    const result = await admin.rpc("adopt_solver_candidate_v49", {
-      p_studio_id: STUDIO_ID,
+    const result = await admin.rpc("adopt_solver_candidate_v63", {
+      p_studio_id: authorized.studioId,
       p_actor_user_id: authorized.userId,
       p_actor_label: authorized.actorLabel,
       p_reason: reason,

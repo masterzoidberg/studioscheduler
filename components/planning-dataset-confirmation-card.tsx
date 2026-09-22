@@ -157,7 +157,7 @@ export function PlanningDatasetConfirmationCard() {
   }
 
   async function confirm() {
-    if (!canEdit || saving || !rowCurrent || !row?.snapshot || !row.snapshot_hash || confirmationBlockers.length > 0 || !allAttestationsChecked) return;
+    if (!state || !canEdit || saving || !rowCurrent || !row?.snapshot || !row.snapshot_hash || confirmationBlockers.length > 0 || !allAttestationsChecked) return;
     setSaving(true);
     setNotice("");
     if (!session?.access_token) {
@@ -167,7 +167,7 @@ export function PlanningDatasetConfirmationCard() {
     }
     const preparationResponse = await fetch("/api/planning/confirmation", {
       method: "POST",
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${session.access_token}`, "x-studio-id": state.studioId },
       cache: "no-store",
     });
     const preparation = await preparationResponse.json() as {
@@ -193,7 +193,8 @@ export function PlanningDatasetConfirmationCard() {
       setSaving(false);
       return;
     }
-    const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v60", {
+    const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v63", {
+      p_studio_id: state.studioId,
       p_expected_planning_dataset_version: context.currentPlanningDatasetVersion,
       p_expected_snapshot_hash: context.currentPlanningSnapshotHash,
       p_expected_rulebook_version: context.currentRulebookVersion,

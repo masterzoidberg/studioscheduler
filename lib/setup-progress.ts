@@ -1,6 +1,7 @@
 import type { StudioState } from "@/lib/domain";
 import { rulebookClassStructureRepairs } from "@/lib/planning-structure-repair";
 import { rulebookRosterRepairs } from "@/lib/planning-roster-repair";
+import { currentTenantPolicyRequirements } from "@/lib/tenant-policy";
 
 export type SetupSectionId =
   | "studio"
@@ -34,16 +35,19 @@ function plural(count: number, one: string, many = `${one}s`) {
 }
 
 export function buildSetupProgress(state: StudioState): SetupProgress {
+  const tenantRequirements = currentTenantPolicyRequirements(state);
   const roomsMissingCapacity = state.rooms.filter(
     (room) => typeof room.capacity !== "number" || !Number.isFinite(room.capacity) || room.capacity <= 0,
   );
   const structureRepairs = rulebookClassStructureRepairs({
     classes: state.classes,
     sessions: state.sessions,
+    requirements: tenantRequirements.structure,
   });
   const rosterRepairs = rulebookRosterRepairs({
     classes: state.classes,
     students: state.students,
+    requirements: tenantRequirements.roster,
   });
   const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
   const planningConfirmed = Boolean(currentPlanning?.confirmedForSchedulingAt);

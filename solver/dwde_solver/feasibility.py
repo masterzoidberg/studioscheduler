@@ -6,7 +6,7 @@ import unicodedata
 
 from ortools.sat.python import cp_model
 
-DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 DAY_INDEX = {day: index for index, day in enumerate(DAYS)}
 SLOT_MINUTES = 15
 SLOTS_PER_DAY = 24 * 60 // SLOT_MINUTES

@@ -95,9 +95,16 @@ if archived_post_rebuild != post_rebuild_done:
     errors.append(f"DONE/archive set mismatch; missing={missing}, extra={extra}")
 
 ready = [task for task, row in tasks.items() if row[0] == "READY"]
-if len(ready) != 1:
-    errors.append(f"Exactly one task must be READY; got {ready}")
-selected = ready[0] if len(ready) == 1 else None
+next_text = (PLANS / "NEXT.md").read_text(encoding="utf-8-sig")
+next_match = re.search(r"^\*\*R\d+ — ([A-Z]+-\d+)", next_text, re.MULTILINE)
+next_task = next_match.group(1) if next_match else None
+if len(ready) == 1:
+    selected = ready[0]
+elif not ready and next_task in tasks and tasks[next_task][0] == "BLOCKED":
+    selected = next_task
+else:
+    errors.append(f"Expected exactly one READY task or one selected BLOCKED task; READY={ready}, NEXT={next_task}")
+    selected = None
 if selected:
     for name in ("README.md", "NEXT.md"):
         if selected not in (PLANS / name).read_text(encoding="utf-8-sig"):
@@ -114,5 +121,6 @@ if errors:
 print(
     f"PASS: {len(documents)} documents, active links resolved, {len(tasks)} tasks, "
     f"{len(active_prompts)} active prompts, {len(post_rebuild_done)} post-rebuild DONE prompts archived, "
-    f"acyclic dependencies, one {selected} next task; 13 historical completed and 16 superseded prompts."
+    f"acyclic dependencies, one {selected} next task ({tasks[selected][0]}); "
+    f"13 historical completed and 16 superseded prompts."
 )

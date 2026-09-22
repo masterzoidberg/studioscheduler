@@ -16,6 +16,7 @@ import {
   teacherDayWindowPolicyParameters,
   type TypedPolicyV1,
 } from "@/lib/typed-policy";
+import { parseTenantPolicyManifest, type TenantPolicyManifestV1 } from "@/lib/tenant-policy";
 
 export const LEGACY_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
 export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.4";
@@ -23,6 +24,7 @@ export const POL02_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.5";
 export const POL03_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.6";
 export const SET06_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.7";
 export const GEN01_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.8";
+export const GEN02_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.9";
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const POL01_TYPED_RULE_ID_SET = new Set<string>(POL01_TYPED_RULE_IDS);
 
@@ -398,7 +400,11 @@ function compileV5TypedPolicies(
     if (soft) {
       const rank = legacyRank.get(rule.id) ?? fallbackPreferenceRank.get(rule.id) ?? 1999;
       const preference = compileTypedPreferenceIR(rule, parsed.policy, bundle.consumedRuleIds, rank);
-      if (preference) preferences.push(preference);
+      if (preference) {
+        preferences.push(preference);
+      } else if (hard) {
+        for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      }
       continue;
     }
     if (!hard) continue;
@@ -424,9 +430,57 @@ function compileV5TypedPolicies(
   };
 }
 
+function compileTenantPolicyManifest(
+  state: StudioState,
+  manifest: TenantPolicyManifestV1,
+): ConstraintModelSnapshotV1 {
+  const identity = materializeConstraintIdentityTargets(state, manifest.constraints);
+  const hardConstraints = identity.nodes.sort((a, b) => compareCanonicalStrings(a.id, b.id));
+  const representedConstraintIds = new Set(hardConstraints.map((node) => node.id));
+  const invalidRuleIds = new Set(identity.invalidRuleIds);
+  const uncompiledConstraintRuleIds = new Set<string>();
+  for (const rule of manifest.records) {
+    const hard = ["HARD_CONSTRAINT", "FIXED_ANCHOR", "EXCEPTION"].includes(rule.disposition);
+    if (hard && (rule.constraintIds.some((id) => !representedConstraintIds.has(id)) || invalidRuleIds.has(rule.ruleId))) {
+      uncompiledConstraintRuleIds.add(rule.ruleId);
+    }
+  }
+  for (const ruleId of identity.invalidRuleIds) uncompiledConstraintRuleIds.add(ruleId);
+
+  return {
+    schemaVersion: "1.0",
+    compilerVersion: GEN02_CONSTRAINT_COMPILER_VERSION,
+    rulebookVersion: manifest.sourceRulebookVersion,
+    planningDatasetVersion: state.planningDatasetVersions?.find((version) => version.status === "CURRENT")?.version ?? null,
+    activeRuleCount: manifest.activeRuleIds.length,
+    hardConstraints,
+    objectivePrioritySpine: [...manifest.objectivePrioritySpine],
+    readinessRuleIds: [...manifest.readinessRuleIds],
+    governanceAssertions: [...manifest.governanceAssertions],
+    uncompiledConstraintRuleIds: [...uncompiledConstraintRuleIds].sort(compareCanonicalStrings),
+    completeHardConstraintCompilation: uncompiledConstraintRuleIds.size === 0,
+  };
+}
+
 export function compileConstraintModelV3(state: StudioState): ConstraintModelSnapshotV1 {
-  const base = compileV01(state);
   const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? null;
+  const tenantManifest = parseTenantPolicyManifest(currentRulebook, state.rules);
+  if (tenantManifest.status === "VALID") return compileTenantPolicyManifest(state, tenantManifest.manifest);
+
+  const base = compileV01(state);
+  if (tenantManifest.status === "INVALID") {
+    const activeHardRuleIds = state.rules
+      .filter((rule) => rule.status === "ACTIVE" && (rule.strength === "HARD" || rule.classificationRaw === "HARD"))
+      .map((rule) => rule.id);
+    return {
+      ...base,
+      compilerVersion: GEN02_CONSTRAINT_COMPILER_VERSION,
+      hardConstraints: [],
+      uncompiledConstraintRuleIds: [...new Set([...activeHardRuleIds, ...tenantManifest.ruleIds])].sort(compareCanonicalStrings),
+      completeHardConstraintCompilation: false,
+    };
+  }
+
   const policySupport = reviewedDwdePolicySupport(currentRulebook, state.rules, state.rulebookVersions);
   const activeRules = state.rules.filter((rule) => rule.status === "ACTIVE");
   const ruleMap = new Map(activeRules.map((rule) => [rule.id, rule]));

@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
 
     const candidate = decision.comparison.candidate;
     const after = candidate.after;
-    const result = await admin.rpc("apply_authoritative_incremental_command_v47", {
+    const result = await admin.rpc("apply_authoritative_incremental_command_v63", {
       p_operation: patch.operation,
       p_studio_id: studioId,
       p_actor_user_id: authorized.userId,

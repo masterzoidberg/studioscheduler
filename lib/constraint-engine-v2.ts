@@ -1,4 +1,4 @@
-import type { Assignment, ClassDefinition, StudioState } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type ClassDefinition, type StudioState } from "@/lib/domain";
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 import {
   validateConstraintModelSchedule as validateBase,
@@ -254,7 +254,7 @@ export function validateConstraintModelSchedule(
       const teacherId = String(node.parameters.teacherId || node.selector.teacherIds?.[0] || "");
       const participantId = String(node.parameters.participantId || node.selector.participantIds?.[0] || "");
       const minimum = Number(node.parameters.minOffsetMinutes); const maximum = Number(node.parameters.maxOffsetMinutes);
-      for (const day of ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const) {
+      for (const day of SCHEDULE_DAYS) {
         const teaching = assignments.filter((assignment) => assignment.teacherId === teacherId && assignment.day === day).sort((a, b) => minutes(a.startTime) - minutes(b.startTime));
         if (!teaching.length) continue;
         const attending = assignments.filter((assignment) => assignment.day === day && classesBySession.get(assignment.sessionId)?.rosterStudentIds.includes(participantId)).sort((a, b) => minutes(a.startTime) - minutes(b.startTime));

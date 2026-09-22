@@ -22,7 +22,7 @@ describe("T12 recovery route contract", () => {
 
   it("commits only through the service-role V4.8 transaction", () => {
     expect(route).toContain("getServerAdminSupabase");
-    expect(route).toContain('admin.rpc("apply_authoritative_schedule_recovery_v48"');
+    expect(route).toContain('admin.rpc("apply_authoritative_schedule_recovery_v63"');
   });
 
   it("removes active browser calls to legacy rebase/undo RPCs", () => {

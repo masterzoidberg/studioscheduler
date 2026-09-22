@@ -1,6 +1,7 @@
 import type { ClassDefinition, ClassSession, Student } from "@/lib/domain";
 import { rulebookRosterRepairs, type RulebookRosterRepair } from "@/lib/planning-roster-repair";
 import { rulebookClassStructureRepairs } from "@/lib/planning-structure-repair";
+import type { TenantClassStructureRequirement, TenantRosterRequirement } from "@/lib/tenant-policy";
 
 export interface RequiredClassIntakeCandidate {
   className: string;
@@ -77,15 +78,17 @@ export function requiredClassIntakeCandidates(input: {
   classes: ClassDefinition[];
   sessions: ClassSession[];
   students: Student[];
+  structureRequirements?: TenantClassStructureRequirement[] | null;
+  rosterRequirements?: TenantRosterRequirement[] | null;
 }): RequiredClassIntakeCandidate[] {
-  const rosterRepairs = rulebookRosterRepairs({ classes: input.classes, students: input.students });
+  const rosterRepairs = rulebookRosterRepairs({ classes: input.classes, students: input.students, requirements: input.rosterRequirements });
   const rosterMissing = missingRosterByClass(rosterRepairs);
   const candidates = new Map<string, RequiredClassIntakeCandidate>();
 
   // Creating a missing class establishes new planning truth. Even when the
   // Rulebook establishes frequency/duration, roster membership, curriculum
   // scope and descriptive fields still require explicit manager review.
-  for (const repair of rulebookClassStructureRepairs({ classes: input.classes, sessions: input.sessions })) {
+  for (const repair of rulebookClassStructureRepairs({ classes: input.classes, sessions: input.sessions, requirements: input.structureRequirements })) {
     if (repair.status !== "MISSING") continue;
     const key = normalizeName(repair.className);
     const roster = rosterMissing.get(key);

@@ -37,9 +37,9 @@ describe("planning inventory archive lifecycle", () => {
     expect(serverState).toContain("planningFactsFromSnapshot(planning.snapshot)");
   });
 
-  it("scopes archived history reads to the DWDE studio", () => {
-    expect(archivePanel).toContain('const STUDIO_ID = "11111111-1111-4111-8111-111111111111"');
-    expect(archivePanel.match(/\.eq\("studio_id", STUDIO_ID\)/g)?.length ?? 0).toBe(4);
+  it("scopes archived history reads to the selected studio", () => {
+    expect(archivePanel).toContain("loadArchivedItems(state.studioId, requestedTypes)");
+    expect(archivePanel.match(/\.eq\("studio_id", studioId\)/g)?.length ?? 0).toBe(4);
   });
 
   it("blocks unsafe student, teacher, room, and class archives", () => {
@@ -62,7 +62,7 @@ describe("planning inventory archive lifecycle", () => {
   });
 
   it("routes archive and restore through the governed RPC with explicit archive confirmation", () => {
-    expect(archiveClient).toContain('rpc("set_planning_entity_archive_v40"');
+    expect(archiveClient).toContain('rpc("set_planning_entity_archive_v63"');
     expect(peopleView).toContain('archiveEntity("TEACHER"');
     expect(peopleView).toContain('archiveEntity("STUDENT"');
     expect(peopleView).toContain('archiveEntity("ROOM"');

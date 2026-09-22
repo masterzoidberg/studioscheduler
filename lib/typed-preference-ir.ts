@@ -8,13 +8,16 @@ export function compileTypedPreferenceIR(
   ruleIds: string[],
   rank: number,
 ): ObjectivePriorityIR | null {
+  if (rule.strength === "HARD" || rule.classificationRaw?.trim().toUpperCase() === "HARD") return null;
+
   const common = {
     ruleId: rule.id,
     ruleIds,
     rank,
     title: rule.title,
     description: rule.description,
-    scoringEnabled: false,
+    strength: rule.strength ?? "BASELINE",
+    scoringEnabled: true,
   } as const;
 
   switch (policy.kind) {

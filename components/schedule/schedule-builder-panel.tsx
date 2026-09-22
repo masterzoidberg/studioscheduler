@@ -2,14 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { AlertTriangle, CalendarPlus2, CheckCircle2, ChevronDown, ChevronUp, Clock3, Inbox, RotateCcw, X } from "lucide-react";
-import type { Assignment, ClassSession, Day } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type ClassSession, type Day } from "@/lib/domain";
 import { assignmentIdForSession, defaultStartTime, placementEndTime, sessionDurationMinutes, unscheduledSessions } from "@/lib/schedule-builder";
 import { evaluateScheduleReadiness } from "@/lib/schedule-readiness";
 import { subjectMarker } from "@/lib/schedule-visuals";
 import { useWorkspace } from "@/components/workspace-provider";
 import { useScheduleEditMode } from "@/components/schedule/schedule-edit-mode";
 
-const days: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const days: Day[] = [...SCHEDULE_DAYS];
 type Tab = "UNSCHEDULED" | "PLACED";
 
 function pretty(value: string) {
@@ -95,8 +95,8 @@ export function ScheduleBuilderPanel() {
   function changeDay(nextDay: Day) {
     setDay(nextDay);
     const nextDefault = defaultStartTime(nextDay);
-    if (nextDay === "Saturday" && startTime > "14:45") setStartTime(nextDefault);
-    if (nextDay !== "Saturday" && startTime < "16:45") setStartTime(nextDefault);
+    if ((nextDay === "Saturday" || nextDay === "Sunday") && startTime > "14:45") setStartTime(nextDefault);
+    if (nextDay !== "Saturday" && nextDay !== "Sunday" && startTime < "16:45") setStartTime(nextDefault);
   }
 
   async function placeSession() {

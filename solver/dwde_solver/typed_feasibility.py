@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from ortools.sat.python import cp_model
@@ -533,6 +534,118 @@ def _build_typed_model(problem: dict[str, Any], diagnostic: bool) -> legacy.Buil
     return built
 
 
+OBJECTIVE_STRENGTH_ORDER = ["VERY_STRONG", "MODERATE", "LIGHT", "BASELINE"]
+OBJECTIVE_DEFINITIONS = {
+    "PREFERRED_DAY": ("preferredDayMatches", "days", "MAXIMIZE"),
+    "AVOID_DAY": ("avoidedDayAssignments", "days", "MINIMIZE"),
+    "PREFERRED_TEACHER": ("preferredTeacherMatches", "count", "MAXIMIZE"),
+    "PREFERRED_ROOM": ("preferredRoomMatches", "count", "MAXIMIZE"),
+}
+
+
+def _objective_specs(problem: dict[str, Any], built: legacy.BuiltModel) -> list[dict[str, Any]]:
+    classes = {str(item["id"]): item for item in problem.get("classes", [])}
+    teachers = {str(item["id"]): item for item in problem.get("teachers", [])}
+    rooms = {str(item["id"]): item for item in problem.get("rooms", [])}
+    raw_objectives = problem["constraintModel"].get("objectivePrioritySpine") or []
+    objectives = [item for item in raw_objectives if isinstance(item, dict)]
+
+    def sort_key(item: dict[str, Any]):
+        rank = item.get("rank")
+        rank_value = rank if isinstance(rank, (int, float)) and not isinstance(rank, bool) else 2**31
+        strength = str(item.get("strength") or "BASELINE")
+        strength_index = OBJECTIVE_STRENGTH_ORDER.index(strength) if strength in OBJECTIVE_STRENGTH_ORDER else len(OBJECTIVE_STRENGTH_ORDER) - 1
+        return rank_value, strength_index, str(item.get("ruleId") or "")
+
+    specs: list[dict[str, Any]] = []
+    for objective in sorted(objectives, key=sort_key):
+        kind = objective.get("kind")
+        if kind not in OBJECTIVE_DEFINITIONS or objective.get("scoringEnabled") is False:
+            continue
+        selector = objective.get("selector") or {}
+        parameters = objective.get("parameters") or {}
+        class_ids = selector.get("classIds")
+        if not isinstance(class_ids, list) or not class_ids or any(str(value) not in classes for value in class_ids):
+            continue
+        selected = [item for item in built.sessions.values() if str(item.klass.get("id")) in {str(value) for value in class_ids}]
+        terms: list[Any] = []
+
+        if kind in {"PREFERRED_DAY", "AVOID_DAY"}:
+            days = parameters.get("days")
+            if not isinstance(days, list) or not days or any(str(day) not in legacy.DAY_INDEX for day in days):
+                continue
+            day_indexes = list(dict.fromkeys(legacy.DAY_INDEX[str(day)] for day in days))
+            terms = [item.day_flags[day_index] for item in selected for day_index in day_indexes]
+        elif kind == "PREFERRED_TEACHER":
+            teacher_id = parameters.get("teacherId")
+            selector_teacher_ids = selector.get("teacherIds")
+            if not isinstance(teacher_id, str) or not teacher_id:
+                if isinstance(selector_teacher_ids, list) and len(selector_teacher_ids) == 1:
+                    teacher_id = str(selector_teacher_ids[0])
+            if not isinstance(teacher_id, str) or teacher_id not in teachers:
+                continue
+            terms = [item.teacher[teacher_id] for item in selected]
+        elif kind == "PREFERRED_ROOM":
+            room_id = parameters.get("roomId")
+            selector_room_ids = selector.get("roomIds")
+            if not isinstance(room_id, str) or not room_id:
+                if isinstance(selector_room_ids, list) and len(selector_room_ids) == 1:
+                    room_id = str(selector_room_ids[0])
+            if not isinstance(room_id, str) or room_id not in rooms:
+                continue
+            terms = [item.room[room_id] for item in selected]
+
+        metric, unit, direction = OBJECTIVE_DEFINITIONS[kind]
+        specs.append({
+            "ruleId": str(objective.get("ruleId") or ""),
+            "rank": objective.get("rank") if isinstance(objective.get("rank"), (int, float)) and not isinstance(objective.get("rank"), bool) else 2**31,
+            "strength": str(objective.get("strength")) if objective.get("strength") in OBJECTIVE_STRENGTH_ORDER else "BASELINE",
+            "metric": metric,
+            "unit": unit,
+            "direction": direction,
+            "terms": terms,
+            "expression": sum(terms) if terms else 0,
+        })
+    return specs
+
+
+def _objective_values(specs: list[dict[str, Any]], solver: cp_model.CpSolver | Any) -> list[dict[str, Any]]:
+    values = []
+    for spec in specs:
+        expression = spec["expression"]
+        value = int(solver.value(expression)) if spec["terms"] else 0
+        values.append({
+            "ruleId": spec["ruleId"],
+            "rank": spec["rank"],
+            "strength": spec["strength"],
+            "metric": spec["metric"],
+            "unit": spec["unit"],
+            "direction": spec["direction"],
+            "value": value,
+        })
+    return values
+
+
+def _diagnostic_blockers(
+    problem: dict[str, Any],
+    deadline: float,
+) -> list[str]:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return []
+    diagnostic = _build_typed_model(problem, diagnostic=True)
+    diagnostic_solver = legacy._solver(max_seconds=remaining, diagnostic=True)
+    diagnostic_status = diagnostic_solver.solve(diagnostic.model)
+    if diagnostic_status != cp_model.INFEASIBLE:
+        return []
+    blockers: list[str] = []
+    for literal_index in diagnostic_solver.sufficient_assumptions_for_infeasibility():
+        constraint_id = diagnostic.assumptions.get(literal_index)
+        if constraint_id:
+            blockers.append(constraint_id)
+    return sorted(set(blockers))
+
+
 def solve_feasibility(problem: dict[str, Any], max_seconds: float = 5.0) -> dict[str, Any]:
     constraints = problem["constraintModel"]["hardConstraints"]
     supported = legacy.SUPPORTED_KINDS | legacy.DELEGATED_KINDS | POL02_UNIQUE_KINDS
@@ -562,48 +675,125 @@ def solve_feasibility(problem: dict[str, Any], max_seconds: float = 5.0) -> dict
         }
 
     built = _build_typed_model(problem, diagnostic=False)
-    solver = legacy._solver(max_seconds=max_seconds, diagnostic=False)
-    status = solver.solve(built.model)
+    specs = _objective_specs(problem, built)
+    optimizable_specs = [spec for spec in specs if spec["terms"]]
+    deadline = time.monotonic() + max(0.0, max_seconds)
+    incumbent_solver: cp_model.CpSolver | Any | None = None
+    incumbent_status = "FEASIBLE_INCUMBENT"
+    last_solver: cp_model.CpSolver | Any | None = None
+    completed_objectives = 0
 
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+    if not optimizable_specs:
+        remaining = max(0.001, deadline - time.monotonic())
+        solver = legacy._solver(max_seconds=remaining, diagnostic=False)
+        status = solver.solve(built.model)
+        last_solver = solver
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            return {
+                "status": "FEASIBLE",
+                "optimizationStatus": "FEASIBILITY_ONLY",
+                "provenOptimal": False,
+                "unsupportedConstraintIds": [],
+                "delegatedConstraintIds": delegated,
+                "missingPreconditionConstraintIds": [],
+                "assignments": legacy._extract_assignments(built, solver),
+                "objectiveValues": _objective_values(specs, solver),
+                "blockingConstraintIds": [],
+                "wallTimeSeconds": solver.wall_time,
+                "branches": solver.num_branches,
+                "conflicts": solver.num_conflicts,
+            }
+        if status == cp_model.INFEASIBLE:
+            return {
+                "status": "INFEASIBLE",
+                "optimizationStatus": "INFEASIBLE",
+                "provenOptimal": False,
+                "unsupportedConstraintIds": [],
+                "delegatedConstraintIds": delegated,
+                "missingPreconditionConstraintIds": [],
+                "assignments": [],
+                "objectiveValues": [],
+                "blockingConstraintIds": _diagnostic_blockers(problem, deadline),
+                "wallTimeSeconds": solver.wall_time,
+            }
         return {
-            "status": "FEASIBLE",
-            "unsupportedConstraintIds": [],
-            "delegatedConstraintIds": delegated,
-            "missingPreconditionConstraintIds": [],
-            "assignments": legacy._extract_assignments(built, solver),
-            "blockingConstraintIds": [],
-            "wallTimeSeconds": solver.wall_time,
-            "branches": solver.num_branches,
-            "conflicts": solver.num_conflicts,
-        }
-
-    if status == cp_model.INFEASIBLE:
-        diagnostic = _build_typed_model(problem, diagnostic=True)
-        diagnostic_solver = legacy._solver(max_seconds=max_seconds, diagnostic=True)
-        diagnostic_status = diagnostic_solver.solve(diagnostic.model)
-        blockers: list[str] = []
-        if diagnostic_status == cp_model.INFEASIBLE:
-            for literal_index in diagnostic_solver.sufficient_assumptions_for_infeasibility():
-                constraint_id = diagnostic.assumptions.get(literal_index)
-                if constraint_id:
-                    blockers.append(constraint_id)
-        return {
-            "status": "INFEASIBLE",
+            "status": "UNKNOWN",
+            "optimizationStatus": "NO_FEASIBLE_SOLUTION",
+            "provenOptimal": False,
             "unsupportedConstraintIds": [],
             "delegatedConstraintIds": delegated,
             "missingPreconditionConstraintIds": [],
             "assignments": [],
-            "blockingConstraintIds": sorted(set(blockers)),
+            "objectiveValues": [],
+            "blockingConstraintIds": [],
             "wallTimeSeconds": solver.wall_time,
         }
 
+    for spec in optimizable_specs:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if spec["direction"] == "MAXIMIZE":
+            built.model.maximize(spec["expression"])
+        else:
+            built.model.minimize(spec["expression"])
+        solver = legacy._solver(max_seconds=remaining, diagnostic=False)
+        status = solver.solve(built.model)
+        last_solver = solver
+        if status == cp_model.OPTIMAL:
+            incumbent_solver = solver
+            completed_objectives += 1
+            value = int(solver.value(spec["expression"]))
+            built.model.add(spec["expression"] == value)
+            continue
+        if status == cp_model.FEASIBLE:
+            incumbent_solver = solver
+            incumbent_status = "FEASIBLE_INCUMBENT"
+            break
+        if status == cp_model.INFEASIBLE:
+            if incumbent_solver is None:
+                return {
+                    "status": "INFEASIBLE",
+                    "optimizationStatus": "INFEASIBLE",
+                    "provenOptimal": False,
+                    "unsupportedConstraintIds": [],
+                    "delegatedConstraintIds": delegated,
+                    "missingPreconditionConstraintIds": [],
+                    "assignments": [],
+                    "objectiveValues": [],
+                    "blockingConstraintIds": _diagnostic_blockers(problem, deadline),
+                    "wallTimeSeconds": solver.wall_time,
+                }
+            break
+        break
+
+    if incumbent_solver is None:
+        return {
+            "status": "UNKNOWN",
+            "optimizationStatus": "NO_FEASIBLE_SOLUTION",
+            "provenOptimal": False,
+            "unsupportedConstraintIds": [],
+            "delegatedConstraintIds": delegated,
+            "missingPreconditionConstraintIds": [],
+            "assignments": [],
+            "objectiveValues": [],
+            "blockingConstraintIds": [],
+            "wallTimeSeconds": getattr(last_solver, "wall_time", 0.0),
+        }
+
+    incumbent_status = "OPTIMAL" if completed_objectives == len(optimizable_specs) else "FEASIBLE_INCUMBENT"
+
     return {
-        "status": "UNKNOWN",
+        "status": "FEASIBLE",
+        "optimizationStatus": incumbent_status,
+        "provenOptimal": incumbent_status == "OPTIMAL",
         "unsupportedConstraintIds": [],
         "delegatedConstraintIds": delegated,
         "missingPreconditionConstraintIds": [],
-        "assignments": [],
+        "assignments": legacy._extract_assignments(built, incumbent_solver),
+        "objectiveValues": _objective_values(specs, incumbent_solver),
         "blockingConstraintIds": [],
-        "wallTimeSeconds": solver.wall_time,
+        "wallTimeSeconds": getattr(last_solver or incumbent_solver, "wall_time", 0.0),
+        "branches": getattr(last_solver or incumbent_solver, "num_branches", 0),
+        "conflicts": getattr(last_solver or incumbent_solver, "num_conflicts", 0),
     }

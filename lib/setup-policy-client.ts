@@ -8,14 +8,18 @@ function message(error: unknown) {
 }
 
 export async function applySetupTypedPolicies(input: {
+  studioId: string;
   policies: SetupTypedPolicyPatch[];
-    reason: string;
-    expectedRulebookVersion: number;
-    expectedEnforcementVersion: number;
-    expectedPlanningDatasetVersion: number;
+  reason: string;
+  expectedRulebookVersion: number;
+  expectedEnforcementVersion: number;
+  expectedPlanningDatasetVersion: number;
+  emptyWorkspace: boolean;
 }): Promise<SetupTypedPolicyMutationResult> {
   try {
-    const { data, error } = await getBrowserSupabase().rpc("apply_setup_typed_policies_v55", {
+    const rpcName = input.emptyWorkspace ? "apply_empty_workspace_setup_policies_v66" : "apply_setup_typed_policies_v63";
+    const { data, error } = await getBrowserSupabase().rpc(rpcName, {
+      p_studio_id: input.studioId,
       p_policies: input.policies,
       p_reason: input.reason,
       p_expected_rulebook_version: input.expectedRulebookVersion,
