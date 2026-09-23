@@ -1,6 +1,6 @@
 # Studio Scheduler planning authority
 
-Audit snapshot: 2026-09-22, branch `feat/pre-cami-hardening`, HEAD `a0a1900b6325f9792bd7868885f8b4e09daccfa6`, including the uncommitted changes listed in [CURRENT_STATE](CURRENT_STATE.md). This directory is the active plan. Source and tests outrank claims in planning prose.
+Audit baseline: 2026-09-22, branch `feat/pre-cami-hardening`, starting HEAD `a0a1900b6325f9792bd7868885f8b4e09daccfa6`, with implementation changes later frozen at `cb6520d985d3febd2297e01311b298bb65e3c392`. The audit's implementation and verification details are listed in [CURRENT_STATE](CURRENT_STATE.md). This directory is the active plan. Source and tests outrank claims in planning prose.
 
 Read this file, [CURRENT_STATE](CURRENT_STATE.md), [NEXT](NEXT.md), then the selected milestone file. [ROADMAP](ROADMAP.md) owns milestone order and status; milestone files own task status and completion gates; [DECISIONS](DECISIONS.md) owns accepted authority; [RISKS](RISKS.md) records material open gates. Update these together after verified work. Mark a task or milestone complete only with the specified evidence and exact implementation reference. Keep completed milestone files as the durable record; do not recycle IDs.
 
