@@ -1,0 +1,11 @@
+# Studio Scheduler planning authority
+
+Audit snapshot: 2026-09-22, branch `feat/pre-cami-hardening`, HEAD `a0a1900b6325f9792bd7868885f8b4e09daccfa6`, including the uncommitted changes listed in [CURRENT_STATE](CURRENT_STATE.md). This directory is the active plan. Source and tests outrank claims in planning prose.
+
+Read this file, [CURRENT_STATE](CURRENT_STATE.md), [NEXT](NEXT.md), then the selected milestone file. [ROADMAP](ROADMAP.md) owns milestone order and status; milestone files own task status and completion gates; [DECISIONS](DECISIONS.md) owns accepted authority; [RISKS](RISKS.md) records material open gates. Update these together after verified work. Mark a task or milestone complete only with the specified evidence and exact implementation reference. Keep completed milestone files as the durable record; do not recycle IDs.
+
+`M01`–`M04` are outcome states, not automatic permission to deploy, contact managers, use private customer data, buy services, or delete data. Follow the repository's tenant, version, migration, and disposable verification rules. Run task-specific checks and report unavailable checks explicitly. Never use production as a test substitute.
+
+The preceding plan, status ledger, decision record, prompts and dated audit evidence are preserved with their directory structure in [the archive](../archived/README.md). They explain historical acceptance, but are no longer an execution queue. `plans.zip` was copied into that archive with matching SHA-256; its original remains at `plans/` because filesystem permissions prevented moving it. The operational `plans/OPS-01_RELEASE_CHECKLIST.md` remains at its test-referenced path with an archived copy. The repository's root `plans/README.md` and `plans/NEXT.md` are pointers here for existing entry instructions and links.
+
+Status vocabulary: **Verified** means repository source or a recorded executed check supports a claim; **Likely** means code suggests it but end-to-end evidence is absent; **Unknown** means the repository cannot establish it; **Planned only** means no material implementation was found; **Obsolete** means current code or accepted authority contradicts the claim. These labels describe evidence, not approval to operate a customer deployment.

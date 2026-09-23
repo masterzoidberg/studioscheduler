@@ -12,6 +12,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 
@@ -63,6 +64,17 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+async function startHangingSolver() {
+  const server = createServer(() => {});
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new E2EHarnessError('Could not bind the synthetic timeout solver to loopback.');
+  return { server, url: `http://127.0.0.1:${address.port}` };
+}
+
 function isLoopbackHost(host) {
   return host === 'localhost' || host === '127.0.0.1' || host === '::1';
 }
@@ -85,7 +97,7 @@ export function assertLoopbackUrl(name, value) {
 }
 
 function assertExistingEnvironmentIsSafe(env = process.env) {
-  for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL', 'STUDIO_SCHEDULER_TEST_DB_URL']) {
+  for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL', 'STUDIO_SCHEDULER_TEST_DB_URL', 'SOLVER_SERVICE_URL']) {
     assertLoopbackUrl(name, env[name]);
   }
 }
@@ -141,23 +153,15 @@ function setTomlValue(text, section, key, rawValue, required = true) {
   return lines.join('\n');
 }
 
-function ensureInbucketSection(text, ports) {
-  if (/^\s*\[inbucket\]\s*$/m.test(text)) return text;
-  return `${text.trimEnd()}\n\n[inbucket]\nenabled = true\nport = ${ports.mailpit}\nsmtp_port = ${ports.smtp}\npop3_port = ${ports.pop3}\n`;
-}
-
 function configureSupabaseProject(tempRoot, ports, projectId) {
   const configPath = path.join(tempRoot, 'supabase', 'config.toml');
   let config = readFileSync(configPath, 'utf8');
-  config = ensureInbucketSection(config, ports);
   config = config.replace(/^project_id\s*=.*$/m, `project_id = "${projectId}"`);
   config = setTomlValue(config, 'api', 'port', String(ports.api));
   config = setTomlValue(config, 'db', 'port', String(ports.db));
   config = setTomlValue(config, 'db', 'shadow_port', String(ports.shadow));
   config = setTomlValue(config, 'studio', 'port', String(ports.studio), false);
-  config = setTomlValue(config, 'inbucket', 'port', String(ports.mailpit));
-  config = setTomlValue(config, 'inbucket', 'smtp_port', String(ports.smtp));
-  config = setTomlValue(config, 'inbucket', 'pop3_port', String(ports.pop3));
+  config = setTomlValue(config, 'local_smtp', 'port', String(ports.mailpit));
   config = setTomlValue(config, 'analytics', 'port', String(ports.analytics), false);
   config = setTomlValue(config, 'db.pooler', 'port', String(ports.pooler), false);
   config = setTomlValue(config, 'edge_runtime', 'inspector_port', String(ports.inspector), false);
@@ -262,6 +266,103 @@ function replayRepositorySchema(dbContainer) {
     }
     applySql(dbContainer, readFileSync(file, 'utf8'), `forward migration ${path.basename(file)}`);
   }
+}
+
+function syntheticOutageFixtureSql(ownerUserId) {
+  const emptyModel = JSON.stringify({
+    schemaVersion: '1.0',
+    compilerVersion: 'dwde-ir-0.9',
+    rulebookVersion: 1,
+    activeRuleCount: 0,
+    hardConstraints: [],
+    objectivePrioritySpine: [],
+    readinessRuleIds: [],
+    governanceAssertions: [],
+    uncompiledConstraintRuleIds: [],
+    completeHardConstraintCompilation: true,
+  });
+  return String.raw`
+set search_path=public,extensions;
+delete from public.assignments where studio_id='${studioId}';
+delete from public.schedule_versions where studio_id='${studioId}';
+delete from public.scenarios where studio_id='${studioId}';
+delete from public.constraint_model_versions where studio_id='${studioId}';
+delete from public.rule_enforcement_proposals where studio_id='${studioId}';
+delete from public.rule_enforcement_versions where studio_id='${studioId}';
+delete from public.rule_history where studio_id='${studioId}';
+delete from public.audit_events where studio_id='${studioId}';
+delete from public.entity_versions where studio_id='${studioId}';
+delete from public.setup_review_attestations where studio_id='${studioId}';
+delete from public.rules where studio_id='${studioId}';
+delete from public.rulebook_versions where studio_id='${studioId}';
+delete from public.class_sessions where studio_id='${studioId}';
+delete from public.class_definitions where studio_id='${studioId}';
+delete from public.students where studio_id='${studioId}';
+delete from public.cohorts where studio_id='${studioId}';
+delete from public.teachers where studio_id='${studioId}';
+delete from public.rooms where studio_id='${studioId}';
+delete from public.studio_invites where studio_id='${studioId}';
+delete from public.studio_members where studio_id='${studioId}';
+delete from public.planning_dataset_versions where studio_id='${studioId}';
+delete from public.studio_creation_requests where studio_id='${studioId}';
+do $block$ begin
+  if to_regclass('public.planning_source_manifest_versions') is not null then
+    delete from public.planning_source_manifest_versions where studio_id='${studioId}';
+  end if;
+end $block$;
+
+update public.studios set name='VERIFY-01 Synthetic Outage Studio', slug='verify01-synthetic-outage' where id='${studioId}';
+insert into public.studio_members(studio_id,user_id,role) values('${studioId}','${ownerUserId}','OWNER');
+with source as (
+  select encode(extensions.digest(pg_catalog.convert_to('[]','UTF8'),'sha256'),'hex') as source_hash
+)
+insert into public.rulebook_versions(
+  studio_id,version,name,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,
+  rulebook_id,status,source_hash,rule_count,format_version,document_type,source_metadata
+)
+select '${studioId}',1,'VERIFY-01 Empty Rulebook','${ownerUserId}','Verify Owner','Synthetic empty ready-state outage fixture','{}','[]'::jsonb,
+  'verify01-empty-rulebook','CURRENT',source.source_hash,0,'1.0','STUDIO_RULEBOOK',
+  jsonb_build_object('fixture','VERIFY-01-outage','tenantPolicyManifest',jsonb_build_object(
+    'schemaVersion','1.0','sourceRulebookVersion',1,'sourceRulebookId','verify01-empty-rulebook','sourceHash',source.source_hash,
+    'activeRuleIds','[]'::jsonb,'records','[]'::jsonb,'constraints','[]'::jsonb,'objectivePrioritySpine','[]'::jsonb,
+    'readinessRuleIds','[]'::jsonb,'governanceAssertions','[]'::jsonb,'preconditions','[]'::jsonb,
+    'conversion',jsonb_build_object('kind','REVIEWED_RULEBOOK_TO_TENANT_RECORDS','sourceVersion',1,'sourceRuleCount',0)
+  ))
+from source;
+insert into public.rule_enforcement_versions(studio_id,version,rulebook_version,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,status)
+values('${studioId}',1,1,'${ownerUserId}','Verify Owner','Synthetic empty enforcement fixture','{}','[]'::jsonb,'CURRENT');
+select private.ensure_planning_dataset_version_v25('${studioId}','${ownerUserId}','Verify Owner','VERIFY-01 synthetic empty outage planning fixture');
+do $block$
+declare
+  v_model jsonb := '${emptyModel}'::jsonb;
+  v_planning integer;
+begin
+  select version into v_planning from public.planning_dataset_versions where studio_id='${studioId}' and status='CURRENT';
+  insert into public.constraint_model_versions(
+    studio_id,version,rulebook_version,compiler_version,actor_user_id,actor_label,reason,snapshot,snapshot_hash,complete_hard_constraint_compilation,status
+  ) values(
+    '${studioId}',1,1,'dwde-ir-0.9','${ownerUserId}','Verify Owner','Synthetic empty outage Constraint IR',v_model,
+    private.constraint_model_hash_v27(v_model),true,'CURRENT'
+  );
+  update public.planning_dataset_versions
+  set confirmed_for_scheduling_at=now(),confirmed_for_scheduling_by='${ownerUserId}',confirmed_for_scheduling_by_label='Verify Owner',
+      scheduling_confirmation_note='Synthetic empty-state fixture for the disposable outage journey',
+      certification_rulebook_version=1,certification_constraint_model_version=1,
+      certification_constraint_model_snapshot_hash=private.constraint_model_hash_v27(v_model),
+      certification_review_set_fingerprint=private.build_readiness_review_set_v60('${studioId}') ->> 'fingerprint',
+      certification_review_schema_version=1
+  where studio_id='${studioId}' and version=v_planning and status='CURRENT';
+  insert into public.schedule_versions(
+    studio_id,version,rulebook_version,enforcement_version,planning_dataset_version,constraint_model_version,
+    actor_user_id,actor_label,reason,is_current,validation_result
+  ) values(
+    '${studioId}',1,1,1,v_planning,1,'${ownerUserId}','Verify Owner','VERIFY-01 synthetic empty current schedule',true,
+    '{"valid":true,"fullyValidated":true,"hardViolations":0,"warnings":0,"violations":[],"coverage":{"applicableHardRules":0,"implementedHardRules":0,"partialHardRules":0,"notImplementedHardRules":0,"notApplicableHardRules":0,"uncoveredHardRuleIds":[]}}'::jsonb
+  );
+end
+$block$;
+select pg_notify('pgrst','reload schema');
+`;
 }
 
 function syntheticFixtureSql(ownerUserId) {
@@ -439,10 +540,12 @@ async function stopChild(child) {
   if (child.exitCode === null) child.kill('SIGKILL');
 }
 
-async function runHarness() {
+async function runHarness(simulationMode = null) {
   assertExistingEnvironmentIsSafe();
   ensureSupabaseCli();
   const playwrightCli = ensurePlaywright();
+
+  const simulateSolverFailure = simulationMode === 'outage' || simulationMode === 'timeout';
 
   const base = 55000 + (process.pid % 650) * 10;
   const ports = {
@@ -451,8 +554,6 @@ async function runHarness() {
     db: base + 2,
     studio: base + 3,
     mailpit: base + 4,
-    smtp: base + 5,
-    pop3: base + 6,
     analytics: base + 7,
     pooler: base + 8,
     inspector: base + 9,
@@ -465,6 +566,7 @@ async function runHarness() {
   let nextProcess = null;
   let nextLogFd = null;
   let supabaseStarted = false;
+  let hangingSolver = null;
 
   try {
     runSupabase(['init'], { cwd: tempRoot });
@@ -494,7 +596,12 @@ async function runHarness() {
     if (created.error || !created.data.user) {
       throw new E2EHarnessError(`Could not create synthetic local Auth user: ${created.error?.message || 'missing user'}`);
     }
-    applySql(dbContainer, syntheticFixtureSql(created.data.user.id), 'VERIFY-01 synthetic browser fixture');
+    if (simulationMode === 'timeout') hangingSolver = await startHangingSolver();
+    applySql(
+      dbContainer,
+      simulateSolverFailure ? syntheticOutageFixtureSql(created.data.user.id) : syntheticFixtureSql(created.data.user.id),
+      simulateSolverFailure ? 'VERIFY-01 synthetic ready solver-failure fixture' : 'VERIFY-01 synthetic browser fixture',
+    );
     await delay(1000);
 
     const appEnv = {
@@ -503,6 +610,11 @@ async function runHarness() {
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: status.anonKey,
       SUPABASE_URL: status.apiUrl,
       SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
+      ...(simulateSolverFailure ? {
+        SOLVER_SERVICE_URL: simulationMode === 'timeout' ? hangingSolver.url : 'http://127.0.0.1:1',
+        SOLVER_INTERNAL_TOKEN: 'disposable-e2e-solver-token',
+      } : {}),
+      ...(simulationMode === 'timeout' ? { SOLVER_MAX_SECONDS: '1' } : {}),
     };
     nextLogFd = openSync(nextLogPath, 'w');
     nextProcess = spawn(executable('npm'), ['run', 'dev', '--', '--hostname', '127.0.0.1', '--port', String(ports.app)], {
@@ -523,19 +635,50 @@ async function runHarness() {
       E2E_DB_CONTAINER: dbContainer,
       E2E_OWNER_EMAIL: ownerEmail,
       E2E_STUDIO_ID: studioId,
+      ...(simulationMode === 'outage' ? { E2E_SIMULATE_SOLVER_OUTAGE: '1' } : {}),
+      ...(simulationMode === 'timeout' ? { E2E_SIMULATE_SOLVER_TIMEOUT: '1' } : {}),
     };
-    const testRun = run(process.execPath, [
+    const testArgs = [
       playwrightCli,
       'test',
       'tests/e2e/verify01-authenticated.spec.mjs',
       '--workers=1',
       '--reporter=line',
-    ], { env: e2eEnv, timeout: 4 * 60 * 1000 });
+    ];
+    if (simulateSolverFailure) testArgs.push('--grep=OPS-02');
+    const testRun = run(process.execPath, testArgs, { env: e2eEnv, timeout: 4 * 60 * 1000 });
     process.stdout.write(testRun.stdout);
     process.stderr.write(testRun.stderr);
+    if (simulateSolverFailure) {
+      const logLines = readFileSync(nextLogPath, 'utf8').split(/\r?\n/);
+      const events = logLines.flatMap((line) => {
+        const marker = line.indexOf('{"event":"solver_feasibility_request"');
+        if (marker < 0) return [];
+        try { return [JSON.parse(line.slice(marker))]; } catch { return []; }
+      });
+      const expected = simulationMode === 'timeout'
+        ? { outcome: 'TIMEOUT', httpStatus: 504, code: 'SOLVER_SERVICE_TIMEOUT' }
+        : { outcome: 'UNAVAILABLE', httpStatus: 503, code: 'SOLVER_SERVICE_UNAVAILABLE' };
+      const failureEvent = events.find((event) => event.outcome === expected.outcome && event.failure === true && event.httpStatus === expected.httpStatus && event.code === expected.code);
+      if (!failureEvent) throw new E2EHarnessError(`OPS-02 synthetic ${simulationMode} did not produce its countable structured solver event.`);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(failureEvent.requestId)) {
+        throw new E2EHarnessError(`OPS-02 structured ${simulationMode} event did not include a valid request correlation ID.`);
+      }
+      if (simulationMode === 'timeout' && failureEvent.durationMs < 5000) {
+        throw new E2EHarnessError('OPS-02 synthetic timeout event was logged before the server-side timeout elapsed.');
+      }
+      if (logLines.some((line) => line.includes('Synthetic Private Student') || line.includes(ownerEmail))) {
+        throw new E2EHarnessError(`OPS-02 synthetic ${simulationMode} logs included private fixture data.`);
+      }
+      process.stdout.write(`OPS-02 log verification PASS: correlated ${simulationMode} event is countable and contains no private fixture data.\n`);
+    }
   } finally {
     await stopChild(nextProcess);
     if (nextLogFd !== null) closeSync(nextLogFd);
+    if (hangingSolver) {
+      hangingSolver.server.closeAllConnections();
+      await new Promise((resolve) => hangingSolver.server.close(resolve));
+    }
     if (supabaseStarted) {
       const invocation = supabaseInvocation();
       const stopped = spawnSync(invocation.command, [...invocation.args, 'stop', '--no-backup'], {
@@ -561,7 +704,15 @@ async function main() {
   if (!args.has('--allow-disposable') && process.env.STUDIO_SCHEDULER_E2E_ALLOW_DISPOSABLE !== '1') {
     throw new E2EHarnessError('Refusing to run without explicit disposable opt-in. Use npm run test:e2e.');
   }
-  await runHarness();
+  const simulationMode = args.has('--simulate-solver-timeout')
+    ? 'timeout'
+    : args.has('--simulate-solver-outage')
+      ? 'outage'
+      : null;
+  if (args.has('--simulate-solver-timeout') && args.has('--simulate-solver-outage')) {
+    throw new E2EHarnessError('Choose one solver simulation mode: outage or timeout.');
+  }
+  await runHarness(simulationMode);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {

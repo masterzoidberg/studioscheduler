@@ -94,7 +94,7 @@ The Constraint IR runtime governs server MOVE, ASSIGN/UNASSIGN, recovery and sol
 
 ## Safety language
 
-Supported deterministic meaning is required for canonical scheduling. A legal partial draft is not a complete reviewed schedule; unsupported HARD policy must fail closed. Current unit tests do not establish complete DWDE data or deployed manager acceptance. See the [canonical product plan](plans/MASTER_PLAN.md).
+Supported deterministic meaning is required for canonical scheduling. A legal partial draft is not a complete reviewed schedule; unsupported HARD policy must fail closed. Current unit tests do not establish complete DWDE data or deployed manager acceptance. See the [canonical product plan](plans/new-rework-09-22-2026/README.md).
 
 ## Mutation boundaries
 
@@ -199,4 +199,4 @@ A new Constraint IR kind must never silently fall through the runtime. Coverage 
 
 ## Development plan
 
-Start with [plans/README.md](plans/README.md), then [plans/NEXT.md](plans/NEXT.md) and its linked prompt. These are the canonical planning entry points; dated docs and _OLD files are historical evidence. The plan covers manager setup/review, complete scheduling workflow, independent studio onboarding, pilot operations and Product v1.
+Start with [plans/README.md](plans/README.md), then the [current milestone plan](plans/new-rework-09-22-2026/README.md) and its NEXT. Prior planning documents and prompts are historical evidence. The plan covers supported operations, release and independent-studio qualification, pilot operation and repeatable Product v1.

@@ -67,10 +67,13 @@ export function presentSolverOutcome(input: {
     return {
       kind: "UNKNOWN",
       title: "We could not determine whether a schedule exists",
-      message: "The schedule build stopped before it could prove a result. No conclusion about whether a schedule exists was reached, and your current schedule is unchanged.",
+      message: "The schedule service stopped before it could prove a result. This is a timeout, not proof that no schedule exists. No candidate was saved and your current schedule is unchanged. Check readiness, wait briefly, and try again. If it repeats, share the safe support reference with your workspace operator.",
       retryable: true,
-      links: [],
-      diagnostic: payload.error || payload.code,
+      links: [
+        { href: "/readiness", label: "Check build readiness" },
+        { href: "/schedule", label: "Open current schedule" },
+      ],
+      diagnostic: payload.code,
     };
   }
 
@@ -142,16 +145,22 @@ export function presentSolverOutcome(input: {
     };
   }
 
-  const serviceNotConfigured = code === "SOLVER_SERVICE_NOT_CONFIGURED" || input.httpStatus === 503;
+  const serviceNotConfigured = code === "SOLVER_SERVICE_NOT_CONFIGURED";
   return {
     kind: "UNAVAILABLE",
     title: "Schedule builder is temporarily unavailable",
     message: serviceNotConfigured
-      ? "The private schedule builder is not ready on this workspace yet. Your current schedule is unchanged. Ask an administrator to finish the server setup."
-      : "The private schedule builder did not return a usable result. Your current schedule is unchanged. Try again later.",
+      ? "The private schedule builder is not configured on the application backend. Your current schedule is unchanged. Ask the workspace operator to finish the server setup."
+      : "The schedule service could not complete this build. No candidate was saved and your current schedule is unchanged. Check readiness, wait briefly, and try again. If it repeats, share the safe support reference with your workspace operator.",
     retryable: !serviceNotConfigured,
-    links: serviceNotConfigured ? [{ href: "/settings", label: "Open Settings" }] : [],
-    diagnostic: input.transportError || payload.error || payload.code,
+    links: serviceNotConfigured
+      ? [{ href: "/readiness", label: "Check build readiness" }]
+      : [
+        { href: "/readiness", label: "Check build readiness" },
+        { href: "/setup", label: "Review setup" },
+        { href: "/schedule", label: "Open current schedule" },
+      ],
+    diagnostic: payload.code,
   };
 }
 

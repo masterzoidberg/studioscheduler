@@ -5,6 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import type {
   Assignment,
   ClassDefinition,
+  PendingStudioInvite,
   PlanningDatasetVersion,
   RuleEnforcementMapping,
   RuleEnforcementProposal,
@@ -17,6 +18,7 @@ import type {
   Scenario,
   SchedulePatch,
   ScheduleVersion,
+  SetupAssignment,
   StudioInvite,
   StudioMember,
   StudioRule,
@@ -33,6 +35,7 @@ import type { SolverSnapshotContextToken } from "@/lib/server-studio-state";
 import { parseSolverCandidateReview, type SolverCandidateReview } from "@/lib/solver-candidate-review";
 import { applyReviewedCsvImport as applyReviewedCsvImportClient } from "@/lib/reviewed-csv-import-client";
 import type { ReviewedPlanningImportRow } from "@/lib/reviewed-csv-intake";
+import { createSetupAssignment as createSetupAssignmentClient, mapSetupAssignment, updateSetupAssignment as updateSetupAssignmentClient, type SetupAssignmentInput, type SetupAssignmentUpdate } from "@/lib/setup-assignments-client";
 
 const SELECTED_STUDIO_STORAGE_KEY = "studio-scheduler.selected-studio-id";
 
@@ -56,6 +59,8 @@ interface WorkspaceContextValue {
   switchStudio: (studioId: string) => Promise<void>;
   members: StudioMember[];
   invites: StudioInvite[];
+  pendingInvitations: PendingStudioInvite[];
+  setupAssignments: SetupAssignment[];
   candidateReviews: SolverCandidateReview[];
   currentAssignments: Assignment[];
   currentRulebookVersion: number;
@@ -83,6 +88,7 @@ interface WorkspaceContextValue {
   reviewEnforcementProposal: (proposalId: string, decision: "APPROVE" | "REJECT", reason: string) => Promise<MutationResult>;
   applyReviewedCsvImport: (input: { batchId: string; rows: ReviewedPlanningImportRow[]; reason: string; sourceMetadata?: Record<string, unknown> }) => Promise<MutationResult>;
   exportPackage: () => Record<string, unknown> | null;
+  exportWorkspaceData: () => Promise<MutationResult>;
   updateTeacher: (teacher: Teacher, reason: string) => Promise<MutationResult>;
   updateRoom: (room: Room, reason: string) => Promise<MutationResult>;
   updateClass: (klass: ClassDefinition, reason: string) => Promise<MutationResult>;
@@ -92,6 +98,9 @@ interface WorkspaceContextValue {
   setMemberRole: (userId: string, role: StudioRole) => Promise<MutationResult>;
   removeMember: (userId: string) => Promise<MutationResult>;
   cancelInvite: (inviteId: string) => Promise<MutationResult>;
+  acceptInvitation: (studioId: string, inviteId: string) => Promise<MutationResult>;
+  createSetupAssignment: (input: SetupAssignmentInput) => Promise<MutationResult>;
+  updateSetupAssignment: (input: SetupAssignmentUpdate) => Promise<MutationResult>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -202,6 +211,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StudioState | null>(null);
   const [members, setMembers] = useState<StudioMember[]>([]);
   const [invites, setInvites] = useState<StudioInvite[]>([]);
+  const [pendingInvitations, setPendingInvitations] = useState<PendingStudioInvite[]>([]);
+  const [setupAssignments, setSetupAssignments] = useState<SetupAssignment[]>([]);
   const [candidateReviews, setCandidateReviews] = useState<SolverCandidateReview[]>([]);
   const [solverContextToken, setSolverContextToken] = useState<SolverSnapshotContextToken | null>(null);
   const [availableWorkspaces, setAvailableWorkspaces] = useState<AvailableWorkspace[]>([]);
@@ -217,13 +228,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const generation = ++loadGeneration.current;
     const sess = activeSession === undefined ? session : activeSession;
     if (!sess) {
-      setRole(null); setState(null); setMembers([]); setInvites([]); setCandidateReviews([]); setSolverContextToken(null); setAvailableWorkspaces([]); setSelectedStudioId(null); setLoading(false); setError(null); return;
+      setRole(null); setState(null); setMembers([]); setInvites([]); setPendingInvitations([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null); setAvailableWorkspaces([]); setSelectedStudioId(null); setLoading(false); setError(null); return;
     }
     setLoading(true); setError(null); setSolverContextToken(null);
     try {
       const supabase = getBrowserSupabase();
-      const membershipsQ = await supabase.from("studio_members").select("studio_id,role").eq("user_id", sess.user.id).order("studio_id");
+      const [membershipsQ, pendingInvitationsQ] = await Promise.all([
+        supabase.from("studio_members").select("studio_id,role").eq("user_id", sess.user.id).order("studio_id"),
+        supabase.rpc("list_my_studio_invites_v71"),
+      ]);
       if (membershipsQ.error) throw membershipsQ.error;
+      if (pendingInvitationsQ.error) throw pendingInvitationsQ.error;
       const membershipRows = membershipsQ.data || [];
       const workspaceIds = membershipRows.map((row) => String(row.studio_id));
       const studiosQ = workspaceIds.length
@@ -236,14 +251,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }));
       if (generation !== loadGeneration.current) return;
       setAvailableWorkspaces(workspaces);
+      const pendingInvitationRows = Array.isArray(pendingInvitationsQ.data) ? pendingInvitationsQ.data : [];
+      setPendingInvitations(pendingInvitationRows.map((row: Record<string, unknown>) => ({
+        id: String(row.invite_id), studioId: String(row.studio_id), studioName: String(row.studio_name || "Studio workspace"),
+        role: row.role as StudioRole, createdAt: String(row.created_at), expiresAt: String(row.expires_at),
+        expired: Date.parse(String(row.expires_at)) <= Date.now(),
+      })));
       const persistedStudioId = requestedStudioId
         || (typeof window === "undefined" ? selectedStudioId : window.localStorage.getItem(SELECTED_STUDIO_STORAGE_KEY))
         || (workspaces.length === 1 ? workspaces[0].id : null);
       const selected = workspaces.find((workspace) => workspace.id === persistedStudioId) || null;
       if (!selected) {
-        setRole(null); setState(null); setMembers([]); setInvites([]); setCandidateReviews([]); setSolverContextToken(null);
+        setRole(null); setState(null); setMembers([]); setInvites([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null);
         setSelectedStudioId(null);
-        setError(workspaces.length ? "Select a workspace to continue." : "This account is signed in but has not been invited to a studio workspace.");
+        setError(workspaces.length ? "Select a workspace to continue." : pendingInvitationRows.length ? null : "This account is signed in but is not a member of a studio workspace.");
         return;
       }
       const activeStudioId = selected.id;
@@ -251,14 +272,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (typeof window !== "undefined") window.localStorage.setItem(SELECTED_STUDIO_STORAGE_KEY, activeStudioId);
       const membershipQ = membershipRows.find((row) => String(row.studio_id) === activeStudioId);
       if (!membershipQ) {
-        setRole(null); setState(null); setMembers([]); setInvites([]); setCandidateReviews([]); setSolverContextToken(null);
+        setRole(null); setState(null); setMembers([]); setInvites([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null);
         setError("The selected workspace is no longer available to this account.");
         return;
       }
       const nextRole = membershipQ.role as StudioRole;
       setRole(nextRole);
 
-      const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ, contextTokenQ] = await Promise.all([
+      const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ, contextTokenQ, setupAssignmentsQ] = await Promise.all([
         supabase.from("studios").select("*").eq("id", activeStudioId).single(),
         supabase.from("teachers").select("*").eq("studio_id", activeStudioId).is("archived_at", null).order("name"),
         supabase.from("rooms").select("*").eq("studio_id", activeStudioId).is("archived_at", null).order("name"),
@@ -277,8 +298,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         supabase.from("audit_events").select("*").eq("studio_id", activeStudioId).order("created_at", { ascending: false }).limit(100),
         supabase.rpc("list_studio_members_v63", { p_studio_id: activeStudioId }),
         supabase.rpc("get_solver_context_token_v43", { p_studio_id: activeStudioId }),
+        supabase.rpc("list_setup_assignments_v69", { p_studio_id: activeStudioId }),
       ]);
-      const queryError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ, contextTokenQ].find((query) => query.error)?.error;
+      const queryError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ, contextTokenQ, setupAssignmentsQ].find((query) => query.error)?.error;
       if (queryError) throw queryError;
       if (generation !== loadGeneration.current) return;
       if (!isSolverSnapshotContextToken(contextTokenQ.data, activeStudioId)) {
@@ -358,10 +380,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setMembers((memberQ.data || []).map((row: Record<string, unknown>) => ({
         userId: String(row.user_id), role: row.role as StudioRole, displayName: String(row.display_name || ""), email: String(row.email || ""), createdAt: String(row.created_at || ""),
       })));
+      setSetupAssignments((Array.isArray(setupAssignmentsQ.data) ? setupAssignmentsQ.data : [])
+        .map((row) => mapSetupAssignment(row as Record<string, unknown>))
+        .filter((row): row is SetupAssignment => row !== null));
       if (nextRole === "OWNER") {
-        const inviteQ = await supabase.from("studio_invites").select("id,email,role,created_at,accepted_at").eq("studio_id", activeStudioId).order("created_at", { ascending: false });
+        const inviteQ = await supabase.from("studio_invites").select("id,email,role,created_at,expires_at,accepted_at,revoked_at").eq("studio_id", activeStudioId).order("created_at", { ascending: false });
         if (inviteQ.error) throw inviteQ.error;
-        setInvites((inviteQ.data || []).map((row) => ({ id: row.id, email: row.email, role: row.role as StudioRole, createdAt: row.created_at, acceptedAt: row.accepted_at })));
+        setInvites((inviteQ.data || []).map((row) => ({ id: row.id, email: row.email, role: row.role as StudioRole, createdAt: row.created_at, expiresAt: row.expires_at, expired: Date.parse(String(row.expires_at)) <= Date.now(), acceptedAt: row.accepted_at, revokedAt: row.revoked_at })));
       } else setInvites([]);
     } catch (caught) {
       if (generation !== loadGeneration.current) return;
@@ -383,7 +408,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!session || !availableWorkspaces.some((workspace) => workspace.id === nextStudioId)) return;
     if (typeof window !== "undefined") window.localStorage.setItem(SELECTED_STUDIO_STORAGE_KEY, nextStudioId);
     setSelectedStudioId(nextStudioId);
-    setState(null); setRole(null); setMembers([]); setInvites([]); setCandidateReviews([]); setSolverContextToken(null); setError(null);
+    setState(null); setRole(null); setMembers([]); setInvites([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null); setError(null);
     await load(session, nextStudioId);
   }
 
@@ -415,7 +440,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   async function signOut() {
     await getBrowserSupabase().auth.signOut();
-    setSession(null); setRole(null); setState(null); setMembers([]); setInvites([]); setCandidateReviews([]); setSolverContextToken(null);
+    setSession(null); setRole(null); setState(null); setMembers([]); setInvites([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null);
   }
 
   async function createWorkspace(name: string, slug: string, requestId = crypto.randomUUID()): Promise<CreateWorkspaceResult> {
@@ -738,6 +763,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (caught) { return fail(caught); }
   }
 
+  async function exportWorkspaceData(): Promise<MutationResult> {
+    if (!state?.studioId) return { ok: false, error: "An authenticated workspace is required." };
+    if (!isOwner) return { ok: false, error: "Owner access is required." };
+    try {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("export_studio_data_v72", { p_studio_id: state.studioId });
+      if (rpcError) throw rpcError;
+      const payload = object(data);
+      if (payload.format !== "studio-scheduler/workspace-v1") return { ok: false, error: "The workspace export response was incomplete." };
+      return { ok: true, details: payload };
+    } catch {
+      return { ok: false, error: "Could not export workspace data. Refresh the page and retry." };
+    }
+  }
+
   async function deleteSolverCandidateReview(candidateId: string): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     if (!state?.studioId || !session) return { ok: false, error: "An authenticated workspace is required." };
@@ -753,6 +792,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       await load();
       return { ok: payload.deleted === true, details: payload };
     } catch (caught) { return fail(caught); }
+  }
+
+  async function createSetupAssignment(input: SetupAssignmentInput): Promise<MutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required to assign setup work." };
+    if (!state?.studioId) return { ok: false, error: "An authenticated workspace is required." };
+    const result = await createSetupAssignmentClient(state.studioId, input);
+    if (result.ok) await load();
+    return result;
+  }
+
+  async function updateSetupAssignment(input: SetupAssignmentUpdate): Promise<MutationResult> {
+    if (!state?.studioId) return { ok: false, error: "An authenticated workspace is required." };
+    const result = await updateSetupAssignmentClient(state.studioId, input);
+    if (result.ok) await load();
+    return result;
   }
 
   async function inviteMember(email: string, nextRole: StudioRole): Promise<MutationResult> {
@@ -787,12 +841,31 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (caught) { return fail(caught); }
   }
 
+  async function acceptInvitation(studioId: string, inviteId: string): Promise<MutationResult> {
+    if (!session) return { ok: false, error: "Sign in with the invited email before accepting." };
+    try {
+      const { error: rpcError } = await getBrowserSupabase().rpc("accept_studio_invite_v71", {
+        p_studio_id: studioId,
+        p_invite_id: inviteId,
+      });
+      if (rpcError) throw rpcError;
+      await load(session, state?.studioId || studioId);
+      return { ok: true };
+    } catch (caught) {
+      const raw = caught instanceof Error ? caught.message : String(caught);
+      if (raw.includes("Confirm your email address")) return { ok: false, error: "Confirm your email address, then retry the invitation." };
+      if (raw.includes("Invitation is unavailable")) return { ok: false, error: "This invitation expired, was cancelled, or belongs to a different email." };
+      if (raw.includes("different studio role")) return { ok: false, error: "You already have a different role in this workspace. Ask an owner to review your access." };
+      return { ok: false, error: "Could not accept the invitation. Refresh the page and retry." };
+    }
+  }
+
   const value: WorkspaceContextValue = {
-    loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,candidateReviews,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
+    loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,pendingInvitations,setupAssignments,candidateReviews,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
     availableWorkspaces,selectedStudioId,switchStudio,currentPlanningDatasetVersion,currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,currentSchedulePlanningDatasetVersion,
     solverContextToken,scheduleIsStale,validation,
-    refresh:()=>load(),signInWithEmail,signOut,createWorkspace,applyRulePatch,applySetupTypedPolicies,applySchedulePatch,toggleSessionLock,previewScheduleRecovery,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,applyReviewedCsvImport,exportPackage,
-    updateTeacher,updateRoom,updateClass,createScenario,deleteSolverCandidateReview,inviteMember,setMemberRole,removeMember,cancelInvite,
+    refresh:()=>load(),signInWithEmail,signOut,createWorkspace,applyRulePatch,applySetupTypedPolicies,applySchedulePatch,toggleSessionLock,previewScheduleRecovery,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,applyReviewedCsvImport,exportPackage,exportWorkspaceData,
+    updateTeacher,updateRoom,updateClass,createScenario,deleteSolverCandidateReview,createSetupAssignment,updateSetupAssignment,inviteMember,setMemberRole,removeMember,cancelInvite,acceptInvitation,
   };
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

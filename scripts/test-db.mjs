@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -88,6 +88,7 @@ function parseArgs(argv) {
     checkTarget: argv.includes('--check-target'),
     onlyPol04: argv.includes('--only-pol04'),
     onlyOps01: argv.includes('--only-ops01'),
+    onlyM01: argv.includes('--only-m01'),
     target: targetArgument ? targetArgument.slice('--target='.length) : null,
   };
 }
@@ -192,6 +193,7 @@ create table if not exists auth.users(
   id uuid primary key,
   email text not null unique,
   raw_user_meta_data jsonb not null default '{}'::jsonb,
+  email_confirmed_at timestamptz default now(),
   created_at timestamptz not null default now()
 );
 create or replace function auth.uid()
@@ -250,7 +252,8 @@ insert into auth.users(id,email,raw_user_meta_data) values
   ('10000000-0000-4000-8000-000000000001','t02-owner@example.test','{"full_name":"T02 Owner"}'),
   ('10000000-0000-4000-8000-000000000002','t02-editor@example.test','{"full_name":"T02 Editor"}'),
   ('10000000-0000-4000-8000-000000000003','t02-viewer@example.test','{"full_name":"T02 Viewer"}'),
-  ('10000000-0000-4000-8000-000000000004','t02-nonmember@example.test','{"full_name":"T02 Nonmember"}');
+  ('10000000-0000-4000-8000-000000000004','t02-nonmember@example.test','{"full_name":"T02 Nonmember"}'),
+  ('10000000-0000-4000-8000-000000000011','t02-genuine-nonmember@example.test','{"full_name":"T02 Genuine Nonmember"}');
 insert into public.studio_members(studio_id,user_id,role) values
   ('11111111-1111-4111-8111-111111111111','10000000-0000-4000-8000-000000000001','OWNER'),
   ('11111111-1111-4111-8111-111111111111','10000000-0000-4000-8000-000000000002','EDITOR'),
@@ -303,6 +306,358 @@ select
   count(*)::integer, null,'2.0','DWDE_SITE_RULEBOOK','{"fixture":"T02-deidentified-rulebook-v2"}'::jsonb
 from public.rules r
 where r.studio_id='11111111-1111-4111-8111-111111111111';
+`;
+
+const m01MembershipBoundarySql = String.raw`
+set search_path=public,extensions;
+create temp table m01_members_before as
+select studio_id,user_id,role from public.studio_members
+where studio_id='11111111-1111-4111-8111-111111111111';
+set role authenticated;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000002',false);
+do $block$
+declare
+  v_rejected boolean:=false;
+begin
+  begin
+    perform public.set_studio_member_role_v63(
+      '22222222-2222-4222-8222-222222222222',
+      '10000000-0000-4000-8000-000000000001',
+      'VIEWER'
+    );
+  exception when insufficient_privilege then
+    if position('Studio membership required for selected workspace' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 cross-tenant role mutation was accepted'; end if;
+
+  v_rejected:=false;
+  perform set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000003',false);
+  begin
+    perform public.remove_studio_member_v63(
+      '11111111-1111-4111-8111-111111111111',
+      '10000000-0000-4000-8000-000000000002'
+    );
+  exception when insufficient_privilege then
+    if position('Owner membership required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 viewer membership mutation was accepted'; end if;
+end
+$block$;
+reset role;
+
+do $block$
+begin
+  if exists(
+    (select studio_id,user_id,role from public.studio_members where studio_id='11111111-1111-4111-8111-111111111111'
+     except select studio_id,user_id,role from m01_members_before)
+    union all
+    (select studio_id,user_id,role from m01_members_before
+     except select studio_id,user_id,role from public.studio_members where studio_id='11111111-1111-4111-8111-111111111111')
+  ) then raise exception 'M01 rejected unauthorized request changed membership rows'; end if;
+end
+$block$;
+
+do $block$
+begin
+  if has_function_privilege('authenticated','public.set_studio_member_role_v21(uuid,text)','execute')
+     or has_function_privilege('service_role','public.set_studio_member_role_v21(uuid,text)','execute')
+     or has_function_privilege('authenticated','public.remove_studio_member_v21(uuid)','execute')
+     or has_function_privilege('service_role','public.remove_studio_member_v21(uuid)','execute')
+     or has_function_privilege('authenticated','public.invite_studio_member_v21(text,text)','execute')
+     or has_function_privilege('service_role','public.invite_studio_member_v21(text,text)','execute')
+     or has_function_privilege('authenticated','public.cancel_studio_invite_v21(uuid)','execute')
+     or has_function_privilege('service_role','public.cancel_studio_invite_v21(uuid)','execute') then
+    raise exception 'M01 unlocked legacy membership mutator remains executable';
+  end if;
+end
+$block$;
+select 'M01 membership boundary PASS: exact tenant, owner role, and direct legacy RPC no-write rejections' as result;
+`;
+
+const m01InviteLifecycleSql = String.raw`
+set search_path=public,extensions;
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_wrong_user uuid:='10000000-0000-4000-8000-000000000003';
+  v_invited_user uuid:='10000000-0000-4000-8000-000000000004';
+  v_new_user uuid:='10000000-0000-4000-8000-000000000005';
+  v_expired_user uuid:='10000000-0000-4000-8000-000000000006';
+  v_unverified_user uuid:='10000000-0000-4000-8000-000000000007';
+  v_invite_id uuid;
+  v_new_invite_id uuid;
+  v_revoked_invite_id uuid;
+  v_expired_invite_id uuid;
+  v_unverified_invite_id uuid;
+  v_result jsonb;
+  v_count integer;
+  v_rejected boolean;
+begin
+  perform set_config('request.jwt.claim.sub',v_owner::text,false);
+  v_result:=public.invite_studio_member_v63(v_studio,'t02-nonmember@example.test','EDITOR');
+  v_invite_id:=(v_result->>'id')::uuid;
+  if v_invite_id is null then raise exception 'M01 invitation creation returned no invitation id'; end if;
+
+  perform set_config('request.jwt.claim.sub',v_wrong_user::text,false);
+  select count(*)::integer into v_count from public.list_my_studio_invites_v71();
+  if v_count<>0 then raise exception 'M01 invite listing leaked a different email invitation'; end if;
+  v_rejected:=false;
+  begin
+    perform public.accept_studio_invite_v71(v_studio,v_invite_id);
+  exception when invalid_parameter_value then
+    if position('Invitation is unavailable' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 invitation accepted by a different email'; end if;
+  if exists(select 1 from public.studio_members where studio_id=v_studio and user_id=v_invited_user) then
+    raise exception 'M01 wrong-email acceptance wrote a membership';
+  end if;
+
+  perform set_config('request.jwt.claim.sub',v_invited_user::text,false);
+  select count(*)::integer into v_count from public.list_my_studio_invites_v71() where invite_id=v_invite_id and studio_id=v_studio;
+  if v_count<>1 then raise exception 'M01 invitee could not list the exact tenant invitation'; end if;
+  v_rejected:=false;
+  begin
+    perform public.accept_studio_invite_v71('22222222-2222-4222-8222-222222222222',v_invite_id);
+  exception when invalid_parameter_value then
+    if position('Invitation is unavailable' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 invitation accepted under a caller-selected foreign tenant'; end if;
+  if exists(select 1 from public.studio_members where studio_id=v_studio and user_id=v_invited_user) then
+    raise exception 'M01 wrong-tenant acceptance wrote a membership';
+  end if;
+
+  v_result:=public.accept_studio_invite_v71(v_studio,v_invite_id);
+  if v_result->>'role'<>'EDITOR' or v_result->>'studioId'<>v_studio::text then
+    raise exception 'M01 invitation acceptance returned the wrong tenant or role';
+  end if;
+  if not exists(select 1 from public.studio_members where studio_id=v_studio and user_id=v_invited_user and role='EDITOR')
+     or not exists(select 1 from public.studio_invites where id=v_invite_id and accepted_at is not null and revoked_at is null) then
+    raise exception 'M01 valid email-bound invitation did not atomically persist membership and acceptance';
+  end if;
+  v_rejected:=false;
+  begin
+    perform public.accept_studio_invite_v71(v_studio,v_invite_id);
+  exception when invalid_parameter_value then
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 accepted invitation was reusable'; end if;
+
+  perform set_config('request.jwt.claim.sub',v_owner::text,false);
+  v_result:=public.invite_studio_member_v63(v_studio,'t02-new-user@example.test','VIEWER');
+  v_new_invite_id:=(v_result->>'id')::uuid;
+  insert into auth.users(id,email,raw_user_meta_data)
+    values(v_new_user,'t02-new-user@example.test','{"full_name":"T02 New User"}');
+  if exists(select 1 from public.studio_members where studio_id=v_studio and user_id=v_new_user)
+     or not exists(select 1 from public.studio_invites where id=v_new_invite_id and accepted_at is null and revoked_at is null) then
+    raise exception 'M01 signup trigger auto-accepted or consumed a tenant invitation';
+  end if;
+  perform set_config('request.jwt.claim.sub',v_new_user::text,false);
+  select count(*)::integer into v_count from public.list_my_studio_invites_v71() where invite_id=v_new_invite_id;
+  if v_count<>1 then raise exception 'M01 newly registered invitee could not see the explicit invitation'; end if;
+  perform public.accept_studio_invite_v71(v_studio,v_new_invite_id);
+  if not exists(select 1 from public.studio_members where studio_id=v_studio and user_id=v_new_user and role='VIEWER') then
+    raise exception 'M01 new user explicit acceptance did not add the invited role';
+  end if;
+
+  perform set_config('request.jwt.claim.sub',v_owner::text,false);
+  v_result:=public.invite_studio_member_v63(v_studio,'t02-expired@example.test','EDITOR');
+  v_expired_invite_id:=(v_result->>'id')::uuid;
+  insert into auth.users(id,email) values(v_expired_user,'t02-expired@example.test');
+  update public.studio_invites set expires_at=clock_timestamp()-interval '1 second' where id=v_expired_invite_id;
+  perform set_config('request.jwt.claim.sub',v_expired_user::text,false);
+  select count(*)::integer into v_count from public.list_my_studio_invites_v71() where invite_id=v_expired_invite_id and expires_at<=clock_timestamp();
+  if v_count<>1 then raise exception 'M01 expired invitation was not identified for the invitee'; end if;
+  v_rejected:=false;
+  begin
+    perform public.accept_studio_invite_v71(v_studio,v_expired_invite_id);
+  exception when invalid_parameter_value then
+    v_rejected:=true;
+  end;
+  if not v_rejected or exists(select 1 from public.studio_members where studio_id=v_studio and user_id=v_expired_user)
+     or not exists(select 1 from public.studio_invites where id=v_expired_invite_id and accepted_at is null and revoked_at is null) then
+    raise exception 'M01 expired invitation was accepted or changed canonical state';
+  end if;
+
+  perform set_config('request.jwt.claim.sub',v_owner::text,false);
+  v_result:=public.invite_studio_member_v63(v_studio,'t02-unverified@example.test','VIEWER');
+  v_unverified_invite_id:=(v_result->>'id')::uuid;
+  insert into auth.users(id,email,email_confirmed_at) values(v_unverified_user,'t02-unverified@example.test',null);
+  perform set_config('request.jwt.claim.sub',v_unverified_user::text,false);
+  v_rejected:=false;
+  begin
+    perform public.accept_studio_invite_v71(v_studio,v_unverified_invite_id);
+  exception when insufficient_privilege then
+    if position('Confirm your email address' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected or exists(select 1 from public.studio_members where studio_id=v_studio and user_id=v_unverified_user)
+     or not exists(select 1 from public.studio_invites where id=v_unverified_invite_id and accepted_at is null and revoked_at is null) then
+    raise exception 'M01 unconfirmed email accepted an invitation or changed canonical state';
+  end if;
+
+  perform set_config('request.jwt.claim.sub',v_owner::text,false);
+  v_result:=public.invite_studio_member_v63(v_studio,'t02-revoked@example.test','EDITOR');
+  v_revoked_invite_id:=(v_result->>'id')::uuid;
+  insert into auth.users(id,email) values('10000000-0000-4000-8000-000000000008','t02-revoked@example.test');
+  if not public.cancel_studio_invite_v63(v_studio,v_revoked_invite_id) then raise exception 'M01 owner could not revoke a pending invite'; end if;
+  perform set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000008',false);
+  v_rejected:=false;
+  begin
+    perform public.accept_studio_invite_v71(v_studio,v_revoked_invite_id);
+  exception when invalid_parameter_value then
+    v_rejected:=true;
+  end;
+  if not v_rejected or exists(select 1 from public.studio_members where studio_id=v_studio and user_id='10000000-0000-4000-8000-000000000008')
+     or not exists(select 1 from public.studio_invites where id=v_revoked_invite_id and accepted_at is null and revoked_at is not null) then
+    raise exception 'M01 revoked invitation was accepted or changed canonical state';
+  end if;
+
+  if not has_function_privilege('authenticated','public.list_my_studio_invites_v71()','execute')
+     or not has_function_privilege('authenticated','public.accept_studio_invite_v71(uuid,uuid)','execute') then
+    raise exception 'M01 signed-in invitee API grants are missing';
+  end if;
+
+  -- Keep these M01 acceptance fixtures from changing later tests' shared tenant
+  -- membership expectations. The disposable harness owns these synthetic IDs.
+  delete from public.studio_members
+  where studio_id=v_studio and user_id in (v_invited_user,v_new_user);
+  delete from public.studio_invites
+  where id in (v_invite_id,v_new_invite_id,v_expired_invite_id,v_unverified_invite_id,v_revoked_invite_id);
+  delete from auth.users
+  where id in (v_new_user,v_expired_user,v_unverified_user,'10000000-0000-4000-8000-000000000008');
+end
+$block$;
+select 'M01 invitation lifecycle PASS: email, tenant, explicit acceptance, expiry, revocation, confirmation and no-write boundaries' as result;
+`;
+
+const m01PrivacyExportSql = String.raw`
+set search_path=public,extensions;
+create temp table m01_export_before as
+select
+  (select count(*)::integer from public.studio_members where studio_id='11111111-1111-4111-8111-111111111111') as members,
+  (select count(*)::integer from public.studio_invites where studio_id='11111111-1111-4111-8111-111111111111') as invites,
+  (select count(*)::integer from public.audit_events where studio_id='11111111-1111-4111-8111-111111111111') as audits;
+set role authenticated;
+do $block$
+declare
+  v_export jsonb;
+  v_rejected boolean:=false;
+begin
+  perform set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+  v_export:=public.export_studio_data_v72('11111111-1111-4111-8111-111111111111');
+  if v_export->>'format'<>'studio-scheduler/workspace-v1'
+     or v_export#>>'{studio,id}'<>'11111111-1111-4111-8111-111111111111'
+     or jsonb_typeof(v_export->'members')<>'array'
+     or jsonb_typeof(v_export->'invitations')<>'array'
+     or jsonb_typeof(v_export#>'{data,students}')<>'array'
+     or jsonb_typeof(v_export#>'{data,assignments}')<>'array'
+     or jsonb_typeof(v_export#>'{data,planning_import_batches}')<>'array' then
+    raise exception 'M01 workspace export omitted its selected tenant or canonical data sections';
+  end if;
+
+  begin
+    perform public.export_studio_data_v72('22222222-2222-4222-8222-222222222222');
+  exception when raise_exception then
+    if position('Studio membership required for selected workspace' in sqlerrm)=0
+       and position('Owner membership required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 export accepted a caller-selected foreign tenant'; end if;
+
+  perform set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000002',false);
+  v_rejected:=false;
+  begin
+    perform public.export_studio_data_v72('11111111-1111-4111-8111-111111111111');
+  exception when raise_exception then
+    if position('Owner membership required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 non-owner export was accepted'; end if;
+
+  if not has_function_privilege('authenticated','public.export_studio_data_v72(uuid)','execute') then
+    raise exception 'M01 authenticated export function grant is missing';
+  end if;
+end
+$block$;
+reset role;
+do $block$
+begin
+  if (select members from m01_export_before)<>(select count(*)::integer from public.studio_members where studio_id='11111111-1111-4111-8111-111111111111')
+     or (select invites from m01_export_before)<>(select count(*)::integer from public.studio_invites where studio_id='11111111-1111-4111-8111-111111111111')
+     or (select audits from m01_export_before)<>(select count(*)::integer from public.audit_events where studio_id='11111111-1111-4111-8111-111111111111') then
+    raise exception 'M01 export or rejected foreign export mutated tenant data';
+  end if;
+end
+$block$;
+select 'M01 privacy export PASS: complete scoped owner export and unauthorized no-write boundaries' as result;
+`;
+
+const m01DeletionRehearsalSql = String.raw`
+set search_path=public,extensions;
+insert into public.studios(id,slug,name)
+values('33333333-3333-4333-8333-333333333333','m01-delete-rehearsal','M01 disposable deletion rehearsal');
+insert into public.studio_members(studio_id,user_id,role)
+values('33333333-3333-4333-8333-333333333333','10000000-0000-4000-8000-000000000001','OWNER');
+insert into public.studio_invites(studio_id,email,role,invited_by)
+values('33333333-3333-4333-8333-333333333333','m01-delete-invite@example.test','VIEWER','10000000-0000-4000-8000-000000000001');
+insert into public.rulebook_versions(studio_id,version,name,actor_label,reason,snapshot,status,rule_count,document_type)
+values('33333333-3333-4333-8333-333333333333',1,'M01 deletion rehearsal','Disposable fixture','Cascade verification','[]','HISTORICAL',0,'TEST_FIXTURE');
+insert into public.constraint_model_versions(
+  studio_id,version,rulebook_version,compiler_version,actor_label,reason,snapshot,snapshot_hash,
+  complete_hard_constraint_compilation,status
+) values(
+  '33333333-3333-4333-8333-333333333333',1,1,'m01-disposable','Disposable fixture','Cascade verification','{}',repeat('0',64),false,'HISTORICAL'
+);
+insert into public.rule_enforcement_versions(studio_id,version,rulebook_version,actor_label,reason,status)
+values('33333333-3333-4333-8333-333333333333',1,1,'Disposable fixture','Cascade verification','HISTORICAL');
+insert into public.schedule_versions(studio_id,version,rulebook_version,actor_label,reason,constraint_model_version)
+values('33333333-3333-4333-8333-333333333333',1,1,'Disposable fixture','Cascade verification',1);
+insert into public.scenarios(name,studio_id,base_rulebook_version,base_schedule_version,base_enforcement_version,base_constraint_model_version)
+values('M01 deletion rehearsal','33333333-3333-4333-8333-333333333333',1,1,1,1);
+insert into public.audit_events(studio_id,actor_label,action,entity_type,detail)
+values('33333333-3333-4333-8333-333333333333','Disposable fixture','M01_DELETE_REHEARSAL','STUDIO','Disposable deletion rehearsal');
+
+begin;
+-- Schedule/scenario rows restrict ConstraintModel deletion; the model in turn
+-- restricts Rulebook deletion. Remove those references first in this disposable tenant.
+delete from public.scenarios where studio_id='33333333-3333-4333-8333-333333333333';
+delete from public.schedule_versions where studio_id='33333333-3333-4333-8333-333333333333';
+delete from public.constraint_model_versions where studio_id='33333333-3333-4333-8333-333333333333';
+delete from public.studios where id='33333333-3333-4333-8333-333333333333';
+do $block$
+declare
+  v_table text;
+  v_remaining integer;
+  v_tables constant text[]:=array[
+    'studio_members','studio_invites','rulebook_versions','constraint_model_versions',
+    'audit_events','teachers','rooms','students','cohorts','class_definitions',
+    'class_sessions','rules','rule_history','rule_enforcement_versions',
+    'rule_enforcement_proposals','planning_dataset_versions',
+    'planning_source_manifest_versions','schedule_versions','assignments','scenarios',
+    'ai_proposals','entity_versions','setup_review_attestations','studio_creation_requests',
+    'planning_import_batches','solver_candidate_reviews','setup_assignments'
+  ];
+begin
+  if exists(select 1 from public.studios where id='33333333-3333-4333-8333-333333333333') then
+    raise exception 'M01 disposable studio row remained after deletion';
+  end if;
+  foreach v_table in array v_tables loop
+    execute pg_catalog.format('select count(*)::integer from public.%I where studio_id=$1',v_table)
+      into v_remaining using '33333333-3333-4333-8333-333333333333'::uuid;
+    if v_remaining<>0 then raise exception 'M01 deletion rehearsal left rows in %',v_table; end if;
+  end loop;
+  if not exists(select 1 from auth.users where id='10000000-0000-4000-8000-000000000001') then
+    raise exception 'M01 workspace deletion removed a shared Auth account';
+  end if;
+end
+$block$;
+commit;
+select 'M01 disposable deletion rehearsal PASS: tenant rows removed, shared Auth account retained' as result;
 `;
 
 const roleTestSql = String.raw`
@@ -366,7 +721,7 @@ begin
 end
 $block$;
 
-select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000004',false);
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000011',false);
 do $block$
 declare v_rejected boolean:=false; v_visible integer;
 begin
@@ -749,6 +1104,72 @@ begin
 end
 $block$;
 select 'CAND-01 PASS: exact tenant-scoped candidate reload, viewer read, foreign-tenant denial, stale/no-write rejection, and delete isolation' as result;
+`;
+
+const setupAssignmentsSql = String.raw`
+set search_path=public,extensions;
+select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
+do $block$
+declare
+  v_studio uuid:='11111111-1111-4111-8111-111111111111';
+  v_owner uuid:='10000000-0000-4000-8000-000000000001';
+  v_editor uuid:='10000000-0000-4000-8000-000000000002';
+  v_viewer uuid:='10000000-0000-4000-8000-000000000003';
+  v_assignment uuid;
+  v_rejected boolean:=false;
+  v_before jsonb;
+begin
+  v_before:=jsonb_build_object(
+    'rulebooks',(select count(*) from public.rulebook_versions where studio_id=v_studio),
+    'planning',(select count(*) from public.planning_dataset_versions where studio_id=v_studio),
+    'schedules',(select count(*) from public.schedule_versions where studio_id=v_studio)
+  );
+  v_assignment:=(public.create_setup_assignment_v69(
+    v_studio,v_editor,'CLASSES','Enter current class details','Use the existing class setup form.'
+  )->>'id')::uuid;
+  if v_assignment is null then raise exception 'SETUP-ASSIGNMENTS create returned no id'; end if;
+  if (select count(*) from public.list_setup_assignments_v69(v_studio))<>1 then
+    raise exception 'SETUP-ASSIGNMENTS owner could not list the assignment';
+  end if;
+
+  v_rejected:=false;
+  begin
+    perform public.create_setup_assignment_v69(v_studio,v_viewer,'PEOPLE','Viewer assignment',null);
+  exception when others then
+    if position('SETUP_ASSIGNMENT_ASSIGNEE_MUST_EDIT' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'SETUP-ASSIGNMENTS accepted a viewer assignee'; end if;
+
+  perform set_config('request.jwt.claim.sub',v_editor::text,false);
+  perform public.update_setup_assignment_v69(
+    v_studio,v_assignment,v_editor,'CLASSES','Enter current class details','Use the existing class setup form.','IN_PROGRESS'
+  );
+  if (select status from public.setup_assignments where id=v_assignment)<>'IN_PROGRESS' then
+    raise exception 'SETUP-ASSIGNMENTS editor could not update assigned status';
+  end if;
+  if (select count(*) from public.list_setup_assignments_v69(v_studio) where id=v_assignment)<>1 then
+    raise exception 'SETUP-ASSIGNMENTS editor could not read the assignment';
+  end if;
+
+  v_rejected:=false;
+  begin
+    perform public.list_setup_assignments_v69('22222222-2222-4222-8222-222222222222');
+  exception when others then
+    if position('Studio membership required' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'SETUP-ASSIGNMENTS wrong tenant list was accepted'; end if;
+  if v_before<>jsonb_build_object(
+    'rulebooks',(select count(*) from public.rulebook_versions where studio_id=v_studio),
+    'planning',(select count(*) from public.planning_dataset_versions where studio_id=v_studio),
+    'schedules',(select count(*) from public.schedule_versions where studio_id=v_studio)
+  ) then raise exception 'SETUP-ASSIGNMENTS changed canonical planning authority'; end if;
+  perform set_config('request.jwt.claim.sub',v_owner::text,false);
+end
+$block$;
+reset role;
+select 'SETUP-ASSIGNMENTS PASS: manager assignment, editor self-service status, viewer rejection, exact-tenant read, and canonical no-write boundary' as result;
 `;
 
 const candidateIntervalFixtureSql = String.raw`
@@ -2024,6 +2445,29 @@ function psql(container, user, sql, label, database = 'postgres') {
   return outputFor(result);
 }
 
+function psqlAsync(container, sql, label) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      'docker',
+      ['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-U', 'postgres', '-d', 'postgres', '-f', '-'],
+      { cwd: repoRoot, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+    child.once('error', (error) => reject(new DatabaseHarnessError(`${label} could not start: ${error.message}`)));
+    child.once('close', (status) => {
+      if (status !== 0) {
+        reject(new DatabaseHarnessError(`${label} failed:\n${[stdout, stderr].filter(Boolean).join('\n').trim()}`));
+        return;
+      }
+      resolve([stdout, stderr].filter(Boolean).join('\n').trim());
+    });
+    child.stdin.end(sql);
+  });
+}
+
 function transaction(sql) {
   return `begin;\n${sql}\ncommit;\n`;
 }
@@ -2076,6 +2520,226 @@ function psqlScalar(container, user, sql, label, database = 'postgres') {
   const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (!lines.length) throw new DatabaseHarnessError(`${label} returned no scalar result.`);
   return lines.at(-1);
+}
+
+async function runM01OwnerConcurrencyRegression(container) {
+  const studio = '11111111-1111-4111-8111-111111111111';
+  const ownerA = '10000000-0000-4000-8000-000000000001';
+  const ownerB = '10000000-0000-4000-8000-000000000002';
+  psql(container, 'postgres', `update public.studio_members set role='OWNER' where studio_id='${studio}' and user_id='${ownerB}';`, 'M01 second-owner fixture');
+
+  const demoteFirstOwner = psqlAsync(container, `
+begin;
+set role authenticated;
+select set_config('request.jwt.claim.sub','${ownerA}',false);
+set application_name='m01_owner_demote';
+select public.set_studio_member_role_v63('${studio}','${ownerA}','EDITOR');
+select pg_sleep(1.5);
+commit;
+`, 'M01 concurrent first-owner demotion');
+
+  let firstOwnerLocked = false;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const active = psqlScalar(container, 'postgres', `
+select count(*)::text from pg_stat_activity
+where application_name='m01_owner_demote' and wait_event='PgSleep';
+`, 'M01 owner-lock synchronization');
+    if (active === '1') {
+      firstOwnerLocked = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (!firstOwnerLocked) {
+    await demoteFirstOwner.catch(() => {});
+    throw new DatabaseHarnessError('M01 concurrent owner fixture did not reach its protected transaction.');
+  }
+
+  const removalStarted = Date.now();
+  const removeSecondOwner = psqlAsync(container, `
+begin;
+set role authenticated;
+select set_config('request.jwt.claim.sub','${ownerB}',false);
+do $block$
+declare v_rejected boolean:=false;
+begin
+  begin
+    perform public.remove_studio_member_v63('${studio}','${ownerB}');
+  exception when others then
+    if position('Cannot remove the last studio owner' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 concurrent removal of the last owner was accepted'; end if;
+end
+$block$;
+commit;
+`, 'M01 concurrent last-owner removal');
+
+  await Promise.all([demoteFirstOwner, removeSecondOwner]);
+  const removalWaitMs = Date.now() - removalStarted;
+  if (removalWaitMs < 700) {
+    throw new DatabaseHarnessError(`M01 membership removal did not wait for the competing owner transaction (${removalWaitMs} ms).`);
+  }
+
+  const membershipState = JSON.parse(psqlScalar(container, 'postgres', `
+select jsonb_build_object(
+  'ownerCount',(select count(*)::integer from public.studio_members where studio_id='${studio}' and role='OWNER'),
+  'ownerBRole',(select role from public.studio_members where studio_id='${studio}' and user_id='${ownerB}'),
+  'ownerARole',(select role from public.studio_members where studio_id='${studio}' and user_id='${ownerA}')
+)::text;
+`, 'M01 concurrent owner state assertion'));
+  if (membershipState.ownerCount !== 1 || membershipState.ownerBRole !== 'OWNER' || membershipState.ownerARole !== 'EDITOR') {
+    throw new DatabaseHarnessError(`M01 concurrent mutations left an invalid owner state: ${JSON.stringify(membershipState)}.`);
+  }
+
+  psql(container, 'postgres', `
+set role authenticated;
+select set_config('request.jwt.claim.sub','${ownerB}',false);
+do $block$
+declare v_rejected boolean:=false; v_owner_count integer;
+begin
+  select count(*)::integer into v_owner_count from public.studio_members where studio_id='${studio}' and role='OWNER';
+  begin
+    perform public.set_studio_member_role_v63('${studio}','${ownerB}','EDITOR');
+  exception when check_violation then
+    if position('Cannot demote the last studio owner' in sqlerrm)=0 then raise; end if;
+    v_rejected:=true;
+  end;
+  if not v_rejected then raise exception 'M01 demotion of the final owner was accepted'; end if;
+  if (select count(*)::integer from public.studio_members where studio_id='${studio}' and role='OWNER')<>v_owner_count
+     or (select role from public.studio_members where studio_id='${studio}' and user_id='${ownerB}')<>'OWNER' then
+    raise exception 'M01 rejected final-owner demotion changed membership rows';
+  end if;
+end
+$block$;
+`, 'M01 last-owner demotion transaction test');
+
+  psql(container, 'postgres', `
+update public.studio_members set role='OWNER' where studio_id='${studio}' and user_id='${ownerA}';
+update public.studio_members set role='EDITOR' where studio_id='${studio}' and user_id='${ownerB}';
+`, 'M01 membership fixture restore');
+  process.stdout.write('M01 owner concurrency PASS: competing demotion/removal preserves one owner; final-owner demotion rejects without writes\n');
+}
+
+async function runM01InviteAcceptanceRaceRegressions(container) {
+  const studio = '11111111-1111-4111-8111-111111111111';
+  const owner = '10000000-0000-4000-8000-000000000001';
+  const acceptingUser = '10000000-0000-4000-8000-000000000009';
+  const revokedUser = '10000000-0000-4000-8000-000000000010';
+  const acceptedInvite = psqlScalar(container, 'postgres', `
+select set_config('request.jwt.claim.sub','${owner}',false);
+select public.invite_studio_member_v63('${studio}','t02-race-accept@example.test','EDITOR')->>'id';
+`, 'M01 acceptance-wins invitation creation');
+  const revokedInvite = psqlScalar(container, 'postgres', `
+select set_config('request.jwt.claim.sub','${owner}',false);
+select public.invite_studio_member_v63('${studio}','t02-race-revoke@example.test','EDITOR')->>'id';
+`, 'M01 revocation-wins invitation creation');
+  psql(container, 'postgres', `
+insert into auth.users(id,email) values
+  ('${acceptingUser}','t02-race-accept@example.test'),
+  ('${revokedUser}','t02-race-revoke@example.test');
+`, 'M01 invite race user fixtures');
+
+  const acceptFirst = psqlAsync(container, `
+begin;
+set role authenticated;
+select set_config('request.jwt.claim.sub','${acceptingUser}',false);
+set application_name='m01_invite_accept_first';
+select public.accept_studio_invite_v71('${studio}','${acceptedInvite}');
+select pg_sleep(1.5);
+commit;
+`, 'M01 concurrent invite acceptance first');
+
+  let acceptanceLocked = false;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const active = psqlScalar(container, 'postgres', `
+select count(*)::text from pg_stat_activity
+where application_name='m01_invite_accept_first' and wait_event='PgSleep';
+`, 'M01 acceptance-lock synchronization');
+    if (active === '1') { acceptanceLocked = true; break; }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (!acceptanceLocked) {
+    await acceptFirst.catch(() => {});
+    throw new DatabaseHarnessError('M01 invitation acceptance did not hold its transaction lock for the race fixture.');
+  }
+
+  const cancelAfterAccept = psqlAsync(container, `
+begin;
+set role authenticated;
+select set_config('request.jwt.claim.sub','${owner}',false);
+select public.cancel_studio_invite_v63('${studio}','${acceptedInvite}');
+commit;
+`, 'M01 concurrent revoke after acceptance');
+  await Promise.all([acceptFirst, cancelAfterAccept]);
+  const acceptanceState = JSON.parse(psqlScalar(container, 'postgres', `
+select jsonb_build_object(
+  'memberExists',exists(select 1 from public.studio_members where studio_id='${studio}' and user_id='${acceptingUser}'),
+  'accepted',accepted_at is not null,
+  'revoked',revoked_at is not null
+)::text from public.studio_invites where id='${acceptedInvite}';
+`, 'M01 acceptance-first final state'));
+  if (!acceptanceState.memberExists || !acceptanceState.accepted || acceptanceState.revoked) {
+    throw new DatabaseHarnessError(`M01 acceptance-first race left inconsistent state: ${JSON.stringify(acceptanceState)}.`);
+  }
+
+  const cancelFirst = psqlAsync(container, `
+begin;
+set role authenticated;
+select set_config('request.jwt.claim.sub','${owner}',false);
+set application_name='m01_invite_cancel_first';
+select public.cancel_studio_invite_v63('${studio}','${revokedInvite}');
+select pg_sleep(1.5);
+commit;
+`, 'M01 concurrent invitation revocation first');
+  let revocationLocked = false;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const active = psqlScalar(container, 'postgres', `
+select count(*)::text from pg_stat_activity
+where application_name='m01_invite_cancel_first' and wait_event='PgSleep';
+`, 'M01 revocation-lock synchronization');
+    if (active === '1') { revocationLocked = true; break; }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (!revocationLocked) {
+    await cancelFirst.catch(() => {});
+    throw new DatabaseHarnessError('M01 invitation revocation did not hold its transaction lock for the race fixture.');
+  }
+
+  const acceptAfterCancel = psqlAsync(container, `
+begin;
+set role authenticated;
+select set_config('request.jwt.claim.sub','${revokedUser}',false);
+do $block$ declare v_rejected boolean:=false; begin
+  begin perform public.accept_studio_invite_v71('${studio}','${revokedInvite}');
+  exception when invalid_parameter_value then v_rejected:=true; end;
+  if not v_rejected then raise exception 'M01 acceptance succeeded after concurrent revocation'; end if;
+end $block$;
+commit;
+`, 'M01 concurrent acceptance after revocation');
+  const revocationStarted = Date.now();
+  await Promise.all([cancelFirst, acceptAfterCancel]);
+  const revocationWaitMs = Date.now() - revocationStarted;
+  if (revocationWaitMs < 700) {
+    throw new DatabaseHarnessError(`M01 invite acceptance did not wait for the competing revocation (${revocationWaitMs} ms).`);
+  }
+
+  const revocationState = JSON.parse(psqlScalar(container, 'postgres', `
+select jsonb_build_object(
+  'memberExists',exists(select 1 from public.studio_members where studio_id='${studio}' and user_id='${revokedUser}'),
+  'accepted',accepted_at is not null,
+  'revoked',revoked_at is not null
+)::text from public.studio_invites where id='${revokedInvite}';
+`, 'M01 revocation-first final state'));
+  if (revocationState.memberExists || revocationState.accepted || !revocationState.revoked) {
+    throw new DatabaseHarnessError(`M01 revocation-first race left inconsistent state: ${JSON.stringify(revocationState)}.`);
+  }
+
+  psql(container, 'postgres', `
+delete from public.studio_members where studio_id='${studio}' and user_id='${acceptingUser}';
+delete from public.studio_invites where id in ('${acceptedInvite}','${revokedInvite}');
+delete from auth.users where id in ('${acceptingUser}','${revokedUser}');
+`, 'M01 invitation race fixture cleanup');
 }
 
 function dumpDatabase(container, database) {
@@ -2164,7 +2828,7 @@ async function waitForDatabase(container) {
   throw new DatabaseHarnessError('PostgreSQL did not become ready within 45 seconds. Check Docker Desktop and retry.');
 }
 
-async function runHarness(onlyPol04 = false, onlyOps01 = false) {
+async function runHarness(onlyPol04 = false, onlyOps01 = false, onlyM01 = false) {
   const archiveDirectory = path.join(repoRoot, 'supabase', 'production-ledger');
   const migrationDirectory = path.join(repoRoot, 'supabase', 'migrations');
   const archiveFiles = sqlFiles(archiveDirectory);
@@ -2203,6 +2867,17 @@ async function runHarness(onlyPol04 = false, onlyOps01 = false) {
     }
 
     psql(container, 'postgres', transaction(fixtureSql), 'fixture seed');
+    const inviteLifecycleOutput = psql(container, 'postgres', m01InviteLifecycleSql, 'M01 invitation lifecycle');
+    process.stdout.write(inviteLifecycleOutput);
+    const privacyExportOutput = psql(container, 'postgres', m01PrivacyExportSql, 'M01 privacy export boundaries');
+    process.stdout.write(privacyExportOutput);
+    const deletionRehearsalOutput = psql(container, 'postgres', m01DeletionRehearsalSql, 'M01 disposable deletion rehearsal');
+    process.stdout.write(deletionRehearsalOutput);
+    await runM01OwnerConcurrencyRegression(container);
+    await runM01InviteAcceptanceRaceRegressions(container);
+    const membershipOutput = psql(container, 'postgres', m01MembershipBoundarySql, 'M01 membership boundaries');
+    process.stdout.write(membershipOutput);
+    if (onlyM01) return;
     const pol04Output = psql(container, 'postgres', transaction(pol04TypedSqlRegressionSql), 'POL-04 disposable regression');
     process.stdout.write(pol04Output);
     if (onlyPol04) {
@@ -2248,6 +2923,8 @@ async function runHarness(onlyPol04 = false, onlyOps01 = false) {
     process.stdout.write(reviewedCsvImportOutput);
     const cand01Output = psql(container, 'postgres', cand01CandidateReviewSql, 'CAND-01 persisted candidate review integration tests');
     process.stdout.write(cand01Output);
+    const setupAssignmentsOutput = psql(container, 'authenticated', setupAssignmentsSql, 'SETUP-ASSIGNMENTS manager/self-service integration tests');
+    process.stdout.write(setupAssignmentsOutput);
   } finally {
     if (running) {
       const result = runProcess('docker', ['rm', '--force', container]);
@@ -3513,7 +4190,7 @@ export async function main(argv = process.argv.slice(2)) {
       'Refusing to run without an explicit disposable opt-in. Use npm run test:db or pass --allow-disposable.',
     );
   }
-  await runHarness(args.onlyPol04, args.onlyOps01);
+  await runHarness(args.onlyPol04, args.onlyOps01, args.onlyM01);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {

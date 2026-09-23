@@ -61,7 +61,7 @@ test('SET-03 saves typed setup policy and reviews an explicit no-restriction roo
 
   await mondayOpen.fill('17:00');
   await page.getByRole('button', { name: 'Save Setup' }).click();
-  await expect(page.getByRole('status')).toContainText('Setup saved in Rulebook v5', { timeout: 30_000 });
+  await expect(page.getByText('Setup saved in Rulebook v5')).toBeVisible({ timeout: 30_000 });
 
   const persistedRule = await admin.from('rules').select('parameters,affected_entity_ids').eq('studio_id', studioId).eq('id', 'OPS-001').single();
   if (persistedRule.error) throw persistedRule.error;

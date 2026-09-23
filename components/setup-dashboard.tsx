@@ -20,6 +20,7 @@ import { RoomRestrictionReviewPanel } from "@/components/room-restriction-review
 import { TeacherSetupForm } from "@/components/teacher-setup-form";
 import { ClassesView } from "@/components/classes-view";
 import { StudentSetupForm } from "@/components/student-setup-form";
+import { SetupAssignments } from "@/components/setup-assignments";
 
 const icons: Record<SetupSectionId, typeof Building2> = {
   studio: Building2,
@@ -102,6 +103,8 @@ export function SetupDashboard() {
           </div>
         </section>
       ) : null}
+
+      <SetupAssignments />
 
       <section>
         <div className="mb-3 flex items-end justify-between gap-3">

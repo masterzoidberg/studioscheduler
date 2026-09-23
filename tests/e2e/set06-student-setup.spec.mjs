@@ -29,7 +29,7 @@ test('SET-06 saves and reviews stable-ID student restrictions at 390px with keyb
   await page.getByLabel('SET-05 Dancer maximum attendance days').selectOption('3');
   await page.getByRole('button', { name: 'Save student requirements' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('status')).toContainText(/Student requirements saved in Rulebook v\d+/, { timeout: 30_000 });
+  await expect(page.getByText(/Student requirements saved in Rulebook v\d+/)).toBeVisible({ timeout: 30_000 });
 
   const policies = await admin.from('rules').select('id,parameters,affected_entity_ids').eq('studio_id', studioId).in('id', ['SET06-STUDENT-LATEST-FINISH-set05-student', 'SET06-STUDENT-MAX-DAYS-set05-student']);
   if (policies.error) throw policies.error;

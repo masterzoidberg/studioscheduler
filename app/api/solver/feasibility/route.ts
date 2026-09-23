@@ -20,6 +20,8 @@ import {
 } from "@/lib/solver-gateway";
 import { isStudioId, selectedStudioIdFromHeader } from "@/lib/selected-studio";
 import { compareScheduleQuality, scoreScheduleQuality } from "@/lib/schedule-quality";
+import { solverFeasibilityDiagnostic } from "@/lib/solver-operations";
+import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -212,7 +214,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function processFeasibilityRequest(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({})) as { studioId?: unknown };
     const studioId = isStudioId(body.studioId) ? body.studioId : null;
@@ -260,25 +262,31 @@ export async function POST(request: NextRequest) {
     }
 
     const problem = gateway.preparation.problem;
-    const response = await fetch(`${service.url}/v1/feasibility`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${service.token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ problem, maxSeconds: service.maxSeconds }),
-      cache: "no-store",
-      signal: AbortSignal.timeout((service.maxSeconds + 5) * 1000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${service.url}/v1/feasibility`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${service.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ problem, maxSeconds: service.maxSeconds }),
+        cache: "no-store",
+        signal: AbortSignal.timeout((service.maxSeconds + 5) * 1000),
+      });
+    } catch (error) {
+      const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+      return NextResponse.json({
+        error: timeout
+          ? "The schedule service did not finish before its time limit. Your current schedule is unchanged."
+          : "The schedule service could not be reached. Your current schedule is unchanged.",
+        code: timeout ? "SOLVER_SERVICE_TIMEOUT" : "SOLVER_SERVICE_UNAVAILABLE",
+      }, { status: timeout ? 504 : 503 });
+    }
 
     if (!response.ok) {
-      let detail = "Solver service request failed.";
-      try {
-        const payload = await response.json() as { detail?: string };
-        if (payload.detail) detail = payload.detail;
-      } catch {}
       return NextResponse.json({
-        error: detail,
+        error: "The schedule service returned an error. Your current schedule is unchanged.",
         code: "SOLVER_SERVICE_ERROR",
         serviceStatus: response.status,
       }, { status: 502 });
@@ -390,12 +398,28 @@ export async function POST(request: NextRequest) {
       adoptionAllowed: false,
       adoptionMessage: "This candidate is saved for review. Adoption still uses the governed ScheduleVersion command after a fresh server-side revalidation.",
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+  } catch {
     return NextResponse.json({
-      error: timeout ? "The internal solver service timed out." : message,
-      code: timeout ? "SOLVER_SERVICE_TIMEOUT" : "SOLVER_GATEWAY_ERROR",
-    }, { status: timeout ? 504 : 500 });
+      error: "The schedule builder could not complete this request. Your current schedule is unchanged. Try again later; if it continues, share the support reference with the workspace operator.",
+      code: "SOLVER_GATEWAY_ERROR",
+    }, { status: 500 });
   }
+}
+
+export async function POST(request: NextRequest) {
+  const requestId = randomUUID();
+  const startedAt = Date.now();
+  const response = await processFeasibilityRequest(request);
+  response.headers.set("x-request-id", requestId);
+
+  const payload = await response.clone().json().catch(() => ({})) as { status?: unknown; code?: unknown };
+  const event = solverFeasibilityDiagnostic({
+    requestId,
+    httpStatus: response.status,
+    durationMs: Date.now() - startedAt,
+    solverStatus: payload.status,
+    code: payload.code,
+  });
+  console.info(JSON.stringify(event));
+  return response;
 }

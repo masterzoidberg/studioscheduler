@@ -54,7 +54,7 @@ test('SET-04 saves explicit teacher setup and persists both review attestations'
   await teacher.getByText('No additional availability restriction (review explicitly)').click();
   await teacher.locator('label').filter({ hasText: 'Verify Class' }).locator('input').check();
   await page.getByRole('button', { name: 'Save teacher setup' }).click();
-  await expect(page.getByRole('status')).toContainText(/Teacher setup saved in Rulebook v\d+/, { timeout: 30_000 });
+  await expect(page.getByText(/Teacher setup saved in Rulebook v\d+/)).toBeVisible({ timeout: 30_000 });
 
   const availability = await admin.from('rules').select('id,parameters,affected_entity_ids').eq('studio_id', studioId).eq('id', 'SET04-TEACHER-AVAILABILITY-verify01-teacher').single();
   if (availability.error) throw availability.error;

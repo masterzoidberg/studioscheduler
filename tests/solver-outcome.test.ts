@@ -73,6 +73,19 @@ describe("solver outcome presentation", () => {
     expect(outcome.message).toContain("current schedule is unchanged");
   });
 
+  it("offers safe recovery steps for a service outage without calling it infeasible", () => {
+    const outcome = presentSolverOutcome({
+      responseOk: false,
+      httpStatus: 503,
+      payload: { code: "SOLVER_SERVICE_UNAVAILABLE", error: "The schedule service could not be reached." },
+    });
+
+    expect(outcome).toMatchObject({ kind: "UNAVAILABLE", retryable: true });
+    expect(outcome.message).toContain("No candidate was saved");
+    expect(outcome.message).not.toMatch(/impossible|infeasible/i);
+    expect(outcome.links.map((link) => link.href)).toEqual(["/readiness", "/setup", "/schedule"]);
+  });
+
   it("represents cancellation as a non-destructive terminal state", () => {
     expect(cancelledSolverOutcome()).toEqual(expect.objectContaining({
       kind: "CANCELLED",

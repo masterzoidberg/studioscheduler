@@ -11,6 +11,7 @@ import {
   presentSolverOutcome,
   type SolverOutcome,
 } from "@/lib/solver-outcome";
+import { safeSolverSupportBundle } from "@/lib/solver-operations";
 
 type GatewayBlocker = { code: string; message: string; ruleIds?: string[]; entityIds?: string[] };
 type SolveContext = {
@@ -43,6 +44,8 @@ type SolveResult = {
   status?: string;
   error?: string;
   code?: string;
+  requestId?: string;
+  httpStatus?: number;
   serviceStatus?: number;
   serviceVersion?: string | null;
   blockers?: GatewayBlocker[];
@@ -105,6 +108,7 @@ export function SolverFeasibilityCard() {
   const [reviewStale, setReviewStale] = useState(false);
   const [notice, setNotice] = useState("");
   const [adoptionSuccess, setAdoptionSuccess] = useState("");
+  const [supportDetailsCopied, setSupportDetailsCopied] = useState(false);
   const [result, setResult] = useState<SolveResult | null>(null);
   const [outcome, setOutcome] = useState<SolverOutcome | null>(null);
   const [progressStage, setProgressStage] = useState(0);
@@ -128,6 +132,7 @@ export function SolverFeasibilityCard() {
       setReviewAcknowledged(false);
       setReviewStale(false);
       setAdoptionSuccess("");
+      setSupportDetailsCopied(false);
       setNotice("");
       setRunning(false);
       setAdopting(false);
@@ -244,8 +249,14 @@ export function SolverFeasibilityCard() {
       });
       const payload = await response.json() as SolveResult;
       if (requestId !== solveRequestId.current) return;
-      setResult(payload);
-      setOutcome(presentSolverOutcome({ payload, responseOk: response.ok, httpStatus: response.status }));
+      const resultWithReference = {
+        ...payload,
+        requestId: response.headers.get("x-request-id") || undefined,
+        httpStatus: response.status,
+      };
+      setResult(resultWithReference);
+      setSupportDetailsCopied(false);
+      setOutcome(presentSolverOutcome({ payload: resultWithReference, responseOk: response.ok, httpStatus: response.status }));
     } catch (error) {
       if (requestId !== solveRequestId.current) return;
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -276,6 +287,22 @@ export function SolverFeasibilityCard() {
     setReviewAcknowledged(false);
     setReviewStale(false);
     setNotice("");
+  }
+
+  async function copySafeSupportDetails() {
+    if (!result?.requestId) return;
+    const bundle = safeSolverSupportBundle({
+      requestId: result.requestId,
+      code: result.code,
+      httpStatus: result.httpStatus,
+    });
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+      setSupportDetailsCopied(true);
+      setNotice("");
+    } catch {
+      setNotice(`Copy failed. The safe support reference is ${result.requestId}.`);
+    }
   }
 
   async function adoptCandidate() {
@@ -393,6 +420,19 @@ export function SolverFeasibilityCard() {
           ) : null}
         </div>
       </div>
+
+      <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+        <summary className="cursor-pointer font-semibold text-slate-900">Help with setup, generation, editing, and recovery</summary>
+        <p className="mt-2">Complete Setup and review Must happen requirements before building. Build schedule creates a proposal; the current schedule stays unchanged until you review and adopt it.</p>
+        <p className="mt-2">Edit the current schedule from Schedule. Use Versions to compare history; recovery is checked against current policy before it is saved.</p>
+        <p className="mt-2">If a build times out or the service is unavailable, check readiness, wait briefly, and try again. No candidate is saved. If the problem repeats, copy the safe support details and give them to your workspace operator.</p>
+        <nav aria-label="Schedule help" className="mt-3 flex flex-wrap gap-2">
+          <Link href="/setup" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold">Setup</Link>
+          <Link href="/planning-repairs" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold">Must happen requirements</Link>
+          <Link href="/schedule" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold">Edit schedule</Link>
+          <Link href="/versions" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold">Review versions</Link>
+        </nav>
+      </details>
 
       {running ? (
         <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4" role="status" aria-live="polite">
@@ -554,6 +594,15 @@ export function SolverFeasibilityCard() {
               </button>
             ) : null}
           </div>
+          {result?.requestId ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-current/15 bg-white/70 p-3 text-xs">
+              <span>Support reference: <code className="select-all font-semibold">{result.requestId}</code></span>
+              <button type="button" onClick={() => void copySafeSupportDetails()} className="min-h-9 rounded-lg border border-current/25 px-3 font-semibold">
+                {supportDetailsCopied ? "Support details copied" : "Copy safe support details"}
+              </button>
+              <span className="text-slate-600">Contains only this reference, error code, and HTTP status.</span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

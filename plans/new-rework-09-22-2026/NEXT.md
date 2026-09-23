@@ -1,0 +1,9 @@
+# Next task
+
+**Current milestone:** [M02 — Independent studio and release qualification](MILESTONES/M02-independent-studio-release-qualification.md), blocked on owner-authorized external evidence. M01 engineering is complete; its accepted local evidence is in [M01](MILESTONES/M01-supported-operations-engineering.md).
+
+**One primary task:** `M02-T01` — complete the authorized staging/deployed OPS-01 release gate in the [release checklist](../archived/pre-2026-09-22-plan/OPS-01_RELEASE_CHECKLIST.md). Required observations include the frozen app/solver versions, migration head, auth and solver health/invalid-token/timeout behavior, backup/restore, and write-isolation rollback.
+
+**Dependency and limit:** The current workspace has none of the seven variables required by `npm run ops:check-config`; the command exited 1 and printed only their names. The accepted M01 implementation is still uncommitted, so `HEAD` does not freeze it for release qualification. An owner-authorized staging environment and permission to observe it are also absent. Do not deploy, use production as a test target, contact anyone, or infer hosted configuration/backup/support facts from local M01 checks. Those local checks do not satisfy M02-T01.
+
+**Acceptance:** First freeze the accepted implementation to an exact commit and make the required configuration available only through the authorized staging environment/secret store. With owner approval, record the authorized environment reference; run the checklist and retain redacted observations for versions, configuration presence, auth, health, invalid-token and timeout responses, backup/restore, and read-only rollback. Keep M02 blocked until those observations and the separate manager qualification artifacts are available. See M02-T02 and M02-T03 for the DWDE and independent-studio requirements.

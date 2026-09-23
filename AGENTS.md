@@ -1,6 +1,6 @@
 # Studio Scheduler repository instructions
 
-Start at [plans/README.md](plans/README.md), then [plans/NEXT.md](plans/NEXT.md) and its assigned implementation prompt. TASKS owns status, MASTER_PLAN release criteria, DECISIONS accepted authority. _OLD files, prompt archive, ZIP and dated historical docs are evidence, not current instructions. Do not load the full archive for ordinary implementation.
+Start at [plans/README.md](plans/README.md), then the authoritative [milestone plan](plans/new-rework-09-22-2026/README.md) and its [NEXT](plans/new-rework-09-22-2026/NEXT.md). ROADMAP owns milestone status, milestone files own task status and gates, and the new DECISIONS records accepted authority. The previous TASKS, MASTER_PLAN, prompts, _OLD files, ZIP and dated audit docs are archived evidence, not current instructions. Do not load the full archive for ordinary implementation.
 
 Inspect git status/branch/HEAD and current code before editing. Fetch/compare safely; fast-forward only with correct branch and clean tree. Preserve user changes. No reset/clean/auto-stash/history rewrite or housekeeping push. Current branch/task details belong in NEXT, not here.
 
@@ -8,7 +8,7 @@ Make the smallest correct change within authorized scope. Preserve Next.js/Supab
 
 Never edit historical migration/production-ledger/bootstrap bytes to change current behavior; add forward migrations and inspect effective function definitions/grants. Never use production for tests or implicit fallback. Keep identifiable manager/student acceptance data private.
 
-Follow [execution rules](plans/CODEX_EXECUTION_RULES.md) for checks and evidence. Missing verification is not success. Add regressions for new behavior, report commands/results, and update TASKS plus the one NEXT pointer after acceptance. Resolve routine uncertainty by inspection; escalate material authority conflicts with concrete evidence. Roadmap entries do not themselves authorize deployment, paid services, messages to others or destructive customer-data operations.
+Follow the archived [execution rules](plans/archived/pre-2026-09-22-plan/CODEX_EXECUTION_RULES.md) for stable checks and evidence. Missing verification is not success. Add regressions for new behavior, report commands/results, and update the active milestone and one NEXT pointer after acceptance. Resolve routine uncertainty by inspection; escalate material authority conflicts with concrete evidence. Roadmap entries do not themselves authorize deployment, paid services, messages to others or destructive customer-data operations.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

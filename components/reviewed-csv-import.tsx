@@ -88,7 +88,7 @@ export function ReviewedCsvImport() {
     setBatchId(newBatchId());
   }
 
-  return <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+  return <section id="setup-import" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
     <div className="flex items-start gap-3">
       <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-violet-50"><Upload className="size-5 text-violet-700" /></div>
       <div><h2 className="font-semibold">Reviewed CSV intake</h2><p className="mt-1 text-sm leading-6 text-slate-600">Load people, classes, and rosters with explicit stable IDs. Nothing is written until the complete preview is reviewed and applied as one atomic PlanningDataset batch.</p></div>

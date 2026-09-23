@@ -284,7 +284,25 @@ export interface SchedulePatch {
 export interface Scenario { id: string; name: string; baseRulebookVersion: number; baseScheduleVersion: number; baseEnforcementVersion?: number; basePlanningDatasetVersion?: number; rulePatches: RulePatch[]; schedulePatches: SchedulePatch[]; createdAt: string; }
 export interface AuditEvent { id: string; at: string; actor: string; action: string; entityType: string; entityId?: string; detail: string; }
 export interface StudioMember { userId: string; role: StudioRole; displayName?: string; email?: string; createdAt?: string; }
-export interface StudioInvite { id: string; email: string; role: StudioRole; createdAt: string; acceptedAt?: string | null; }
+export interface StudioInvite { id: string; email: string; role: StudioRole; createdAt: string; expiresAt: string; expired: boolean; acceptedAt?: string | null; revokedAt?: string | null; }
+export interface PendingStudioInvite { id: string; studioId: string; studioName: string; role: StudioRole; createdAt: string; expiresAt: string; expired: boolean; }
+export type SetupAssignmentArea = "STUDIO" | "PEOPLE" | "CLASSES" | "STUDENTS" | "POLICIES" | "IMPORT";
+export type SetupAssignmentStatus = "OPEN" | "IN_PROGRESS" | "DONE";
+export interface SetupAssignment {
+  id: string;
+  studioId: string;
+  area: SetupAssignmentArea;
+  title: string;
+  instructions?: string | null;
+  status: SetupAssignmentStatus;
+  assignedTo: string;
+  assignedToLabel: string;
+  createdBy: string;
+  createdByLabel: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+}
 export interface StudioState {
   studioId: string;
   studioName: string;
