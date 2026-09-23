@@ -1,4 +1,4 @@
-import type { Assignment, SchedulePatch, StudioState } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type SchedulePatch, type StudioState } from "@/lib/domain";
 import { assignmentIdForSession, placementEndTime, sessionDurationMinutes } from "@/lib/schedule-builder";
 
 export interface ScheduleCommandCandidate {
@@ -10,7 +10,7 @@ export interface ScheduleCommandCandidate {
   assignments: Assignment[];
 }
 
-const DAYS: Assignment["day"][] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAYS: Assignment["day"][] = [...SCHEDULE_DAYS];
 const minutes = (value: string) => {
   const [hour = "0", minute = "0"] = value.slice(0, 5).split(":");
   return Number(hour) * 60 + Number(minute);

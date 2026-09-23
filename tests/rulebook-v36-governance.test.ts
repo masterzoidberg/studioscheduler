@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 const governedRepairs = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260904190328_rulebook_v36_governed_repairs.sql"),
   "utf8",
-);
+).replace(/\r\n?/g, "\n");
 const retireV35 = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260904190357_retire_direct_v35_structure_rpc.sql"),
   "utf8",
-);
+).replace(/\r\n?/g, "\n");
 const client = readFileSync(resolve(process.cwd(), "lib/planning-inventory-client.ts"), "utf8");
 const repairsView = readFileSync(resolve(process.cwd(), "components/planning-repairs-view.tsx"), "utf8");
 
@@ -44,7 +44,7 @@ describe("Rulebook v36 exact-policy governance", () => {
   it("retires direct client execution of the unpinned v35 structure endpoint", () => {
     expect(retireV35).toContain("revoke execute on function public.apply_rulebook_structure_repair_v35(text,text,integer) from authenticated,service_role");
     expect(client).not.toContain('rpc("apply_rulebook_structure_repair_v35"');
-    expect(client).toContain('rpc("apply_rulebook_structure_repair_v36"');
+    expect(client).toContain('rpc("apply_rulebook_structure_repair_v63"');
   });
 });
 
@@ -98,7 +98,7 @@ describe("Rulebook v36 server-derived roster repair", () => {
 
   it("routes the browser through the server-derived roster boundary", () => {
     expect(client).toContain("export async function applyRulebookRosterRepair");
-    expect(client).toContain('rpc("apply_rulebook_roster_repair_v36"');
+    expect(client).toContain('rpc("apply_rulebook_roster_repair_v63"');
     expect(repairsView).toContain("applyRulebookRosterRepair({");
     expect(repairsView).not.toContain("rulebookRosterRepairDraft");
     expect(repairsView).not.toContain("mutatePlanningEntity({");

@@ -27,18 +27,19 @@ describe("planning inventory archive lifecycle", () => {
     expect(migration).toContain("s.archived_at is null and c.archived_at is null");
   });
 
-  it("filters archived entities from both browser workspace and server solver state", () => {
-    for (const source of [browserState, serverState]) {
-      for (const table of ["teachers", "rooms", "students", "class_definitions", "class_sessions"]) {
-        expect(source).toContain(`from(\"${table}\").select(\"*\")`);
-        expect(source).toMatch(new RegExp(`from\\(\\\"${table}\\\"\\).*?is\\(\\\"archived_at\\\", null\\)`, "s"));
-      }
+  it("filters archived browser inventory and gives the solver only the immutable archive-filtered Planning Dataset snapshot", () => {
+    for (const table of ["teachers", "rooms", "students", "class_definitions", "class_sessions"]) {
+      expect(browserState).toContain(`from(\"${table}\").select(\"*\")`);
+      expect(browserState).toMatch(new RegExp(`from\\(\\\"${table}\\\"\\).*?is\\(\\\"archived_at\\\", null\\)`, "s"));
+      expect(serverState).not.toContain(`.from(\"${table}\")`);
     }
+    expect(serverState).toContain('.rpc("get_solver_snapshot_v43"');
+    expect(serverState).toContain("planningFactsFromSnapshot(planning.snapshot)");
   });
 
-  it("scopes archived history reads to the DWDE studio", () => {
-    expect(archivePanel).toContain('const STUDIO_ID = "11111111-1111-4111-8111-111111111111"');
-    expect(archivePanel.match(/\.eq\("studio_id", STUDIO_ID\)/g)?.length ?? 0).toBe(4);
+  it("scopes archived history reads to the selected studio", () => {
+    expect(archivePanel).toContain("loadArchivedItems(state.studioId, requestedTypes)");
+    expect(archivePanel.match(/\.eq\("studio_id", studioId\)/g)?.length ?? 0).toBe(4);
   });
 
   it("blocks unsafe student, teacher, room, and class archives", () => {
@@ -61,7 +62,7 @@ describe("planning inventory archive lifecycle", () => {
   });
 
   it("routes archive and restore through the governed RPC with explicit archive confirmation", () => {
-    expect(archiveClient).toContain('rpc("set_planning_entity_archive_v40"');
+    expect(archiveClient).toContain('rpc("set_planning_entity_archive_v63"');
     expect(peopleView).toContain('archiveEntity("TEACHER"');
     expect(peopleView).toContain('archiveEntity("STUDENT"');
     expect(peopleView).toContain('archiveEntity("ROOM"');

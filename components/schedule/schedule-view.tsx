@@ -10,17 +10,18 @@ import {
   GripVertical,
   LockKeyhole,
   Pencil,
-  RefreshCw,
   ShieldCheck,
   X,
 } from "lucide-react";
-import type { Assignment, Day, SchedulePatch } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type Day, type SchedulePatch } from "@/lib/domain";
 import { applyAssignmentChanges, validateSchedule } from "@/lib/validator";
+import { assessScheduleEdit, sessionDurationForAssignment } from "@/lib/schedule-editing";
 import { useWorkspace } from "@/components/workspace-provider";
+import { useScheduleEditMode } from "@/components/schedule/schedule-edit-mode";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { safeTeacherColor, subjectMarker, translucentHex } from "@/lib/schedule-visuals";
 
-const days: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const days: Day[] = [...SCHEDULE_DAYS];
 type ViewMode = 1 | 2 | 3 | "week";
 
 type DragState = {
@@ -53,7 +54,7 @@ const samePlacement = (a: Assignment, b: Assignment) =>
   a.teacherId === b.teacherId;
 
 function windowFor(day: Day) {
-  return day === "Saturday" ? { start: 9 * 60, end: 15 * 60 } : { start: 16 * 60 + 15, end: 22 * 60 };
+  return day === "Saturday" || day === "Sunday" ? { start: 9 * 60, end: 15 * 60 } : { start: 16 * 60 + 15, end: 22 * 60 };
 }
 
 export function ScheduleView() {
@@ -66,9 +67,10 @@ export function ScheduleView() {
     scheduleIsStale,
     validation,
     applySchedulePatch,
-    rebaseSchedule,
+    toggleSessionLock,
     canEdit,
   } = useWorkspace();
+  const { editingEnabled } = useScheduleEditMode();
 
   const [day, setDay] = useState<Day>("Monday");
   const [viewMode, setViewMode] = useState<ViewMode>(1);
@@ -77,6 +79,7 @@ export function ScheduleView() {
   const [reason, setReason] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [lockSaving, setLockSaving] = useState(false);
   const [moveSaving, setMoveSaving] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<Assignment | null>(null);
@@ -113,6 +116,8 @@ export function ScheduleView() {
   const teacherMap = new Map(state.teachers.map((item) => [item.id, item]));
   const roomMap = new Map(state.rooms.map((item) => [item.id, item]));
   const klass = (assignment: Assignment) => classMap.get(sessionMap.get(assignment.sessionId)?.classId || "");
+  const sessionFor = (assignment: Assignment) => sessionMap.get(assignment.sessionId);
+  const effectiveLock = (assignment: Assignment) => Boolean(assignment.locked || sessionFor(assignment)?.locked);
   const assignmentsFor = (targetDay: Day) =>
     currentAssignments
       .filter((assignment) => assignment.day === targetDay)
@@ -121,7 +126,13 @@ export function ScheduleView() {
     safeTeacherColor(teacherColors[teacherId] || teacherMap.get(teacherId)?.displayColor, teacherId);
 
   const dayAssignments = assignmentsFor(day);
-  const preview = draft ? validateSchedule(state, applyAssignmentChanges(currentAssignments, draft.id, draft)) : null;
+  const previewAssignments = draft ? applyAssignmentChanges(currentAssignments, draft.id, draft) : null;
+  const draftAssessment = draft && previewAssignments
+    ? assessScheduleEdit(state, previewAssignments, { locked: Boolean(editing && effectiveLock(editing)), assignment: draft })
+    : null;
+  const draftDuration = draft
+    ? sessionDurationForAssignment(state, draft) ?? (toMinutes(draft.endTime) - toMinutes(draft.startTime))
+    : null;
   const related = editing ? validation.violations.filter((violation) => violation.assignmentIds.includes(editing.id)) : [];
   const dragValidation = dragPreview
     ? validateSchedule(state, applyAssignmentChanges(currentAssignments, dragPreview.id, dragPreview))
@@ -150,7 +161,7 @@ export function ScheduleView() {
   }
 
   async function save() {
-    if (!draft || !editing) return;
+    if (!draft || !editing || !draftAssessment?.allowed || effectiveLock(editing) || scheduleIsStale) return;
     setSaving(true);
     const changes: Partial<Assignment> = {
       day: draft.day,
@@ -177,6 +188,27 @@ export function ScheduleView() {
     setNotice(`Saved as Schedule v${result.version}.`);
     setEditing(null);
     setDraft(null);
+  }
+
+  async function changeSessionLock() {
+    if (!editing || !canEdit || !editingEnabled || lockSaving || scheduleIsStale) return;
+    const nextLocked = !effectiveLock(editing);
+    if (!reason.trim()) {
+      setNotice("A reason is required for a governed lock change.");
+      return;
+    }
+    setLockSaving(true);
+    const result = await toggleSessionLock(editing.sessionId, nextLocked, reason.trim());
+    setLockSaving(false);
+    if (!result.ok) {
+      setNotice(result.error || "The governed session lock change was rejected.");
+      return;
+    }
+    const ordinal = sessionFor(editing)?.ordinal;
+    setNotice(`${nextLocked ? "Locked" : "Unlocked"} Session ${ordinal ?? editing.sessionId} as Schedule v${result.version}. The current certification and solver candidates are stale and require review.`);
+    setEditing(null);
+    setDraft(null);
+    setReason("");
   }
 
   function scrollToDay(targetDay: Day) {
@@ -215,7 +247,7 @@ export function ScheduleView() {
 
   function startClassDrag(event: ReactPointerEvent<HTMLButtonElement>, assignment: Assignment) {
     event.stopPropagation();
-    if (!canEdit || assignment.locked || scheduleIsStale || moveSaving) return;
+    if (!canEdit || effectiveLock(assignment) || scheduleIsStale || moveSaving) return;
     classDragRef.current = {
       assignment,
       pointerId: event.pointerId,
@@ -258,7 +290,8 @@ export function ScheduleView() {
     if (!targetDay || !targetRoom || !Number.isFinite(gridStart) || !Number.isFinite(rowHeight) || rowHeight <= 0) return;
 
     const rect = drop.getBoundingClientRect();
-    const duration = toMinutes(drag.assignment.endTime) - toMinutes(drag.assignment.startTime);
+    const duration = sessionDurationForAssignment(state!, drag.assignment)
+      ?? (toMinutes(drag.assignment.endTime) - toMinutes(drag.assignment.startTime));
     const slot = Math.round((event.clientY - rect.top) / rowHeight);
     const operating = windowFor(targetDay);
     const unclamped = gridStart + slot * 15;
@@ -350,6 +383,7 @@ export function ScheduleView() {
     const teacher = teacherMap.get(assignment.teacherId);
     const marker = subjectMarker(currentClass?.subject, currentClass?.name);
     const isDragging = draggingId === assignment.id;
+    const isLocked = effectiveLock(assignment);
     return (
       <button
         key={assignment.id}
@@ -358,19 +392,25 @@ export function ScheduleView() {
         onPointerMove={moveClassDrag}
         onPointerUp={(event) => void finishClassDrag(event)}
         onPointerCancel={cancelClassDrag}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            begin(assignment);
+          }
+        }}
         className={`absolute left-1.5 right-1.5 overflow-hidden rounded-lg border border-slate-200 border-l-[5px] p-2 text-left shadow-sm transition-opacity focus:outline-none focus:ring-2 focus:ring-slate-950/30 ${
-          assignment.locked || !canEdit || scheduleIsStale ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+          isLocked || !canEdit || scheduleIsStale ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
         } ${isDragging ? "opacity-25" : "opacity-100"}`}
         style={{
           ...classCardStyle(assignment),
           top: Math.max(0, top),
           height: Math.max(36, height),
-          touchAction: assignment.locked || !canEdit || scheduleIsStale ? "auto" : "none",
+          touchAction: isLocked || !canEdit || scheduleIsStale ? "auto" : "none",
         }}
-        aria-label={`${currentClass?.name || assignment.sessionId}, ${teacher?.name || "teacher"}, ${pretty(assignment.startTime)} to ${pretty(assignment.endTime)}${assignment.locked ? ", locked" : ", drag to move or tap to edit"}`}
+        aria-label={`${currentClass?.name || assignment.sessionId}, ${teacher?.name || "teacher"}, ${pretty(assignment.startTime)} to ${pretty(assignment.endTime)}${isLocked ? ", locked" : ", drag to move or tap to edit"}`}
       >
         <div className="flex min-w-0 items-center gap-1.5">
-          {assignment.locked ? <LockKeyhole className="size-3 shrink-0 text-slate-500" /> : <GripVertical className="size-3 shrink-0 text-slate-400" />}
+          {isLocked ? <LockKeyhole className="size-3 shrink-0 text-slate-500" /> : <GripVertical className="size-3 shrink-0 text-slate-400" />}
           <span className="shrink-0 text-sm" aria-hidden="true">{marker}</span>
           <span className="truncate text-xs font-bold text-slate-900">{currentClass?.name || assignment.sessionId}</span>
         </div>
@@ -384,6 +424,8 @@ export function ScheduleView() {
   const detailCount = viewMode === "week" ? 1 : viewMode;
   const detailPanelWidth = detailCount === 1 ? "100%" : detailCount === 2 ? "50%" : "33.333333%";
   const detailPanelMinWidth = detailCount === 1 ? "100%" : detailCount === 2 ? "540px" : "410px";
+  const inspectedSession = editing ? sessionFor(editing) : undefined;
+  const inspectedEffectiveLock = editing ? effectiveLock(editing) : false;
 
   return (
     <div className="space-y-5">
@@ -405,8 +447,7 @@ export function ScheduleView() {
       {scheduleIsStale ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div><strong>Rulebook changed after this schedule version.</strong><p className="mt-1 leading-6">Revalidate the unchanged assignments before moving classes.</p></div>
-            {canEdit ? <button onClick={() => void rebaseSchedule()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-amber-950 px-4 font-semibold text-white"><RefreshCw className="size-4" />Revalidate</button> : null}
+             <div><strong>Rulebook changed after this schedule version.</strong><p className="mt-1 leading-6">Review revalidation above before saving the unchanged assignments as a new schedule version.</p></div>
           </div>
         </section>
       ) : null}
@@ -431,10 +472,10 @@ export function ScheduleView() {
       </section>
 
       <div className="md:hidden"><div className="space-y-3">
-        {dayAssignments.map((assignment) => { const currentClass = klass(assignment); const color = teacherColor(assignment.teacherId); return (
+        {dayAssignments.map((assignment) => { const currentClass = klass(assignment); const color = teacherColor(assignment.teacherId); const isLocked = effectiveLock(assignment); return (
           <button key={assignment.id} onClick={() => begin(assignment)} className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm">
             <div className="h-1.5" style={{ backgroundColor: color }} /><div className="p-4">
-              <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2">{assignment.locked ? <LockKeyhole className="size-3.5 text-slate-500" /> : null}<span aria-hidden="true">{subjectMarker(currentClass?.subject, currentClass?.name)}</span><h3 className="font-semibold">{currentClass?.name || assignment.sessionId}</h3></div><p className="mt-1 text-sm text-slate-500">{pretty(assignment.startTime)}–{pretty(assignment.endTime)}</p></div><span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold">{roomMap.get(assignment.roomId)?.name}</span></div>
+              <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2">{isLocked ? <LockKeyhole className="size-3.5 text-slate-500" /> : null}<span aria-hidden="true">{subjectMarker(currentClass?.subject, currentClass?.name)}</span><h3 className="font-semibold">{currentClass?.name || assignment.sessionId}</h3></div><p className="mt-1 text-sm text-slate-500">{pretty(assignment.startTime)}–{pretty(assignment.endTime)}</p></div><span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold">{roomMap.get(assignment.roomId)?.name}</span></div>
               <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-600"><span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ backgroundColor: color }} />{teacherMap.get(assignment.teacherId)?.name}</span><span className="inline-flex items-center gap-1"><Clock3 className="size-3.5" />{currentClass?.durationMinutes} min</span><span>{currentClass?.level}</span></div>
             </div>
           </button>
@@ -454,7 +495,7 @@ export function ScheduleView() {
                   <div className="border-r border-slate-200 bg-slate-50">{Array.from({ length: rows }, (_, index) => { const total = operating.start + index * 15; return <div key={total} className="border-b border-slate-200/70 px-1.5 pt-1 text-[9px] text-slate-500" style={{ height: slotHeight }}>{pretty(asTime(total))}</div>; })}</div>
                   {state.rooms.map((room) => (
                     <div key={room.id} data-drop-day={targetDay} data-drop-room={room.id} data-grid-start={operating.start} data-slot-height={slotHeight} className="relative border-r border-slate-200 last:border-r-0" style={{ height: gridHeight, backgroundImage: "linear-gradient(to bottom, rgba(148,163,184,.34) 1px, transparent 1px)", backgroundSize: `100% ${slotHeight}px` }}>
-                      {targetAssignments.filter((assignment) => assignment.roomId === room.id).map((assignment) => { const top = ((toMinutes(assignment.startTime) - operating.start) / 15) * slotHeight; const height = ((toMinutes(assignment.endTime) - toMinutes(assignment.startTime)) / 15) * slotHeight; const outside = top < 0 || top + height > gridHeight; return detailedCard(assignment, top, height, outside); })}
+                       {targetAssignments.filter((assignment) => assignment.roomId === room.id).map((assignment) => { const top = ((toMinutes(assignment.startTime) - operating.start) / 15) * slotHeight; const duration = sessionDurationForAssignment(state, assignment) ?? (toMinutes(assignment.endTime) - toMinutes(assignment.startTime)); const height = (duration / 15) * slotHeight; const outside = top < 0 || top + height > gridHeight; return detailedCard(assignment, top, height, outside); })}
                       {dragPreview && dragPreview.day === targetDay && dragPreview.roomId === room.id ? <div className={`pointer-events-none absolute left-1 right-1 z-10 rounded-lg border-2 border-dashed p-2 shadow-lg ${dragAllowed ? "border-emerald-500 bg-emerald-50/90" : "border-red-500 bg-red-50/90"}`} style={{ top: ((toMinutes(dragPreview.startTime) - operating.start) / 15) * slotHeight, height: Math.max(36, ((toMinutes(dragPreview.endTime) - toMinutes(dragPreview.startTime)) / 15) * slotHeight) }}><p className="truncate text-xs font-bold text-slate-900">{dragAllowed ? "✓" : "✕"} {subjectMarker(klass(dragPreview)?.subject, klass(dragPreview)?.name)} {klass(dragPreview)?.name}</p><p className="mt-1 truncate text-[10px] text-slate-600">{pretty(dragPreview.startTime)} · {room.name}</p></div> : null}
                     </div>
                   ))}
@@ -468,7 +509,7 @@ export function ScheduleView() {
           {days.map((targetDay) => { const operating = windowFor(targetDay); const rows = Math.ceil((operating.end - operating.start) / 15); const height = rows * weekSlotHeight; const targetAssignments = assignmentsFor(targetDay); return (
             <section key={targetDay} className="min-w-0">
               <button type="button" onClick={() => { setViewMode(1); setTimeout(() => scrollToDay(targetDay), 0); }} className="w-full border-b border-slate-200 bg-slate-50 p-3 text-left"><p className="font-semibold">{targetDay}</p><p className="text-xs text-slate-500">{targetAssignments.length} sessions</p></button>
-              <div className="grid grid-cols-3 divide-x divide-slate-100">{state.rooms.slice(0, 3).map((room) => <div key={room.id}><div className="truncate border-b border-slate-100 p-1.5 text-center text-[9px] font-semibold text-slate-500">{room.name}</div><div className="relative" style={{ height, backgroundImage: "linear-gradient(to bottom, rgba(148,163,184,.23) 1px, transparent 1px)", backgroundSize: `100% ${weekSlotHeight}px` }}>{targetAssignments.filter((assignment) => assignment.roomId === room.id).map((assignment) => { const currentClass = klass(assignment); const top = ((toMinutes(assignment.startTime) - operating.start) / 15) * weekSlotHeight; const cardHeight = Math.max(16, ((toMinutes(assignment.endTime) - toMinutes(assignment.startTime)) / 15) * weekSlotHeight); const color = teacherColor(assignment.teacherId); return <button key={assignment.id} type="button" onClick={() => begin(assignment)} className="absolute left-0.5 right-0.5 overflow-hidden rounded border border-slate-200 border-l-[4px] px-1 py-0.5 text-left shadow-sm" style={{ top: Math.max(0, top), height: cardHeight, borderLeftColor: color, backgroundColor: translucentHex(color) }} title={`${currentClass?.name} · ${teacherMap.get(assignment.teacherId)?.name} · ${pretty(assignment.startTime)}`}><span className="block truncate text-[9px] font-bold">{subjectMarker(currentClass?.subject, currentClass?.name)} {currentClass?.name}</span></button>; })}</div></div>)}</div>
+               <div className="grid min-w-max divide-x divide-slate-100" style={{ gridTemplateColumns: `repeat(${Math.max(state.rooms.length, 1)}, minmax(80px, 1fr))` }}>{state.rooms.map((room) => <div key={room.id}><div className="truncate border-b border-slate-100 p-1.5 text-center text-[9px] font-semibold text-slate-500">{room.name}</div><div className="relative" style={{ height, backgroundImage: "linear-gradient(to bottom, rgba(148,163,184,.23) 1px, transparent 1px)", backgroundSize: `100% ${weekSlotHeight}px` }}>{targetAssignments.filter((assignment) => assignment.roomId === room.id).map((assignment) => { const currentClass = klass(assignment); const top = ((toMinutes(assignment.startTime) - operating.start) / 15) * weekSlotHeight; const duration = sessionDurationForAssignment(state, assignment) ?? (toMinutes(assignment.endTime) - toMinutes(assignment.startTime)); const cardHeight = Math.max(16, (duration / 15) * weekSlotHeight); const color = teacherColor(assignment.teacherId); return <button key={assignment.id} type="button" onClick={() => begin(assignment)} className="absolute left-0.5 right-0.5 overflow-hidden rounded border border-slate-200 border-l-[4px] px-1 py-0.5 text-left shadow-sm" style={{ top: Math.max(0, top), height: cardHeight, borderLeftColor: color, backgroundColor: translucentHex(color) }} title={`${currentClass?.name} · ${teacherMap.get(assignment.teacherId)?.name} · ${pretty(assignment.startTime)}`}><span className="block truncate text-[9px] font-bold">{subjectMarker(currentClass?.subject, currentClass?.name)} {currentClass?.name}</span></button>; })}</div></div>)}</div>
             </section>
           ); })}
         </div></div>
@@ -478,17 +519,25 @@ export function ScheduleView() {
 
       {draft && editing ? (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/40 sm:items-center sm:p-6"><div className="max-h-[94vh] w-full max-w-xl overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px] sm:p-6">
-          <div className="flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Assignment inspector</p><h2 className="mt-1 text-xl font-semibold">{subjectMarker(klass(draft)?.subject, klass(draft)?.name)} {klass(draft)?.name}</h2></div><button onClick={() => { setEditing(null); setDraft(null); }} className="grid size-10 place-items-center rounded-xl"><X className="size-5" /></button></div>
-          {editing.locked ? <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"><LockKeyhole className="mr-2 inline size-4" />This placement is locked. The server will reject attempts to move it too.</div> : null}
+          <div className="flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Assignment inspector</p><h2 className="mt-1 text-xl font-semibold">{subjectMarker(klass(draft)?.subject, klass(draft)?.name)} {klass(draft)?.name}</h2><p className="mt-2 text-sm leading-6 text-slate-600">Session {inspectedSession?.ordinal ?? editing.sessionId} · {editing.day} · {pretty(editing.startTime)}–{pretty(editing.endTime)} · {teacherMap.get(editing.teacherId)?.name || editing.teacherId} · {roomMap.get(editing.roomId)?.name || editing.roomId}</p></div><button onClick={() => { setEditing(null); setDraft(null); }} className="grid size-10 place-items-center rounded-xl" aria-label="Close assignment inspector"><X className="size-5" /></button></div>
+          <div className={`mt-4 rounded-xl border p-3 text-sm ${inspectedEffectiveLock ? "border-slate-200 bg-slate-50 text-slate-700" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}><LockKeyhole className="mr-2 inline size-4" /><strong>Effective lock: {inspectedEffectiveLock ? "Locked" : "Unlocked"}</strong><p className="mt-1">This is the session lock combined with the current placement lock. Lock changes create a new planning and schedule context.</p><p className="mt-1">The current readiness certification and solver candidates become stale and require review after this action.</p></div>
           {!canEdit ? <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">Viewer access is read-only.</div> : null}
           <div className="mt-5 grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">Day<select disabled={!canEdit || editing.locked || scheduleIsStale} value={draft.day} onChange={(event) => setDraft({ ...draft, day: event.target.value as Day })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{days.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-600">Room<select disabled={!canEdit || editing.locked || scheduleIsStale} value={draft.roomId} onChange={(event) => setDraft({ ...draft, roomId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{state.rooms.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></div>
-            <div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Start<input disabled={!canEdit || editing.locked || scheduleIsStale} type="time" step={900} value={draft.startTime} onChange={(event) => { const duration = klass(draft)?.durationMinutes ?? (toMinutes(draft.endTime) - toMinutes(draft.startTime)); const start = toMinutes(event.target.value); setDraft({ ...draft, startTime: event.target.value, endTime: asTime(start + duration) }); }} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label><div className="text-xs font-semibold text-slate-600">Duration<div className="mt-1 flex min-h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-normal text-slate-600">{klass(draft)?.durationMinutes ?? toMinutes(draft.endTime) - toMinutes(draft.startTime)} minutes · ends {pretty(draft.endTime)}</div></div></div>
-            <label className="text-xs font-semibold text-slate-600">Teacher<select disabled={!canEdit || editing.locked || scheduleIsStale} value={draft.teacherId} onChange={(event) => setDraft({ ...draft, teacherId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{state.teachers.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-            <div className={`rounded-xl border p-4 ${preview && (validation.hardViolations === 0 ? preview.hardViolations === 0 : preview.hardViolations < validation.hardViolations) ? "border-blue-200 bg-blue-50" : "border-red-200 bg-red-50"}`}><div className="flex items-center gap-2 text-sm font-semibold">{preview && (validation.hardViolations === 0 ? preview.hardViolations === 0 : preview.hardViolations < validation.hardViolations) ? <CheckCircle2 className="size-4 text-blue-600" /> : <AlertTriangle className="size-4 text-red-600" />}Proposed move preview</div><p className="mt-2 text-sm text-slate-700">{preview?.hardViolations || 0} detected HARD violation(s). Coverage remains {preview?.coverage.implementedHardRules || 0}/{preview?.coverage.applicableHardRules || 0} applicable HARD rules.</p>{preview && preview.hardViolations > 0 ? <div className="mt-3 space-y-1 text-xs text-red-800">{preview.violations.filter((item) => item.severity === "HARD").slice(0, 5).map((item, index) => <p key={index}>• {item.message}</p>)}</div> : null}<p className="mt-2 text-xs text-slate-500">The database reruns the implemented HARD checks before committing.</p></div>
+            <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">Day<select disabled={!canEdit || inspectedEffectiveLock || scheduleIsStale} value={draft.day} onChange={(event) => setDraft({ ...draft, day: event.target.value as Day })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{days.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-600">Room<select disabled={!canEdit || inspectedEffectiveLock || scheduleIsStale} value={draft.roomId} onChange={(event) => setDraft({ ...draft, roomId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{state.rooms.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></div>
+            <div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Start<input disabled={!canEdit || inspectedEffectiveLock || scheduleIsStale} type="time" step={900} value={draft.startTime} onChange={(event) => { const duration = draftDuration ?? 0; const start = toMinutes(event.target.value); setDraft({ ...draft, startTime: event.target.value, endTime: asTime(start + duration) }); }} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label><div className="text-xs font-semibold text-slate-600">Duration<div className="mt-1 flex min-h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-normal text-slate-600">{draftDuration ?? "Unknown"} minutes · ends {pretty(draft.endTime)}</div></div></div>
+            <label className="text-xs font-semibold text-slate-600">Teacher<select disabled={!canEdit || inspectedEffectiveLock || scheduleIsStale} value={draft.teacherId} onChange={(event) => setDraft({ ...draft, teacherId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal">{state.teachers.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+            {draftAssessment ? <div className={`rounded-xl border p-4 ${draftAssessment.status === "VALID" ? "border-emerald-200 bg-emerald-50" : draftAssessment.status === "PREFERENCE_WARNING" ? "border-amber-200 bg-amber-50" : draftAssessment.status === "LOCKED" ? "border-slate-200 bg-slate-50" : draftAssessment.status === "INCOMPLETE" ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
+              <div className="flex items-center gap-2 text-sm font-semibold">{draftAssessment.status === "VALID" || draftAssessment.status === "PREFERENCE_WARNING" ? <CheckCircle2 className="size-4 text-emerald-700" /> : <AlertTriangle className="size-4 text-red-700" />}<span className="rounded-full border border-current px-2 py-0.5 text-[10px] tracking-wide">{draftAssessment.status}</span><span>{draftAssessment.title}</span></div>
+              <p className="mt-2 text-sm text-slate-700">{draftAssessment.message}</p>
+              {draftAssessment.status === "PREFERENCE_WARNING" ? <div className="mt-3 space-y-1 text-xs text-amber-900">{draftAssessment.preferenceWarnings.slice(0, 5).map((item, index) => <p key={index}>• {item}</p>)}</div> : null}
+              {draftAssessment.status === "INCOMPLETE" ? <p className="mt-3 text-xs text-amber-900">Missing {draftAssessment.completeness.unscheduledSessionIds.length} session{draftAssessment.completeness.unscheduledSessionIds.length === 1 ? "" : "s"}; this draft is not ready to publish.</p> : null}
+              {draftAssessment.status === "REJECTED" ? <div className="mt-3 space-y-1 text-xs text-red-800">{draftAssessment.validation.violations.filter((item) => item.severity === "HARD").slice(0, 5).map((item, index) => <p key={index}>• {item.message}</p>)}</div> : null}
+              {draftAssessment.status === "LOCKED" ? <p className="mt-3 text-xs text-slate-600">Unlocking is a governed lock action. Regeneration and recovery preserve this placement until an authorized lock change.</p> : null}
+              <p className="mt-3 text-xs text-slate-500">The database reruns the implemented HARD checks before committing the {draftAssessment.durationMinutes ?? "configured"}-minute session.</p>
+            </div> : null}
             {related.length ? <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold text-slate-600">Current findings for this assignment</p>{related.map((item, index) => <p key={index} className="mt-1 text-xs text-slate-600">• {item.message}</p>)}</div> : null}
-            <label className="text-xs font-semibold text-slate-600">Reason<input disabled={!canEdit || editing.locked || scheduleIsStale} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Optional note about this move" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
-            <div className="flex gap-2"><button onClick={() => { setEditing(null); setDraft(null); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Close</button><button disabled={!canEdit || editing.locked || scheduleIsStale || saving || !preview || (validation.hardViolations === 0 ? preview.hardViolations > 0 : preview.hardViolations >= validation.hardViolations)} onClick={() => void save()} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40"><Pencil className="size-4" />{saving ? "Saving…" : "Save new schedule version"}</button></div>
+            <label className="text-xs font-semibold text-slate-600">Reason<input disabled={!canEdit || scheduleIsStale || lockSaving} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required for lock changes; optional for a move" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
+            <div className="flex flex-col gap-2 sm:flex-row"><button disabled={!canEdit || !editingEnabled || scheduleIsStale || lockSaving || !reason.trim()} onClick={() => void changeSessionLock()} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 font-semibold text-slate-800 disabled:opacity-40"><LockKeyhole className="size-4" />{lockSaving ? "Updating lock…" : inspectedEffectiveLock ? "Unlock session" : "Lock session"}</button><button onClick={() => { setEditing(null); setDraft(null); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Close</button><button disabled={!canEdit || inspectedEffectiveLock || scheduleIsStale || saving || !draftAssessment?.allowed} onClick={() => void save()} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40"><Pencil className="size-4" />{saving ? "Saving…" : "Save new schedule version"}</button></div>
           </div>
         </div></div>
       ) : null}

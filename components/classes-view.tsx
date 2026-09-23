@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Archive, Clock3, Pencil, Plus, Search, UsersRound, Wrench, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Archive, ClipboardCheck, Clock3, Pencil, Plus, Search, UsersRound, Wrench, X } from "lucide-react";
 import { PlanningArchivePanel } from "@/components/planning-archive-panel";
 import { setPlanningEntityArchived } from "@/lib/planning-archive-client";
 import type { ClassDefinition, ClassSession } from "@/lib/domain";
@@ -13,6 +13,18 @@ import {
   type RulebookClassStructureRepair,
 } from "@/lib/planning-structure-repair";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
+import {
+  classAssignmentPolicyDraftFromRules,
+  classEligibleTeacherIds,
+  type ClassAssignmentPolicyDraft,
+} from "@/lib/class-setup";
+import {
+  applyClassAssignmentPolicies,
+  attestClassSetupReview,
+  listClassSetupReviewStatus,
+  type ClassSetupReviewStatus,
+} from "@/lib/class-setup-client";
+import { currentTenantPolicyRequirements } from "@/lib/tenant-policy";
 
 function newClass(): ClassDefinition {
   return {
@@ -40,7 +52,7 @@ function expectedStructure(repair: RulebookClassStructureRepair) {
 }
 
 export function ClassesView() {
-  const { state, currentAssignments, canEdit, currentPlanningDatasetVersion, refresh } = useWorkspace();
+  const { state, currentAssignments, canEdit, currentRulebookVersion, currentEnforcementVersion, currentPlanningDatasetVersion, refresh } = useWorkspace();
   const [editing, setEditing] = useState<ClassDefinition | null>(null);
   const [creating, setCreating] = useState(false);
   const [activeRepair, setActiveRepair] = useState<RulebookClassStructureRepair | null>(null);
@@ -49,6 +61,25 @@ export function ClassesView() {
   const [savingSessions, setSavingSessions] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>({});
+  const [scopeDraft, setScopeDraft] = useState<"" | "STANDARD" | "COMPANY_ONLY">("");
+  const [policyDraft, setPolicyDraft] = useState<ClassAssignmentPolicyDraft | null>(null);
+  const [reviews, setReviews] = useState<ClassSetupReviewStatus[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(true);
+  const [reviewing, setReviewing] = useState<"structure" | "roster" | null>(null);
+  const [savingPolicies, setSavingPolicies] = useState(false);
+  const [emptyRosterConfirmed, setEmptyRosterConfirmed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!state) return () => { cancelled = true; };
+    void listClassSetupReviewStatus(state.studioId).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) setNotice(result.error || "Class review status could not be loaded.");
+      else setReviews(result.items);
+      setLoadingReviews(false);
+    });
+    return () => { cancelled = true; };
+  }, [state, currentPlanningDatasetVersion, currentRulebookVersion]);
 
   const students = useMemo(() => {
     if (!state) return [];
@@ -59,7 +90,11 @@ export function ClassesView() {
   }, [state, studentSearch]);
 
   const structureRepairs = useMemo(
-    () => state ? rulebookClassStructureRepairs({ classes: state.classes, sessions: state.sessions }) : [],
+    () => state ? rulebookClassStructureRepairs({
+      classes: state.classes,
+      sessions: state.sessions,
+      requirements: currentTenantPolicyRequirements(state).structure,
+    }) : [],
     [state],
   );
 
@@ -78,16 +113,21 @@ export function ClassesView() {
     || original.level !== editing.level
     || original.durationMinutes !== editing.durationMinutes
     || original.weeklyFrequency !== editing.weeklyFrequency
-    || original.companyOnly !== editing.companyOnly
+    || original.companyOnly !== (scopeDraft === "COMPANY_ONLY")
     || original.rosterStudentIds.length !== editing.rosterStudentIds.length
     || original.rosterStudentIds.some((id) => !editing.rosterStudentIds.includes(id))
   ));
+  const activeReview = editing && !creating ? reviews.find((item) => item.classId === editing.id) ?? null : null;
+  const eligibleTeacherIds = editing ? classEligibleTeacherIds(editing.id, state.rules) : [];
 
   function beginAdd() {
     setCreating(true);
     setActiveRepair(null);
     setStudentSearch("");
     setSessionDrafts({});
+    setScopeDraft("");
+    setPolicyDraft(null);
+    setEmptyRosterConfirmed(false);
     setEditing(newClass());
   }
 
@@ -98,6 +138,9 @@ export function ClassesView() {
     setActiveRepair(null);
     setStudentSearch("");
     setSessionDrafts(durationDrafts(sessions));
+    setScopeDraft(klass.companyOnly ? "COMPANY_ONLY" : "STANDARD");
+    setPolicyDraft(classAssignmentPolicyDraftFromRules(klass.id, state.rules));
+    setEmptyRosterConfirmed(false);
     setEditing({ ...klass, rosterStudentIds: [...klass.rosterStudentIds], eligibleTeacherIds: [...klass.eligibleTeacherIds] });
   }
 
@@ -120,6 +163,9 @@ export function ClassesView() {
     setActiveRepair(repair);
     setStudentSearch("");
     setSessionDrafts(durationDrafts(sessions));
+    setScopeDraft(existing?.companyOnly ? "COMPANY_ONLY" : "STANDARD");
+    setPolicyDraft(existing ? classAssignmentPolicyDraftFromRules(existing.id, state.rules) : null);
+    setEmptyRosterConfirmed(false);
     setEditing(rulebookRepairDraft(repair, existing));
   }
 
@@ -128,6 +174,8 @@ export function ClassesView() {
     setCreating(false);
     setActiveRepair(null);
     setSessionDrafts({});
+    setPolicyDraft(null);
+    setScopeDraft("");
   }
 
   function toggleStudent(id: string) {
@@ -139,8 +187,20 @@ export function ClassesView() {
     });
   }
 
+  function selectVisibleStudents(selected: boolean) {
+    if (!editing || activeRepair) return;
+    const visible = new Set(students.map((student) => student.id));
+    setEditing({
+      ...editing,
+      rosterStudentIds: selected
+        ? [...new Set([...editing.rosterStudentIds, ...visible])]
+        : editing.rosterStudentIds.filter((id) => !visible.has(id)),
+    });
+    setEmptyRosterConfirmed(false);
+  }
+
   async function save() {
-    if (!editing || !canEdit || saving) return;
+    if (!state || !editing || !canEdit || saving) return;
 
     if (activeRepair && !creating) {
       if (!original || activeRepair.classId !== editing.id) {
@@ -172,6 +232,7 @@ export function ClassesView() {
       setSaving(true);
       setNotice("");
       const result = await applyRulebookStructureRepair({
+        studioId: state.studioId,
         classId: editing.id,
         reason: `Applied atomic reviewed Rulebook structure repair for ${editing.name} (${activeRepair.ruleIds.join(", ")})`,
         expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
@@ -190,6 +251,10 @@ export function ClassesView() {
       setNotice("Name, subject, and level are required before class planning data can be saved.");
       return;
     }
+    if (!scopeDraft) {
+      setNotice("Choose the class scope explicitly before saving.");
+      return;
+    }
     if (!Number.isInteger(editing.durationMinutes) || editing.durationMinutes <= 0 || editing.durationMinutes > 1440) {
       setNotice("Default class duration must be a positive whole number of minutes. Rulebook repair drafts never guess a duration that has not been established.");
       return;
@@ -202,6 +267,7 @@ export function ClassesView() {
     setSaving(true);
     setNotice("");
     const result = await mutatePlanningEntity({
+      studioId: state.studioId,
       operation: creating ? "CREATE" : "UPDATE",
       entityType: "CLASS",
       entityId: creating ? null : editing.id,
@@ -212,7 +278,7 @@ export function ClassesView() {
         durationMinutes: editing.durationMinutes,
         weeklyFrequency: editing.weeklyFrequency,
         rosterStudentIds: editing.rosterStudentIds,
-        companyOnly: Boolean(editing.companyOnly),
+        companyOnly: scopeDraft === "COMPANY_ONLY",
       },
       reason: activeRepair
         ? `Reviewed Rulebook structure repair for ${editing.name} (${activeRepair.ruleIds.join(", ")})`
@@ -230,12 +296,58 @@ export function ClassesView() {
     setSaving(false);
   }
 
+  async function saveAssignmentPolicies() {
+    if (!state || !editing || creating || !policyDraft || !canEdit || savingPolicies || classFieldsDirty) return;
+    setSavingPolicies(true);
+    setNotice("");
+    const result = await applyClassAssignmentPolicies({
+      studioId: state.studioId,
+      classId: editing.id,
+      draft: policyDraft,
+      reason: `Updated required and preferred assignments for ${editing.name}`,
+      expectedRulebookVersion: currentRulebookVersion,
+      expectedEnforcementVersion: currentEnforcementVersion,
+      expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
+    });
+    setSavingPolicies(false);
+    if (!result.ok) {
+      setNotice(`${result.error || "Class assignment policies were not saved."} Your selections are still here.`);
+      return;
+    }
+    await refresh();
+    setNotice(`Must happen and Prefer choices saved in Rulebook v${result.rulebookVersion}.`);
+  }
+
+  async function reviewClassAspect(item: ClassSetupReviewStatus, aspect: "structure" | "roster") {
+    if (!state || !editing || !canEdit || reviewing || classFieldsDirty) return;
+    setReviewing(aspect);
+    setNotice("");
+    const review = item[aspect];
+    const result = await attestClassSetupReview({
+      studioId: state.studioId,
+      classId: editing.id,
+      aspect,
+      expectedPlanningDatasetVersion: item.planningDatasetVersion,
+      expectedFingerprint: review.currentFingerprint,
+      emptyRosterConfirmed: aspect === "roster" && emptyRosterConfirmed,
+    });
+    setReviewing(null);
+    if (!result.ok) {
+      setNotice(`${result.error || `The ${aspect} review was not saved.`} Your class draft is still here.`);
+      return;
+    }
+    const loaded = await listClassSetupReviewStatus(state.studioId);
+    if (loaded.ok) setReviews(loaded.items);
+    setNotice(`${editing.name} ${aspect} is reviewed for the current setup.`);
+  }
+
   async function archiveClass() {
-    if (!editing || creating || activeRepair || !canEdit || saving) return;
+    if (!state || !editing || creating || activeRepair || !canEdit || saving) return;
     if (!window.confirm(`Archive ${editing.name} and its weekly sessions from active planning? Historical schedule records will be preserved and the class can be restored later.`)) return;
     setSaving(true);
     setNotice("");
     const result = await setPlanningEntityArchived({
+      studioId: state.studioId,
       entityType: "CLASS", entityId: editing.id, archive: true,
       reason: `Archived class ${editing.name} from active planning inventory`,
       expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
@@ -249,7 +361,7 @@ export function ClassesView() {
   }
 
   async function saveSessionDurations() {
-    if (!editing || creating || !canEdit || savingSessions || !editingSessions.length) return;
+    if (!state || !editing || creating || !canEdit || savingSessions || !editingSessions.length) return;
     if (classFieldsDirty) {
       setNotice("Save or discard the class/roster changes first. Session-duration overrides are a separate atomic planning-data change so they cannot be mixed with unsaved class edits.");
       return;
@@ -273,6 +385,7 @@ export function ClassesView() {
     setSavingSessions(true);
     setNotice("");
     const result = await updateClassSessionDurations({
+      studioId: state.studioId,
       classId: editing.id,
       sessionDurations: payload,
       reason: `Updated weekly session durations for ${editing.name}`,
@@ -295,7 +408,7 @@ export function ClassesView() {
   }
 
   return (
-    <div className="space-y-5">
+    <div id="setup-class-details" className="scroll-mt-6 space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
         <strong className="text-slate-950">Classes, rosters, and weekly session durations are live planning data.</strong> The catalog below starts with our current understanding and can be expanded as enrollment and programming change. Teacher qualification remains Rulebook truth and is never inferred from the legacy eligibility array.
       </div>
@@ -393,7 +506,7 @@ export function ClassesView() {
                 <label className="text-xs font-semibold text-slate-600">Name<input readOnly={Boolean(activeRepair)} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
                 <label className="text-xs font-semibold text-slate-600">Subject<input readOnly={Boolean(activeRepair)} value={editing.subject} onChange={(event) => setEditing({ ...editing, subject: event.target.value })} placeholder="Ballet, Jazz, Tap…" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-normal" /></label>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <label className="text-xs font-semibold text-slate-600">Level<input readOnly={Boolean(activeRepair)} value={editing.level} onChange={(event) => setEditing({ ...editing, level: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
                 <label className="text-xs font-semibold text-slate-600">Default minutes<input type="number" min={1} readOnly={Boolean(activeRepair)} value={editing.durationMinutes || ""} onChange={(event) => setEditing({ ...editing, durationMinutes: Number(event.target.value) })} placeholder="Required" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
                 <label className="text-xs font-semibold text-slate-600">Per week<input type="number" min={1} readOnly={Boolean(activeRepair)} value={editing.weeklyFrequency} onChange={(event) => setEditing({ ...editing, weeklyFrequency: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2 text-sm font-normal" /></label>
@@ -441,6 +554,7 @@ export function ClassesView() {
 
               <div className="rounded-2xl border border-slate-200 p-4">
                 <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-semibold text-slate-900">Class roster</p><p className="text-xs text-slate-500">{editing.rosterStudentIds.length} selected. Add missing students on the People → Students screen first.</p></div><label className="relative block min-w-52 flex-1 sm:max-w-72"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Search students" className="min-h-10 w-full rounded-xl border border-slate-300 pl-9 pr-3 text-sm" /></label></div>
+                {!activeRepair ? <div className="mt-3 flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => selectVisibleStudents(true)} className="min-h-11 flex-1 rounded-xl border border-slate-300 px-3 text-xs font-semibold">Select all matching</button><button type="button" onClick={() => selectVisibleStudents(false)} className="min-h-11 flex-1 rounded-xl border border-slate-300 px-3 text-xs font-semibold">Clear matching</button></div> : null}
                 <div className="mt-3 grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
                   {students.map((item) => {
                     const selected = editing.rosterStudentIds.includes(item.id);
@@ -450,11 +564,32 @@ export function ClassesView() {
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={Boolean(activeRepair)} checked={Boolean(editing.companyOnly)} onChange={(event) => setEditing({ ...editing, companyOnly: event.target.checked })} />Company-only curriculum flag</label>
-              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><strong>Teacher eligibility is not editable here.</strong> Required, allowed, preferred and prohibited teachers belong to versioned Rulebook policy. New classes begin with no invented eligibility.</div>
+              <label className="text-xs font-semibold text-slate-600">Class scope<select disabled={Boolean(activeRepair)} value={scopeDraft} onChange={(event) => setScopeDraft(event.target.value as typeof scopeDraft)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">Choose explicitly</option><option value="STANDARD">Standard curriculum</option><option value="COMPANY_ONLY">Company-only curriculum</option></select></label>
+
+              {!creating && !activeRepair && policyDraft ? <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-4">
+                <p className="text-sm font-semibold text-blue-950">Must happen and Prefer</p>
+                <p className="mt-1 text-xs leading-5 text-blue-900">These choices write typed Rulebook policy. Eligibility is read-only here and comes from reviewed teacher qualification policy.</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-slate-700">Must happen · teacher<select value={policyDraft.requiredTeacherId} onChange={(event) => setPolicyDraft({ ...policyDraft, requiredTeacherId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No required teacher</option>{state.teachers.filter((teacher) => eligibleTeacherIds.includes(teacher.id)).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>
+                  <label className="text-xs font-semibold text-slate-700">Prefer · teacher<select value={policyDraft.preferredTeacherId} onChange={(event) => setPolicyDraft({ ...policyDraft, preferredTeacherId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No preferred teacher</option>{state.teachers.filter((teacher) => eligibleTeacherIds.includes(teacher.id)).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>
+                  <label className="text-xs font-semibold text-slate-700">Must happen · room<select value={policyDraft.requiredRoomId} onChange={(event) => setPolicyDraft({ ...policyDraft, requiredRoomId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No required room</option>{state.rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
+                  <label className="text-xs font-semibold text-slate-700">Prefer · room<select value={policyDraft.preferredRoomId} onChange={(event) => setPolicyDraft({ ...policyDraft, preferredRoomId: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">No preferred room</option>{state.rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
+                </div>
+                <p className="mt-3 text-xs text-blue-900"><strong>Eligible from qualifications:</strong> {eligibleTeacherIds.length ? eligibleTeacherIds.map((id) => state.teachers.find((teacher) => teacher.id === id)?.name ?? id).join(", ") : "No teacher currently has this class in an explicit qualification domain."}</p>
+                <button type="button" disabled={savingPolicies || classFieldsDirty} onClick={() => void saveAssignmentPolicies()} className="mt-3 min-h-11 w-full rounded-xl bg-blue-950 px-4 text-xs font-semibold text-white disabled:opacity-40">{savingPolicies ? "Saving policy…" : "Save Must happen and Prefer"}</button>
+              </div> : <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><strong>Teacher eligibility is not editable here.</strong> It is derived from reviewed teacher qualification policy; no eligibleTeacherIds value is written.</div>}
+
+              {!creating && !activeRepair && activeReview ? <div className="rounded-2xl border border-slate-200 p-4">
+                <p className="text-sm font-semibold text-slate-950">Review changes</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Review structure and roster separately. Changing an ordinal duration invalidates structure only; roster review remains stable.</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {(["structure", "roster"] as const).map((aspect) => <div key={aspect} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between gap-2"><strong className="capitalize">{aspect}</strong><span className="text-[10px] font-semibold uppercase text-slate-500">{activeReview[aspect].state.replaceAll("_", " ")}</span></div>{activeReview[aspect].value.policyError ? <p className="mt-2 text-xs leading-5 text-amber-800">{activeReview[aspect].value.policyError}</p> : null}{aspect === "roster" && editing.rosterStudentIds.length === 0 ? <label className="mt-3 flex min-h-11 items-start gap-2 text-xs leading-5"><input type="checkbox" className="mt-1 size-4" checked={emptyRosterConfirmed} onChange={(event) => setEmptyRosterConfirmed(event.target.checked)} />I confirm this class has no current enrolled dancers for the selected scope.</label> : null}{activeReview[aspect].state !== "REVIEWED" && canEdit ? <button type="button" disabled={Boolean(reviewing) || classFieldsDirty || (aspect === "roster" && editing.rosterStudentIds.length === 0 && !emptyRosterConfirmed)} onClick={() => void reviewClassAspect(activeReview, aspect)} className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white disabled:opacity-40"><ClipboardCheck className="size-4" />{reviewing === aspect ? "Saving…" : `Review ${aspect}`}</button> : null}{activeReview[aspect].history.length ? <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-slate-600">Review history ({activeReview[aspect].history.length})</summary></details> : null}</div>)}
+                </div>
+              </div> : null}
+              {loadingReviews && !creating ? <p className="text-xs text-slate-500" role="status">Loading class review…</p> : null}
               <div className={`rounded-xl border p-3 text-sm ${durationImpact.length ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700"}`}><strong>Schedule impact:</strong> {durationImpact.length ? `${durationImpact.length} current assignment(s) retain their old scheduled duration until the schedule is repaired/revalidated.` : "Saving scheduling-significant changes advances the Planning Dataset and marks the existing schedule stale for revalidation."}</div>
               {!creating && original && editing.weeklyFrequency < original.weeklyFrequency ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">Reducing weekly frequency is protected. If a session being removed appears anywhere in schedule history, the save will be blocked rather than deleting historical identity.</div> : null}
-              <div className="flex flex-wrap gap-2">{!creating && !activeRepair ? <button disabled={saving} onClick={() => void archiveClass()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 px-3 font-semibold text-amber-900 disabled:opacity-50"><Archive className="size-4" />Archive</button> : null}<button onClick={closeEditor} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !editing.name.trim() || !editing.subject.trim() || !editing.level.trim() || editing.durationMinutes <= 0 || editing.weeklyFrequency <= 0} onClick={() => void save()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : activeRepair ? "Apply reviewed repair" : creating ? "Add class" : "Save class"}</button></div>
+              <div className="flex flex-col gap-2 sm:flex-row">{!creating && !activeRepair ? <button disabled={saving} onClick={() => void archiveClass()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-amber-300 px-3 font-semibold text-amber-900 disabled:opacity-50"><Archive className="size-4" />Archive</button> : null}<button onClick={closeEditor} className="min-h-11 flex-1 rounded-xl border border-slate-300 font-semibold">Cancel</button><button disabled={saving || !scopeDraft || !editing.name.trim() || !editing.subject.trim() || !editing.level.trim() || editing.durationMinutes <= 0 || editing.weeklyFrequency <= 0} onClick={() => void save()} className="min-h-11 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : activeRepair ? "Apply reviewed repair" : creating ? "Add class" : "Save class"}</button></div>
             </div>
           </div>
         </div>

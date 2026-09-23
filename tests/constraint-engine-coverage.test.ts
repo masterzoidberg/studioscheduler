@@ -17,17 +17,23 @@ const ALL_KINDS: ConstraintIRKind[] = [
   "REQUIRED_LOWER_LEVEL",
   "TEACHER_SUBJECT_DOMAIN",
   "TEACHER_DAY_WINDOW",
+  "STUDIO_OPERATING_WINDOWS",
+  "ROOM_UNAVAILABLE_WINDOWS",
+  "TEACHER_CLASS_DOMAIN",
+  "ROOM_REQUIRED_FEATURES",
   "DIRECTLY_AFTER",
   "FIXED_ASSIGNMENT",
   "ROOM_CAPACITY",
   "RELATIONSHIP_START_WINDOW",
+  "PARTICIPANT_NO_OVERLAP",
+  "LINKED_ARRIVAL",
 ];
 
 const state: StudioState = {
   studioId: "golden-studio",
   studioName: "Golden fixture",
   teachers: [{ id: "teacher", name: "Teacher", subjects: [] }],
-  rooms: [{ id: "room", name: "Studio A", capacity: 20, features: [] }],
+  rooms: [{ id: "room", name: "Studio A", capacity: 20, features: ["mirrors"] }],
   students: [],
   cohorts: [],
   classes: [{ id: "class", name: "Fixture Class", subject: "Ballet", level: "Level 1", durationMinutes: 60, weeklyFrequency: 1, rosterStudentIds: [], eligibleTeacherIds: [] }],
@@ -60,16 +66,23 @@ function node(kind: ConstraintIRKind): ConstraintIRNode {
     case "MAX_GAP": return { ...base, parameters: { resource: "TEACHER", minutes: 60 } };
     case "MAX_WORKDAYS": return { ...base, selector: { teacherNames: ["Teacher"] }, parameters: { maxDays: 4 } };
     case "LATEST_FINISH_BY_LEVEL": return { ...base, selector: { levels: ["Level 1"] }, parameters: { latestFinish: "21:00" } };
+    case "LATEST_FINISH_BY_PARTICIPANT": return { ...base, selector: { participantIds: ["student-1"] }, parameters: { latestFinish: "21:00" } };
     case "MAX_ATTENDANCE_DAYS": return { ...base, selector: { levels: ["Level 1"] }, parameters: { maxDays: 3 } };
     case "REQUIRED_ROOM": return { ...base, selector: { classNames: ["Fixture Class"], roomNames: ["Studio A"] }, parameters: { roomName: "Studio A" } };
     case "REQUIRED_TEACHER": return { ...base, selector: { classNames: ["Fixture Class"], teacherNames: ["Teacher"] }, parameters: { teacherName: "Teacher" } };
     case "REQUIRED_LOWER_LEVEL": return { ...base, selector: { levels: ["Level 1"] }, parameters: { subjects: ["Ballet"] } };
     case "TEACHER_SUBJECT_DOMAIN": return { ...base, selector: { teacherNames: ["Teacher"] }, parameters: { allowedSubjects: ["Ballet"] } };
     case "TEACHER_DAY_WINDOW": return { ...base, selector: { teacherNames: ["Teacher"] }, parameters: { allowedDays: ["Monday"] } };
+    case "STUDIO_OPERATING_WINDOWS": return { ...base, parameters: { windows: [{ day: "Monday", start: "16:00", end: "21:00" }], closedDays: [] } };
+    case "ROOM_UNAVAILABLE_WINDOWS": return { ...base, selector: { roomIds: ["room"] }, parameters: { windows: [{ day: "Tuesday", start: "16:00", end: "17:00" }] } };
+    case "TEACHER_CLASS_DOMAIN": return { ...base, selector: { teacherIds: ["teacher"] }, parameters: { classIds: ["class"] } };
+    case "ROOM_REQUIRED_FEATURES": return { ...base, selector: { classIds: ["class"] }, parameters: { requiredFeatures: ["mirrors"] } };
     case "DIRECTLY_AFTER": return { ...base, selector: { classNames: ["Fixture Class"] }, parameters: { predecessor: "Fixture Class", successor: "Fixture Class", gapMinutes: 0 } };
     case "FIXED_ASSIGNMENT": return { ...base, selector: { classNames: ["Fixture Class"] }, parameters: { day: "Monday", start: "16:45", end: "17:45" } };
     case "ROOM_CAPACITY": return { ...base, selector: { roomNames: ["Studio A"] }, parameters: { maxDancers: 20, exemptLevels: [] } };
     case "RELATIONSHIP_START_WINDOW": return { ...base, selector: { teacherNames: ["Teacher"] }, parameters: { daughterClassNames: ["Fixture Class"], maxStartDifferenceMinutes: 30 } };
+    case "PARTICIPANT_NO_OVERLAP": return { ...base, selector: { participantIds: ["student"] } };
+    case "LINKED_ARRIVAL": return { ...base, selector: { teacherIds: ["teacher"], participantIds: ["student"] }, parameters: { teacherId: "teacher", participantId: "student", minOffsetMinutes: 0, maxOffsetMinutes: 30 } };
   }
 }
 

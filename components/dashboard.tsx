@@ -1,22 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, BookOpenCheck, CalendarDays, CheckCircle2, Cpu, Database, History } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, History, SlidersHorizontal, UsersRound, GraduationCap } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
-import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
-import { validateConstraintModelSchedule } from "@/lib/constraint-engine-v2";
-import { evaluateScheduleReadiness } from "@/lib/schedule-readiness";
+import { buildSetupProgress } from "@/lib/setup-progress";
 
 export function Dashboard() {
   const {
     state,
-    currentRulebookVersion,
-    currentEnforcementVersion,
-    currentPlanningDatasetVersion,
-    currentScheduleVersion,
-    currentScheduleRulebookVersion,
-    currentScheduleEnforcementVersion,
-    currentSchedulePlanningDatasetVersion,
     currentAssignments,
     validation,
     scheduleIsStale,
@@ -25,75 +16,43 @@ export function Dashboard() {
   } = useWorkspace();
   if (!state) return null;
 
-  const verified = state.rules.filter((rule) => (rule.reviewStatus ?? rule.verificationStatus) === "VERIFIED").length;
-  const model = compileConstraintModel(state);
-  const readiness = evaluateScheduleReadiness(state);
-  const engine = validateConstraintModelSchedule(state, model, currentAssignments);
-
-  const staleParts = [
-    currentScheduleRulebookVersion !== currentRulebookVersion ? `Rulebook v${currentRulebookVersion}` : null,
-    currentSchedulePlanningDatasetVersion !== currentPlanningDatasetVersion ? `Planning Dataset v${currentPlanningDatasetVersion}` : null,
-    currentScheduleEnforcementVersion !== currentEnforcementVersion ? `legacy validation policy v${currentEnforcementVersion}` : null,
-  ].filter(Boolean);
-
-  const headline = scheduleIsStale
-    ? `Schedule v${currentScheduleVersion} needs revalidation against current planning truth`
-    : readiness.blockers.length > 0
-      ? `${readiness.blockers.length} scheduling-readiness blocker${readiness.blockers.length === 1 ? "" : "s"} remain`
-      : !engine.valid
-        ? `Current candidate has ${engine.hardViolations} Constraint IR finding${engine.hardViolations === 1 ? "" : "s"}`
-        : "No detected conflict under current machine coverage";
-
-  const tone = scheduleIsStale || readiness.blockers.length > 0
+  const setup = buildSetupProgress(state);
+  const next = setup.nextAction;
+  const headline = next
+    ? `Next setup step: ${next.title}`
+    : scheduleIsStale
+      ? "The schedule needs review after setup changes"
+      : validation.hardViolations > 0
+        ? `${validation.hardViolations} schedule conflict${validation.hardViolations === 1 ? " needs" : "s need"} attention`
+        : "Studio setup is caught up for now";
+  const detail = next
+    ? next.description
+    : scheduleIsStale
+      ? "Your studio information changed after this schedule was last checked. The schedule has not been silently reinterpreted."
+      : validation.hardViolations > 0
+        ? "Open the schedule to review the affected placements. Detailed diagnostic information remains under Settings → Advanced."
+        : "No current setup action or schedule conflict is detected. Sections that are not implemented yet remain clearly marked in Setup.";
+  const tone = next || scheduleIsStale
     ? "border-amber-200 bg-amber-50"
-    : !engine.valid
+    : validation.hardViolations > 0
       ? "border-red-200 bg-red-50"
       : "border-emerald-200 bg-emerald-50";
 
-  const cards = [
-    {
-      title: "Master Rulebook",
-      value: `v${currentRulebookVersion}`,
-      detail: `${state.rules.length} rules · ${verified}/${state.rules.length} human reviewed · ${readiness.ruleCoverage.accountedRules}/${readiness.ruleCoverage.activeRules} execution-registry accounted`,
-      icon: BookOpenCheck,
-      href: "/rulebook",
-    },
-    {
-      title: "Planning Dataset",
-      value: `v${currentPlanningDatasetVersion}`,
-      detail: `${state.teachers.length} teachers · ${state.students.length} students · ${state.rooms.length} rooms · ${state.classes.length} classes`,
-      icon: Database,
-      href: "/people",
-    },
-    {
-      title: "Constraint Model",
-      value: model.completeHardConstraintCompilation ? "Compiled" : "Incomplete",
-      detail: `${model.hardConstraints.length} typed HARD/fixed nodes · ${model.uncompiledConstraintRuleIds.length} uncompiled constraint rules`,
-      icon: Cpu,
-      href: "/readiness",
-    },
-    {
-      title: "Current Schedule",
-      value: `v${currentScheduleVersion}`,
-      detail: `${currentAssignments.length} assignments · Rulebook v${currentScheduleRulebookVersion} · Planning Dataset v${currentSchedulePlanningDatasetVersion || "unversioned"}`,
-      icon: CalendarDays,
+  const attention = [
+    ...setup.actionableSections.map((section) => ({
+      id: `setup-${section.id}`,
+      message: section.description,
+      detail: section.title,
+      href: section.href ?? "/setup",
+    })),
+    ...(scheduleIsStale ? [{ id: "schedule-stale", message: "The current schedule needs to be checked against the latest setup changes.", detail: "Schedule", href: "/schedule" }] : []),
+    ...validation.violations.slice(0, 4).map((item, index) => ({
+      id: `schedule-${index}`,
+      message: item.message,
+      detail: "Schedule conflict",
       href: "/schedule",
-    },
-  ];
-
-  const readinessFindings = readiness.blockers.map((item) => ({
-    id: item.code,
-    message: item.message,
-    detail: item.ruleIds.length ? item.ruleIds.join(", ") : "Planning data",
-    tone: "bg-red-500",
-  }));
-  const engineFindings = engine.violations.map((item) => ({
-    id: item.constraintId,
-    message: item.message,
-    detail: item.ruleIds.join(", ") || "Constraint IR",
-    tone: "bg-red-500",
-  }));
-  const findings = [...readinessFindings, ...engineFindings].slice(0, 8);
+    })),
+  ].slice(0, 8);
 
   return (
     <div className="space-y-6">
@@ -101,63 +60,66 @@ export function Dashboard() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
-              {!scheduleIsStale && readiness.blockers.length === 0 && engine.valid
+              {!next && !scheduleIsStale && validation.hardViolations === 0
                 ? <CheckCircle2 className="size-4 text-emerald-600" />
                 : <AlertTriangle className="size-4 text-amber-600" />}
-              Scheduling control plane
+              Studio overview
             </div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight">{headline}</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Rulebook v{currentRulebookVersion}, Planning Dataset v{currentPlanningDatasetVersion}, and compiler {model.compilerVersion} are the current scheduling inputs. The old Enforcement v{currentEnforcementVersion} validator remains a compatibility safety net while the Constraint IR runtime is being proven against golden fixtures.
-            </p>
-            {scheduleIsStale && staleParts.length ? <p className="mt-2 text-xs font-medium text-amber-800">Current schedule differs from: {staleParts.join(" + ")}.</p> : null}
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{detail}</p>
           </div>
-          {scheduleIsStale && canEdit ? (
-            <button
-              onClick={() => void rebaseSchedule()}
-              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white"
-            >
-              Revalidate unchanged schedule
-            </button>
-          ) : (
-            <Link href="/readiness" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white">
-              Open readiness
+          <div className="flex flex-col gap-2 sm:items-end">
+            <Link href="/setup" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white">
+              Open setup
               <ArrowRight className="size-4" />
             </Link>
-          )}
+            {scheduleIsStale && canEdit ? (
+              <button onClick={() => void rebaseSchedule()} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900">
+                Recheck unchanged schedule
+              </button>
+            ) : null}
+          </div>
         </div>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(({ title, value, detail, icon: Icon, href }) => (
-          <Link href={href} key={title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300">
-            <div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-600">{title}</p><Icon className="size-4 text-slate-400" /></div>
-            <p className="mt-5 text-3xl font-semibold tracking-tight">{value}</p>
-            <p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p>
-          </Link>
-        ))}
+        <Link href="/setup" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300">
+          <div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-600">Setup</p><SlidersHorizontal className="size-4 text-slate-400" /></div>
+          <p className="mt-5 text-3xl font-semibold tracking-tight">{setup.actionableSections.length}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">setup section{setup.actionableSections.length === 1 ? "" : "s"} need attention now</p>
+        </Link>
+        <Link href="/people" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300">
+          <div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-600">People & rooms</p><UsersRound className="size-4 text-slate-400" /></div>
+          <p className="mt-5 text-3xl font-semibold tracking-tight">{state.teachers.length + state.students.length + state.rooms.length}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">{state.teachers.length} teachers · {state.students.length} students · {state.rooms.length} rooms</p>
+        </Link>
+        <Link href="/classes" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300">
+          <div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-600">Classes</p><GraduationCap className="size-4 text-slate-400" /></div>
+          <p className="mt-5 text-3xl font-semibold tracking-tight">{state.classes.length}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">weekly classes in the working catalog</p>
+        </Link>
+        <Link href="/schedule" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300">
+          <div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-600">Schedule</p><CalendarDays className="size-4 text-slate-400" /></div>
+          <p className="mt-5 text-3xl font-semibold tracking-tight">{currentAssignments.length}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">class placements in the current weekly schedule</p>
+        </Link>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex items-center justify-between gap-3">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Needs attention</p><h3 className="mt-1 text-lg font-semibold">Readiness + Constraint IR findings</h3></div>
-            <Link href="/readiness" className="text-sm font-semibold text-slate-700">Open all</Link>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Needs attention</p><h3 className="mt-1 text-lg font-semibold">What to do next</h3></div>
+            <Link href="/setup" className="text-sm font-semibold text-slate-700">Open setup</Link>
           </div>
           <div className="mt-4 divide-y divide-slate-100">
-            {findings.map((item, index) => (
-              <div className="flex gap-3 py-3" key={`${item.id}-${index}`}>
-                <span className={`mt-1 size-2 shrink-0 rounded-full ${item.tone}`} />
-                <div><p className="text-sm font-medium text-slate-800">{item.message}</p><p className="mt-1 text-xs text-slate-500">{item.id} · {item.detail}</p></div>
-              </div>
+            {attention.map((item) => (
+              <Link href={item.href} className="flex gap-3 py-3" key={item.id}>
+                <span className="mt-1 size-2 shrink-0 rounded-full bg-amber-500" />
+                <div><p className="text-sm font-medium text-slate-800">{item.message}</p><p className="mt-1 text-xs text-slate-500">{item.detail}</p></div>
+              </Link>
             ))}
-            {findings.length === 0 ? <div className="py-8 text-center text-sm text-slate-500">No readiness or Constraint IR conflict is currently detected.</div> : null}
+            {attention.length === 0 ? <div className="py-8 text-center text-sm text-slate-500">Nothing needs attention right now.</div> : null}
           </div>
-          {validation.hardViolations > 0 ? (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
-              Compatibility validator: {validation.hardViolations} detected HARD violation{validation.hardViolations === 1 ? "" : "s"} under Enforcement v{currentEnforcementVersion}. This remains a safety cross-check, not the future source of scheduling semantics.
-            </div>
-          ) : null}
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -168,7 +130,7 @@ export function Dashboard() {
             ))}
             {state.auditEvents.length === 0 ? <p className="text-sm text-slate-500">No changes recorded yet.</p> : null}
           </div>
-          <Link href="/versions" className="mt-5 inline-flex items-center gap-2 text-sm font-semibold">View version history<ArrowRight className="size-4" /></Link>
+          <Link href="/settings#advanced-diagnostics" className="mt-5 inline-flex items-center gap-2 text-sm font-semibold">Open history & diagnostics<ArrowRight className="size-4" /></Link>
         </div>
       </section>
     </div>

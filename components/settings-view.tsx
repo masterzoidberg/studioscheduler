@@ -4,13 +4,15 @@ import { useState } from "react";
 import { Download, Fingerprint, LogOut, ShieldCheck, UserPlus, UsersRound, X } from "lucide-react";
 import type { StudioRole } from "@/lib/domain";
 import { OpenRouterAccountCard } from "@/components/openrouter-account-card";
+import { PendingInvitations } from "@/components/pending-invitations";
 import { useWorkspace } from "@/components/workspace-provider";
+import { ReviewedCsvImport } from "@/components/reviewed-csv-import";
 
 const roles: StudioRole[] = ["OWNER", "EDITOR", "VIEWER"];
 
 export function SettingsView(){
   const {
-    state, session, role, isOwner, members, invites, currentRulebookVersion, exportPackage, signOut,
+    state, session, role, isOwner, members, invites, currentRulebookVersion, exportPackage, exportWorkspaceData, signOut,
     inviteMember, setMemberRole, removeMember, cancelInvite,
   } = useWorkspace();
   const [inviteEmail,setInviteEmail]=useState("");
@@ -18,6 +20,7 @@ export function SettingsView(){
   const [notice,setNotice]=useState("");
   const [busy,setBusy]=useState(false);
   if(!state)return null;
+  const workspaceName = state.studioName;
 
   const current=state.rulebookVersions.find(v=>v.status==="CURRENT");
   const verified=state.rules.filter(r=>(r.reviewStatus??r.verificationStatus)==="VERIFIED").length;
@@ -28,13 +31,25 @@ export function SettingsView(){
     const data=exportPackage();if(!data)return;
     const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);const a=document.createElement("a");
-    a.href=url;a.download=`DWDE-Rulebook-v${currentRulebookVersion}.json`;a.click();URL.revokeObjectURL(url);
+    a.href=url;a.download=`${workspaceName.replace(/[^a-z0-9]+/gi,"-").replace(/^-+|-+$/g,"") || "studio"}-rulebook-v${currentRulebookVersion}.json`;a.click();URL.revokeObjectURL(url);
+  }
+
+  async function downloadWorkspace(){
+    setBusy(true);
+    const result=await exportWorkspaceData();
+    setBusy(false);
+    if(!result.ok||!result.details){setNotice(result.error||"Could not export workspace data.");return;}
+    const blob=new Blob([JSON.stringify(result.details,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");
+    const slug=workspaceName.replace(/[^a-z0-9]+/gi,"-").replace(/^-+|-+$/g,"") || "studio";
+    a.href=url;a.download=`${slug}-workspace-export-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
+    setNotice("Workspace export downloaded. Store the file securely; it contains roster and workspace history.");
   }
 
   async function invite(){
     const email=inviteEmail.trim();if(!email)return;
     setBusy(true);const result=await inviteMember(email,inviteRole);setBusy(false);
-    setNotice(result.ok?`Invitation created for ${email} as ${inviteRole}. They will receive workspace access after signing in with that email.`:result.error||"Could not create invitation.");
+    setNotice(result.ok?`Invitation created for ${email} as ${inviteRole}. They must sign in with that email and accept the invitation before access is added.`:result.error||"Could not create invitation.");
     if(result.ok)setInviteEmail("");
   }
 
@@ -69,10 +84,16 @@ export function SettingsView(){
 
     <OpenRouterAccountCard/>
 
+    <ReviewedCsvImport/>
+
     <section className="grid gap-4 sm:grid-cols-2">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5"><Download className="size-5 text-slate-400"/><h2 className="mt-3 font-semibold">Export current Rulebook</h2><p className="mt-1 text-sm leading-6 text-slate-600">Exports reviewed human wording, provenance, review history, and current machine-enforcement metadata without replacing the database authority.</p><button onClick={download} className="mt-4 min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold">Export DWDE v{currentRulebookVersion}</button></div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5"><Download className="size-5 text-slate-400"/><h2 className="mt-3 font-semibold">Export current Rulebook</h2><p className="mt-1 text-sm leading-6 text-slate-600">Exports reviewed human wording, provenance, review history, and current machine-enforcement metadata without replacing the database authority.</p><button onClick={download} className="mt-4 min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold">Export Rulebook v{currentRulebookVersion}</button></div>
       <div className="rounded-2xl border border-slate-200 bg-white p-5"><ShieldCheck className="size-5 text-slate-400"/><h2 className="mt-3 font-semibold">Authority boundaries</h2><p className="mt-1 text-sm leading-6 text-slate-600">Human review, deterministic enforcement coverage, AI inference, and schedule validation remain separate. AI can propose changes; only governed versioned mutations can commit them.</p></div>
     </section>
+
+    {isOwner?<section className="rounded-2xl border border-emerald-200 bg-white p-5"><Download className="size-5 text-emerald-700"/><h2 className="mt-3 font-semibold">Export workspace data</h2><p className="mt-1 text-sm leading-6 text-slate-600">Downloads this workspace’s roster, setup, policies, schedules, history, audit records, members, and invitations. Student and staff details are included. Workspace owners only; account credentials and API keys are excluded.</p><button disabled={busy} onClick={()=>void downloadWorkspace()} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy?"Preparing export…":"Export workspace data"}</button></section>:null}
+
+    <PendingInvitations/>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
       <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-slate-100"><UsersRound className="size-5 text-slate-500"/></div><div><h2 className="font-semibold">Studio access</h2><p className="mt-1 text-sm leading-6 text-slate-600">Signed in as {session?.user.email||"studio user"} · role <strong>{role||"NONE"}</strong>. Authentication does not grant studio access by itself.</p></div></div>
@@ -81,7 +102,7 @@ export function SettingsView(){
 
       <div className="mt-5 space-y-2"><h3 className="text-xs font-semibold uppercase tracking-[.12em] text-slate-500">Members</h3>{members.map(member=>{const self=member.userId===session?.user.id;return <div key={member.userId} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{member.displayName||member.email||"Studio user"}{self?" · You":""}</p><p className="truncate text-xs text-slate-500">{member.email}</p></div>{isOwner?<div className="flex gap-2"><select disabled={busy||self} value={member.role} onChange={e=>void changeRole(member.userId,e.target.value as StudioRole)} className="min-h-10 rounded-xl border border-slate-300 bg-white px-2 text-xs disabled:bg-slate-100">{roles.map(r=><option key={r}>{r}</option>)}</select><button disabled={busy||self} onClick={()=>void remove(member.userId)} className="grid size-10 place-items-center rounded-xl border border-red-200 text-red-600 disabled:opacity-30" aria-label="Remove member"><X className="size-4"/></button></div>:<span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{member.role}</span>}</div>})}</div>
 
-      {isOwner&&invites.filter(i=>!i.acceptedAt).length?<div className="mt-5 space-y-2"><h3 className="text-xs font-semibold uppercase tracking-[.12em] text-slate-500">Pending invitations</h3>{invites.filter(i=>!i.acceptedAt).map(invite=><div key={invite.id} className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{invite.email}</p><p className="text-xs text-amber-800">{invite.role} · invited {new Date(invite.createdAt).toLocaleString()}</p></div><button disabled={busy} onClick={()=>void cancel(invite.id)} className="grid size-10 place-items-center rounded-xl border border-amber-300 bg-white text-amber-900" aria-label="Cancel invitation"><X className="size-4"/></button></div>)}</div>:null}
+      {isOwner&&invites.filter(i=>!i.acceptedAt&&!i.revokedAt).length?<div className="mt-5 space-y-2"><h3 className="text-xs font-semibold uppercase tracking-[.12em] text-slate-500">Pending invitations</h3>{invites.filter(i=>!i.acceptedAt&&!i.revokedAt).map(invite=><div key={invite.id} className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{invite.email}</p><p className="text-xs text-amber-800">{invite.role} · {invite.expired?"expired":`expires ${new Date(invite.expiresAt).toLocaleString()}`}</p></div>{!invite.expired?<button disabled={busy} onClick={()=>void cancel(invite.id)} className="grid size-10 place-items-center rounded-xl border border-amber-300 bg-white text-amber-900" aria-label="Cancel invitation"><X className="size-4"/></button>:null}</div>)}</div>:null}
 
       <button onClick={()=>void signOut()} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-semibold"><LogOut className="size-4"/>Sign out</button>
     </section>

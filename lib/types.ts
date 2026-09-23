@@ -42,7 +42,7 @@ export interface ScheduleAssignment {
   id: string;
   className: string;
   teacher: string;
-  day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+  day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday";
   room: "Studio A" | "Studio B" | "Studio C";
   startTime: string;
   endTime: string;

@@ -1,3 +1,5 @@
+import type { RuleStrength } from "@/lib/domain";
+
 export type ConstraintIRKind =
   | "RESOURCE_NO_OVERLAP"
   | "TIME_GRID"
@@ -12,18 +14,33 @@ export type ConstraintIRKind =
   | "REQUIRED_LOWER_LEVEL"
   | "TEACHER_SUBJECT_DOMAIN"
   | "TEACHER_DAY_WINDOW"
+  | "STUDIO_OPERATING_WINDOWS"
+  | "ROOM_UNAVAILABLE_WINDOWS"
+  | "TEACHER_CLASS_DOMAIN"
+  | "ROOM_REQUIRED_FEATURES"
   | "DIRECTLY_AFTER"
   | "FIXED_ASSIGNMENT"
   | "ROOM_CAPACITY"
-  | "RELATIONSHIP_START_WINDOW";
+  | "RELATIONSHIP_START_WINDOW"
+  | "PARTICIPANT_NO_OVERLAP"
+  | "LINKED_ARRIVAL"
+  | "LATEST_FINISH_BY_PARTICIPANT";
 
 export interface ConstraintSelectorIR {
+  /** Stable-ID class targets for typed policy. */
+  classIds?: string[];
   classNames?: string[];
   subjects?: string[];
   levels?: string[];
+  /** Stable-ID target for typed teacher policy. Legacy static policy may still use teacherNames during transition. */
+  teacherIds?: string[];
   teacherNames?: string[];
+  /** Stable-ID room targets for typed policy. */
+  roomIds?: string[];
   roomNames?: string[];
   studentNames?: string[];
+  participantIds?: string[];
+  sessionIds?: string[];
   studentRelation?: string;
 }
 
@@ -36,11 +53,24 @@ export interface ConstraintIRNode {
   explanation: string;
 }
 
+export type TypedPreferenceIRKind = "PREFERRED_TEACHER" | "PREFERRED_ROOM" | "PREFERRED_DAY" | "AVOID_DAY";
+export type ObjectiveStrengthTier = Exclude<RuleStrength, "HARD">;
+
 export interface ObjectivePriorityIR {
   ruleId: string;
   rank: number;
   title: string;
   description: string;
+  /** Dependency-closed baseline rule IDs owned by this typed preference. Legacy objective rows omit this field. */
+  ruleIds?: string[];
+  /** Present only for schema-backed preference records introduced by POL-02. */
+  kind?: TypedPreferenceIRKind;
+  selector?: ConstraintSelectorIR;
+  parameters?: Record<string, unknown>;
+  /** Reviewed soft-policy strength used as a lexicographic tie-breaker, never as a global weight. */
+  strength?: ObjectiveStrengthTier;
+  /** OPT-01 supports deterministic scoring for explicit typed preference records. */
+  scoringEnabled?: boolean;
 }
 
 export interface GovernanceAssertionIR {

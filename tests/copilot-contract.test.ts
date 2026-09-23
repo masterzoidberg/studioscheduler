@@ -57,7 +57,7 @@ describe("Copilot proposal contract", () => {
   it("rejects unknown entities and malformed schedule values", () => {
     expect(validateCopilotProposal({ kind: "SCHEDULE_PATCH", patch: { operation: "MOVE", assignmentId: "assignment-open", changes: { teacherId: "teacher-missing" }, reason: "x", proposedBy: "AI" } }, context).ok).toBe(false);
     expect(validateCopilotProposal({ kind: "SCHEDULE_PATCH", patch: { operation: "MOVE", assignmentId: "assignment-open", changes: { roomId: "room-missing" }, reason: "x", proposedBy: "AI" } }, context).ok).toBe(false);
-    expect(validateCopilotProposal({ kind: "SCHEDULE_PATCH", patch: { operation: "MOVE", assignmentId: "assignment-open", changes: { day: "Sunday" }, reason: "x", proposedBy: "AI" } }, context).ok).toBe(false);
+    expect(validateCopilotProposal({ kind: "SCHEDULE_PATCH", patch: { operation: "MOVE", assignmentId: "assignment-open", changes: { day: "Funday" }, reason: "x", proposedBy: "AI" } }, context).ok).toBe(false);
     expect(validateCopilotProposal({ kind: "SCHEDULE_PATCH", patch: { operation: "MOVE", assignmentId: "assignment-open", changes: { startTime: "5pm" }, reason: "x", proposedBy: "AI" } }, context).ok).toBe(false);
   });
 });

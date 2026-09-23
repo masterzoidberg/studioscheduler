@@ -1,0 +1,86 @@
+{
+  "class": {
+    "id": "multi-class",
+    "name": "Multi Ballet",
+    "subject": "Ballet",
+    "level": "Level 3",
+    "durationMinutes": 60,
+    "weeklyFrequency": 2,
+    "rosterStudentIds": [],
+    "companyOnly": false
+  },
+  "teachers": [
+    {
+      "id": "teacher-a",
+      "name": "Teacher A"
+    }
+  ],
+  "rooms": [
+    {
+      "id": "room-a",
+      "name": "Studio A",
+      "capacity": 20,
+      "features": []
+    }
+  ],
+  "planningSessions": [
+    {
+      "id": "multi-session-1",
+      "classId": "multi-class",
+      "ordinal": 1,
+      "durationMinutes": 75,
+      "locked": false
+    },
+    {
+      "id": "multi-session-2",
+      "classId": "multi-class",
+      "ordinal": 2,
+      "durationMinutes": null,
+      "locked": false
+    }
+  ],
+  "currentAssignments": [
+    {
+      "id": "assignment-multi-session-1",
+      "sessionId": "multi-session-1",
+      "day": "Monday",
+      "startTime": "18:30",
+      "endTime": "19:45",
+      "teacherId": "teacher-a",
+      "roomId": "room-a",
+      "locked": true,
+      "status": "NORMAL"
+    }
+  ],
+  "effectiveSolverSessions": [
+    {
+      "id": "multi-session-1",
+      "classId": "multi-class",
+      "ordinal": 1,
+      "durationMinutes": 75,
+      "locked": true,
+      "lockedPlacement": {
+        "day": "Monday",
+        "startTime": "18:30",
+        "teacherId": "teacher-a",
+        "roomId": "room-a"
+      }
+    },
+    {
+      "id": "multi-session-2",
+      "classId": "multi-class",
+      "ordinal": 2,
+      "durationMinutes": null,
+      "locked": false,
+      "lockedPlacement": null
+    }
+  ],
+  "expectedLockedAssignment": {
+    "sessionId": "multi-session-1",
+    "day": "Monday",
+    "startTime": "18:30",
+    "endTime": "19:45",
+    "teacherId": "teacher-a",
+    "roomId": "room-a"
+  }
+}

@@ -2,7 +2,8 @@ export type RuleStrength = "HARD" | "VERY_STRONG" | "MODERATE" | "LIGHT" | "BASE
 export type RuleStatus = "ACTIVE" | "NEEDS_REVIEW" | "DISABLED" | "RETIRED";
 export type VerificationStatus = "VERIFIED" | "NEEDS_REVIEW" | "UNVERIFIED";
 export type EnforcementStatus = "IMPLEMENTED" | "PARTIAL" | "NOT_IMPLEMENTED" | "NOT_APPLICABLE";
-export type Day = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+export const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+export type Day = typeof SCHEDULE_DAYS[number];
 export type StudioRole = "OWNER" | "EDITOR" | "VIEWER";
 
 // Legacy V2.1 rule typing is retained on StudioRule for provenance/import compatibility only.
@@ -205,12 +206,64 @@ export interface PlanningDatasetVersion {
   confirmedForSchedulingAt?: string | null;
   confirmedForSchedulingByLabel?: string | null;
   schedulingConfirmationNote?: string | null;
+  certificationRulebookVersion?: number | null;
+  certificationConstraintModelVersion?: number | null;
+  certificationConstraintModelSnapshotHash?: string | null;
+  certificationReviewSetFingerprint?: string | null;
+  certificationReviewSchemaVersion?: number | null;
+}
+
+export type ReadinessReviewState =
+  | "MISSING"
+  | "NEEDS_REVIEW"
+  | "CHANGED_SINCE_REVIEW"
+  | "BLOCKED"
+  | "REVIEWED"
+  | "REVIEWED_VALUE"
+  | "REVIEWED_NO_ADDITIONAL_RESTRICTION";
+export type ReadinessReviewClassification = "MUST" | "PREFER" | "INFORMATIONAL";
+export interface ReadinessReviewFinding {
+  code: string;
+  scopeKind: string;
+  entityId: string | null;
+  aspect: string;
+  state: ReadinessReviewState;
+  classification: ReadinessReviewClassification;
+  message: string;
+  ruleIds: string[];
+  entityIds: string[];
+  currentFingerprint: string | null;
+  latestOutcome?: string | null;
+}
+export interface ReadinessCertificationState {
+  schemaVersion: number;
+  reviewSetSchemaVersion: number;
+  reviewSetFingerprint: string | null;
+  currentRulebookVersion: number | null;
+  currentPlanningDatasetVersion: number | null;
+  currentPlanningSnapshotHash: string | null;
+  currentConstraintModelVersion: number | null;
+  currentConstraintModelSnapshotHash: string | null;
+  currentConstraintModelCompilerVersion: string | null;
+  reviewFindings: ReadinessReviewFinding[];
+  certification: {
+    planningDatasetVersion: number;
+    planningSnapshotHash: string;
+    rulebookVersion: number;
+    constraintModelVersion: number;
+    constraintModelSnapshotHash: string;
+    reviewSetSchemaVersion: number;
+    reviewSetFingerprint: string;
+    confirmedAt: string;
+    confirmedByLabel: string | null;
+  } | null;
 }
 
 export interface RulebookVersion {
   id: string; version: number; name: string; createdAt: string; actor: string; reason: string; changedRuleIds: string[];
   rulebookId?: string; status?: "CURRENT" | "HISTORICAL"; importedAt?: string; sourceHash?: string; sourceFileHash?: string;
   ruleCount?: number; parentVersion?: number; formatVersion?: string; documentType?: string; sourceMetadata?: Record<string, unknown>;
+  snapshot?: unknown[];
 }
 
 export interface RuleHistoryEntry { id: string; ruleId: string; rulebookVersion: number; changedAt: string; actor: string; reason: string; before: StudioRule | null; after: StudioRule | null; aiProposed?: boolean; }
@@ -231,7 +284,25 @@ export interface SchedulePatch {
 export interface Scenario { id: string; name: string; baseRulebookVersion: number; baseScheduleVersion: number; baseEnforcementVersion?: number; basePlanningDatasetVersion?: number; rulePatches: RulePatch[]; schedulePatches: SchedulePatch[]; createdAt: string; }
 export interface AuditEvent { id: string; at: string; actor: string; action: string; entityType: string; entityId?: string; detail: string; }
 export interface StudioMember { userId: string; role: StudioRole; displayName?: string; email?: string; createdAt?: string; }
-export interface StudioInvite { id: string; email: string; role: StudioRole; createdAt: string; acceptedAt?: string | null; }
+export interface StudioInvite { id: string; email: string; role: StudioRole; createdAt: string; expiresAt: string; expired: boolean; acceptedAt?: string | null; revokedAt?: string | null; }
+export interface PendingStudioInvite { id: string; studioId: string; studioName: string; role: StudioRole; createdAt: string; expiresAt: string; expired: boolean; }
+export type SetupAssignmentArea = "STUDIO" | "PEOPLE" | "CLASSES" | "STUDENTS" | "POLICIES" | "IMPORT";
+export type SetupAssignmentStatus = "OPEN" | "IN_PROGRESS" | "DONE";
+export interface SetupAssignment {
+  id: string;
+  studioId: string;
+  area: SetupAssignmentArea;
+  title: string;
+  instructions?: string | null;
+  status: SetupAssignmentStatus;
+  assignedTo: string;
+  assignedToLabel: string;
+  createdBy: string;
+  createdByLabel: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+}
 export interface StudioState {
   studioId: string;
   studioName: string;
@@ -250,6 +321,7 @@ export interface StudioState {
   scheduleVersions: ScheduleVersion[];
   scenarios: Scenario[];
   auditEvents: AuditEvent[];
+  readinessCertification?: ReadinessCertificationState;
 }
 
 export interface CanonicalImportPackage {

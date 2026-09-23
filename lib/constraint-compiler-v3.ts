@@ -1,9 +1,32 @@
 import type { StudioRule, StudioState } from "@/lib/domain";
-import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
+import type { ConstraintIRNode, ConstraintModelSnapshotV1, ObjectivePriorityIR } from "@/lib/constraint-ir";
 import { compileConstraintModel as compileV01 } from "@/lib/constraint-compiler";
+import {
+  reviewedDwdePolicySupport,
+  typedPolicyBundleManifest,
+  DWDE_TYPED_POLICY_BUNDLE_VERSION,
+  POL01_TYPED_RULE_IDS,
+} from "@/lib/dwde-policy-transition";
+import { RULE_EXECUTION_BY_ID } from "@/lib/rule-execution-registry";
+import { compileTypedPreferenceIR } from "@/lib/typed-preference-ir";
+import { materializeConstraintIdentityTargets } from "@/lib/constraint-data-binding";
+import {
+  isTeacherDayWindowPolicy,
+  parseTypedPolicy,
+  teacherDayWindowPolicyParameters,
+  type TypedPolicyV1,
+} from "@/lib/typed-policy";
+import { parseTenantPolicyManifest, type TenantPolicyManifestV1 } from "@/lib/tenant-policy";
 
-export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
+export const LEGACY_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.3";
+export const CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.4";
+export const POL02_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.5";
+export const POL03_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.6";
+export const SET06_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.7";
+export const GEN01_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.8";
+export const GEN02_CONSTRAINT_COMPILER_VERSION = "dwde-ir-0.9";
 const compareCanonicalStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const POL01_TYPED_RULE_ID_SET = new Set<string>(POL01_TYPED_RULE_IDS);
 
 function explanationFor(ruleMap: Map<string, StudioRule>, ruleIds: string[]) {
   return ruleIds.map((id) => ruleMap.get(id)?.description).filter(Boolean).join(" ");
@@ -94,25 +117,460 @@ function v3Constraints(ruleMap: Map<string, StudioRule>): ConstraintIRNode[] {
   return specs.sort((a, b) => compareCanonicalStrings(a.id, b.id));
 }
 
+function compileV4TypedPolicies(state: StudioState, ruleMap: Map<string, StudioRule>) {
+  const typedRuleIds = new Set<string>();
+  const invalidHardRuleIds = new Set<string>();
+  const nodes: ConstraintIRNode[] = [];
+  const currentTeacherIds = new Set(state.teachers.map((teacher) => teacher.id));
+
+  for (const rule of ruleMap.values()) {
+    const parsed = parseTypedPolicy(rule);
+    if (parsed.status === "NONE") continue;
+
+    typedRuleIds.add(rule.id);
+    const execution = RULE_EXECUTION_BY_ID.get(rule.id);
+    const hard = execution?.disposition === "HARD_CONSTRAINT" || rule.strength === "HARD";
+
+    if (parsed.status !== "VALID") {
+      if (hard) invalidHardRuleIds.add(rule.id);
+      continue;
+    }
+    if (!POL01_TYPED_RULE_ID_SET.has(rule.id) || execution?.disposition !== "HARD_CONSTRAINT" || !isTeacherDayWindowPolicy(parsed.policy)) {
+      if (hard) invalidHardRuleIds.add(rule.id);
+      continue;
+    }
+    if (!currentTeacherIds.has(parsed.policy.teacherId)) {
+      invalidHardRuleIds.add(rule.id);
+      continue;
+    }
+
+    nodes.push({
+      id: `typed-${rule.id.toLowerCase()}-teacher-day-window`,
+      kind: "TEACHER_DAY_WINDOW",
+      ruleIds: [rule.id],
+      selector: { teacherIds: [parsed.policy.teacherId] },
+      parameters: teacherDayWindowPolicyParameters(parsed.policy),
+      explanation: rule.description,
+    });
+  }
+
+  return {
+    typedRuleIds,
+    invalidHardRuleIds,
+    nodes: nodes.sort((a, b) => compareCanonicalStrings(a.id, b.id)),
+  };
+}
+
+function policyStableIdsExist(state: StudioState, policy: TypedPolicyV1) {
+  const teacherIds = new Set(state.teachers.map((teacher) => teacher.id));
+  const roomIds = new Set(state.rooms.map((room) => room.id));
+  const classIds = new Set(state.classes.map((klass) => klass.id));
+  const participantIds = new Set(state.students.map((student) => student.id));
+  const sessionIds = new Set(state.sessions.map((session) => session.id));
+  const allClassesExist = (ids: string[]) => ids.every((id) => classIds.has(id));
+
+  switch (policy.kind) {
+    case "TEACHER_DAY_WINDOW": return teacherIds.has(policy.teacherId);
+    case "STUDIO_OPERATING_WINDOWS": return true;
+    case "ROOM_UNAVAILABLE_WINDOWS": return roomIds.has(policy.roomId);
+    case "TEACHER_QUALIFICATION": return teacherIds.has(policy.teacherId) && allClassesExist(policy.classIds);
+    case "REQUIRED_TEACHER": return teacherIds.has(policy.teacherId) && allClassesExist(policy.classIds);
+    case "REQUIRED_ROOM": return roomIds.has(policy.roomId) && allClassesExist(policy.classIds);
+    case "ROOM_CAPACITY_POLICY": return roomIds.has(policy.roomId) && allClassesExist(policy.exemptClassIds || []);
+    case "ROOM_REQUIRED_FEATURES": return allClassesExist(policy.classIds);
+    case "PREFERRED_TEACHER": return teacherIds.has(policy.teacherId) && allClassesExist(policy.classIds);
+    case "PREFERRED_ROOM": return roomIds.has(policy.roomId) && allClassesExist(policy.classIds);
+    case "PREFERRED_DAY":
+    case "AVOID_DAY": return allClassesExist(policy.classIds);
+    case "PARTICIPANT_NO_OVERLAP": return policy.participantIds.every((id) => participantIds.has(id));
+    case "MAX_ATTENDANCE_DAYS": return policy.participantIds.every((id) => participantIds.has(id));
+    case "DIRECT_AFTER": return sessionIds.has(policy.predecessorSessionId) && sessionIds.has(policy.successorSessionId);
+    case "LINKED_ARRIVAL": return teacherIds.has(policy.teacherId) && participantIds.has(policy.participantId);
+    case "PARTICIPANT_LATEST_FINISH": return policy.participantIds.every((id) => participantIds.has(id));
+  }
+}
+
+function v5HardNode(rule: StudioRule, policy: TypedPolicyV1, ruleIds: string[]): ConstraintIRNode | null {
+  const common = { ruleIds, explanation: rule.description };
+  switch (policy.kind) {
+    case "TEACHER_DAY_WINDOW":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-teacher-day-window`,
+        kind: "TEACHER_DAY_WINDOW",
+        selector: { teacherIds: [policy.teacherId] },
+        parameters: teacherDayWindowPolicyParameters(policy),
+      };
+    case "STUDIO_OPERATING_WINDOWS":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-studio-operating-windows`,
+        kind: "STUDIO_OPERATING_WINDOWS",
+        selector: {},
+        parameters: { windows: policy.windows, closedDays: policy.closedDays || [] },
+      };
+    case "ROOM_UNAVAILABLE_WINDOWS":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-room-unavailable-windows`,
+        kind: "ROOM_UNAVAILABLE_WINDOWS",
+        selector: { roomIds: [policy.roomId] },
+        parameters: { windows: policy.windows },
+      };
+    case "TEACHER_QUALIFICATION":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-teacher-class-domain`,
+        kind: "TEACHER_CLASS_DOMAIN",
+        selector: { teacherIds: [policy.teacherId] },
+        parameters: { classIds: policy.classIds },
+      };
+    case "REQUIRED_TEACHER":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-required-teacher`,
+        kind: "REQUIRED_TEACHER",
+        selector: { classIds: policy.classIds, teacherIds: [policy.teacherId] },
+        parameters: { teacherId: policy.teacherId },
+      };
+    case "REQUIRED_ROOM":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-required-room`,
+        kind: "REQUIRED_ROOM",
+        selector: { classIds: policy.classIds, roomIds: [policy.roomId] },
+        parameters: { roomId: policy.roomId },
+      };
+    case "ROOM_CAPACITY_POLICY":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-room-capacity`,
+        kind: "ROOM_CAPACITY",
+        selector: { roomIds: [policy.roomId] },
+        parameters: { capacitySource: "PLANNING_DATASET", exemptClassIds: policy.exemptClassIds || [] },
+      };
+    case "ROOM_REQUIRED_FEATURES":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-room-required-features`,
+        kind: "ROOM_REQUIRED_FEATURES",
+        selector: { classIds: policy.classIds },
+        parameters: { requiredFeatures: policy.requiredFeatures },
+      };
+    case "PREFERRED_TEACHER":
+    case "PREFERRED_ROOM":
+    case "PREFERRED_DAY":
+    case "AVOID_DAY":
+      return null;
+    case "PARTICIPANT_NO_OVERLAP":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-participant-no-overlap`,
+        kind: "PARTICIPANT_NO_OVERLAP",
+        selector: { participantIds: policy.participantIds },
+        parameters: {},
+      };
+    case "MAX_ATTENDANCE_DAYS":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-max-attendance-days`,
+        kind: "MAX_ATTENDANCE_DAYS",
+        selector: { participantIds: policy.participantIds },
+        parameters: { maxDays: policy.maxDays },
+      };
+    case "DIRECT_AFTER":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-direct-after`,
+        kind: "DIRECTLY_AFTER",
+        selector: { sessionIds: [policy.predecessorSessionId, policy.successorSessionId] },
+        parameters: { predecessorSessionId: policy.predecessorSessionId, successorSessionId: policy.successorSessionId },
+      };
+    case "LINKED_ARRIVAL":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-linked-arrival`,
+        kind: "LINKED_ARRIVAL",
+        selector: { teacherIds: [policy.teacherId], participantIds: [policy.participantId] },
+        parameters: { teacherId: policy.teacherId, participantId: policy.participantId, minOffsetMinutes: policy.minOffsetMinutes, maxOffsetMinutes: policy.maxOffsetMinutes },
+      };
+    case "PARTICIPANT_LATEST_FINISH":
+      return {
+        ...common,
+        id: `typed-${rule.id.toLowerCase()}-participant-latest-finish`,
+        kind: "LATEST_FINISH_BY_PARTICIPANT",
+        selector: { participantIds: policy.participantIds },
+        parameters: { latestFinish: policy.latestFinish },
+      };
+  }
+}
+
+function compileV5TypedPolicies(
+  state: StudioState,
+  ruleMap: Map<string, StudioRule>,
+  legacyNodes: ConstraintIRNode[],
+  legacyObjectives: ObjectivePriorityIR[],
+) {
+  const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? null;
+  const manifest = typedPolicyBundleManifest(currentRulebook);
+  const consumedRuleIds = new Set(manifest?.consumedRuleIds || []);
+  const invalidHardRuleIds = new Set<string>();
+  const closureBlockedRuleIds = new Set<string>();
+  const suppressedLegacyNodeIds = new Set<string>();
+  const nodes: ConstraintIRNode[] = [];
+  const preferences: ObjectivePriorityIR[] = [];
+
+  const directEdges = manifest?.bundles.flatMap((bundle) => {
+    const rule = ruleMap.get(bundle.ownerRuleId);
+    if (!rule) return [];
+    const execution = RULE_EXECUTION_BY_ID.get(rule.id);
+    const hard = execution?.disposition === "HARD_CONSTRAINT" || execution?.disposition === "EXCEPTION" || rule.strength === "HARD";
+    if (!hard) return [];
+    const parsed = parseTypedPolicy(rule);
+    return parsed.status === "VALID" && parsed.policy.kind === "DIRECT_AFTER"
+      ? [{ bundle, from: parsed.policy.predecessorSessionId, to: parsed.policy.successorSessionId }]
+      : [];
+  }) || [];
+  const outgoing = new Map<string, string[]>();
+  for (const edge of directEdges) outgoing.set(edge.from, [...(outgoing.get(edge.from) || []), edge.to]);
+  const cyclicSessions = new Set<string>();
+  const visiting = new Set<string>(); const visited = new Set<string>();
+  const visit = (sessionId: string) => {
+    if (visiting.has(sessionId)) { cyclicSessions.add(sessionId); return true; }
+    if (visited.has(sessionId)) return false;
+    visiting.add(sessionId);
+    let cyclic = false;
+    for (const target of outgoing.get(sessionId) || []) if (visit(target)) cyclic = true;
+    visiting.delete(sessionId); visited.add(sessionId);
+    if (cyclic) cyclicSessions.add(sessionId);
+    return cyclic;
+  };
+  for (const sessionId of outgoing.keys()) visit(sessionId);
+
+  for (const node of legacyNodes) {
+    const consumedOnNode = node.ruleIds.filter((ruleId) => consumedRuleIds.has(ruleId));
+    if (!consumedOnNode.length) continue;
+    suppressedLegacyNodeIds.add(node.id);
+    if (consumedOnNode.length !== node.ruleIds.length) {
+      for (const ruleId of node.ruleIds) closureBlockedRuleIds.add(ruleId);
+    }
+  }
+
+  if (!manifest) {
+    for (const rule of ruleMap.values()) {
+      if (parseTypedPolicy(rule).status !== "NONE") invalidHardRuleIds.add(rule.id);
+    }
+    return { consumedRuleIds, invalidHardRuleIds, closureBlockedRuleIds, suppressedLegacyNodeIds, nodes, preferences };
+  }
+
+  const softOwnerIds = manifest.bundles
+    .map((bundle) => bundle.ownerRuleId)
+    .filter((ruleId) => RULE_EXECUTION_BY_ID.get(ruleId)?.disposition === "SOFT_OBJECTIVE")
+    .sort(compareCanonicalStrings);
+  const fallbackPreferenceRank = new Map(softOwnerIds.map((ruleId, index) => [ruleId, 1001 + index]));
+  const legacyRank = new Map(legacyObjectives.map((objective) => [objective.ruleId, objective.rank]));
+
+  for (const bundle of manifest.bundles) {
+    const rule = ruleMap.get(bundle.ownerRuleId);
+    if (!rule) {
+      for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      continue;
+    }
+    const execution = RULE_EXECUTION_BY_ID.get(rule.id);
+    const hard = execution?.disposition === "HARD_CONSTRAINT" || execution?.disposition === "EXCEPTION" || rule.strength === "HARD";
+    const parsed = parseTypedPolicy(rule);
+    if (parsed.status !== "VALID") {
+      if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      continue;
+    }
+    if (parsed.policy.kind === "DIRECT_AFTER" && (cyclicSessions.has(parsed.policy.predecessorSessionId) || cyclicSessions.has(parsed.policy.successorSessionId))) {
+      if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      continue;
+    }
+    const soft = execution?.disposition === "SOFT_OBJECTIVE"
+      || parsed.policy.kind === "PREFERRED_TEACHER"
+      || parsed.policy.kind === "PREFERRED_ROOM"
+      || parsed.policy.kind === "PREFERRED_DAY"
+      || parsed.policy.kind === "AVOID_DAY";
+    if (!policyStableIdsExist(state, parsed.policy)) {
+      if (hard) for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      continue;
+    }
+
+    if (soft) {
+      const rank = legacyRank.get(rule.id) ?? fallbackPreferenceRank.get(rule.id) ?? 1999;
+      const preference = compileTypedPreferenceIR(rule, parsed.policy, bundle.consumedRuleIds, rank);
+      if (preference) {
+        preferences.push(preference);
+      } else if (hard) {
+        for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      }
+      continue;
+    }
+    if (!hard) continue;
+    if (bundle.consumedRuleIds.some((ruleId) => closureBlockedRuleIds.has(ruleId))) {
+      for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      continue;
+    }
+    const compiled = v5HardNode(rule, parsed.policy, bundle.consumedRuleIds);
+    if (!compiled) {
+      for (const ruleId of bundle.consumedRuleIds) invalidHardRuleIds.add(ruleId);
+      continue;
+    }
+    nodes.push(compiled);
+  }
+
+  return {
+    consumedRuleIds,
+    invalidHardRuleIds,
+    closureBlockedRuleIds,
+    suppressedLegacyNodeIds,
+    nodes: nodes.sort((a, b) => compareCanonicalStrings(a.id, b.id)),
+    preferences: preferences.sort((a, b) => a.rank - b.rank || compareCanonicalStrings(a.ruleId, b.ruleId)),
+  };
+}
+
+function compileTenantPolicyManifest(
+  state: StudioState,
+  manifest: TenantPolicyManifestV1,
+): ConstraintModelSnapshotV1 {
+  const identity = materializeConstraintIdentityTargets(state, manifest.constraints);
+  const hardConstraints = identity.nodes.sort((a, b) => compareCanonicalStrings(a.id, b.id));
+  const representedConstraintIds = new Set(hardConstraints.map((node) => node.id));
+  const invalidRuleIds = new Set(identity.invalidRuleIds);
+  const uncompiledConstraintRuleIds = new Set<string>();
+  for (const rule of manifest.records) {
+    const hard = ["HARD_CONSTRAINT", "FIXED_ANCHOR", "EXCEPTION"].includes(rule.disposition);
+    if (hard && (rule.constraintIds.some((id) => !representedConstraintIds.has(id)) || invalidRuleIds.has(rule.ruleId))) {
+      uncompiledConstraintRuleIds.add(rule.ruleId);
+    }
+  }
+  for (const ruleId of identity.invalidRuleIds) uncompiledConstraintRuleIds.add(ruleId);
+
+  return {
+    schemaVersion: "1.0",
+    compilerVersion: GEN02_CONSTRAINT_COMPILER_VERSION,
+    rulebookVersion: manifest.sourceRulebookVersion,
+    planningDatasetVersion: state.planningDatasetVersions?.find((version) => version.status === "CURRENT")?.version ?? null,
+    activeRuleCount: manifest.activeRuleIds.length,
+    hardConstraints,
+    objectivePrioritySpine: [...manifest.objectivePrioritySpine],
+    readinessRuleIds: [...manifest.readinessRuleIds],
+    governanceAssertions: [...manifest.governanceAssertions],
+    uncompiledConstraintRuleIds: [...uncompiledConstraintRuleIds].sort(compareCanonicalStrings),
+    completeHardConstraintCompilation: uncompiledConstraintRuleIds.size === 0,
+  };
+}
+
 export function compileConstraintModelV3(state: StudioState): ConstraintModelSnapshotV1 {
+  const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? null;
+  const tenantManifest = parseTenantPolicyManifest(currentRulebook, state.rules);
+  if (tenantManifest.status === "VALID") return compileTenantPolicyManifest(state, tenantManifest.manifest);
+
   const base = compileV01(state);
+  if (tenantManifest.status === "INVALID") {
+    const activeHardRuleIds = state.rules
+      .filter((rule) => rule.status === "ACTIVE" && (rule.strength === "HARD" || rule.classificationRaw === "HARD"))
+      .map((rule) => rule.id);
+    return {
+      ...base,
+      compilerVersion: GEN02_CONSTRAINT_COMPILER_VERSION,
+      hardConstraints: [],
+      uncompiledConstraintRuleIds: [...new Set([...activeHardRuleIds, ...tenantManifest.ruleIds])].sort(compareCanonicalStrings),
+      completeHardConstraintCompilation: false,
+    };
+  }
+
+  const policySupport = reviewedDwdePolicySupport(currentRulebook, state.rules, state.rulebookVersions);
   const activeRules = state.rules.filter((rule) => rule.status === "ACTIVE");
   const ruleMap = new Map(activeRules.map((rule) => [rule.id, rule]));
-  const baseHardConstraints = base.hardConstraints.map((node) => withSequencingInterpretation(node, ruleMap));
-  const additions = v3Constraints(ruleMap);
-  const hardConstraints = [...baseHardConstraints, ...additions]
+
+  const legacyBase = base.hardConstraints.map((node) => withSequencingInterpretation(node, ruleMap));
+  const legacyAdditions = v3Constraints(ruleMap);
+  const legacyCandidates = [...legacyBase, ...legacyAdditions];
+
+  if (currentRulebook && currentRulebook.version >= DWDE_TYPED_POLICY_BUNDLE_VERSION) {
+    const typed = compileV5TypedPolicies(state, ruleMap, legacyCandidates, base.objectivePrioritySpine);
+    const candidateHardConstraintsBeforeIdentity = [
+      ...legacyCandidates.filter((node) => !typed.suppressedLegacyNodeIds.has(node.id)),
+      ...typed.nodes,
+    ];
+    const identity = currentRulebook.version >= 7
+      ? materializeConstraintIdentityTargets(state, candidateHardConstraintsBeforeIdentity)
+      : { nodes: candidateHardConstraintsBeforeIdentity, invalidRuleIds: [], changed: false };
+    const candidateHardConstraints = identity.nodes;
+    const candidateRuleIds = [...new Set(candidateHardConstraints.flatMap((node) => node.ruleIds))];
+    const unsupportedRuleIds = policySupport.supported
+      ? []
+      : policySupport.ruleIds.length > 0 ? policySupport.ruleIds : candidateRuleIds;
+    const unsupportedRuleIdSet = new Set(unsupportedRuleIds);
+    const hardConstraints = candidateHardConstraints
+      .filter((node) => policySupport.supported || node.ruleIds.every((ruleId) => !unsupportedRuleIdSet.has(ruleId)))
+      .sort((a, b) => compareCanonicalStrings(a.id, b.id));
+    const representedRuleIds = new Set(hardConstraints.flatMap((node) => node.ruleIds));
+    const identityInvalidRuleIds = new Set(identity.invalidRuleIds);
+    const uncompiledConstraintRuleIds = [...new Set([
+      ...base.uncompiledConstraintRuleIds,
+      ...unsupportedRuleIds,
+      ...typed.invalidHardRuleIds,
+      ...typed.closureBlockedRuleIds,
+      ...identity.invalidRuleIds,
+    ])]
+      .filter((ruleId) => identityInvalidRuleIds.has(ruleId) || !representedRuleIds.has(ruleId))
+      .sort(compareCanonicalStrings);
+    const objectivePrioritySpine = [
+      ...base.objectivePrioritySpine.filter((objective) => !typed.consumedRuleIds.has(objective.ruleId)),
+      ...typed.preferences,
+    ].sort((a, b) => a.rank - b.rank || compareCanonicalStrings(a.ruleId, b.ruleId));
+
+    return {
+      ...base,
+      compilerVersion: identity.changed || identity.invalidRuleIds.length
+        ? GEN01_CONSTRAINT_COMPILER_VERSION
+        : typed.nodes.some((node) => node.kind === "LATEST_FINISH_BY_PARTICIPANT")
+        ? SET06_CONSTRAINT_COMPILER_VERSION
+        : typed.nodes.some((node) => ["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "DIRECTLY_AFTER", "LINKED_ARRIVAL"].includes(node.kind))
+          ? POL03_CONSTRAINT_COMPILER_VERSION
+          : POL02_CONSTRAINT_COMPILER_VERSION,
+      hardConstraints,
+      objectivePrioritySpine,
+      uncompiledConstraintRuleIds,
+      completeHardConstraintCompilation: policySupport.supported && uncompiledConstraintRuleIds.length === 0,
+    };
+  }
+
+  const typed = compileV4TypedPolicies(state, ruleMap);
+  const baseHardConstraints = legacyBase
+    .filter((node) => node.ruleIds.every((ruleId) => !typed.typedRuleIds.has(ruleId)));
+  const additions = legacyAdditions
+    .filter((node) => node.ruleIds.every((ruleId) => !typed.typedRuleIds.has(ruleId)));
+  const candidateHardConstraints = [...baseHardConstraints, ...additions, ...typed.nodes];
+  const candidateRuleIds = [...new Set(candidateHardConstraints.flatMap((node) => node.ruleIds))];
+  const unsupportedRuleIds = policySupport.supported
+    ? []
+    : policySupport.ruleIds.length > 0 ? policySupport.ruleIds : candidateRuleIds;
+  const unsupportedRuleIdSet = new Set(unsupportedRuleIds);
+  const hardConstraints = candidateHardConstraints
+    .filter((node) => policySupport.supported || node.ruleIds.every((ruleId) => !unsupportedRuleIdSet.has(ruleId)))
     .sort((a, b) => compareCanonicalStrings(a.id, b.id));
   const representedRuleIds = new Set(hardConstraints.flatMap((node) => node.ruleIds));
-  const uncompiledConstraintRuleIds = base.uncompiledConstraintRuleIds
+  const uncompiledConstraintRuleIds = [...new Set([
+    ...base.uncompiledConstraintRuleIds,
+    ...unsupportedRuleIds,
+    ...typed.invalidHardRuleIds,
+  ])]
     .filter((ruleId) => !representedRuleIds.has(ruleId))
     .sort(compareCanonicalStrings);
+  const compilerVersion = currentRulebook?.version === 4
+    ? CONSTRAINT_COMPILER_VERSION
+    : LEGACY_CONSTRAINT_COMPILER_VERSION;
 
   return {
     ...base,
-    compilerVersion: CONSTRAINT_COMPILER_VERSION,
+    compilerVersion,
     hardConstraints,
     uncompiledConstraintRuleIds,
-    completeHardConstraintCompilation: uncompiledConstraintRuleIds.length === 0,
+    completeHardConstraintCompilation: policySupport.supported && uncompiledConstraintRuleIds.length === 0,
   };
 }
 

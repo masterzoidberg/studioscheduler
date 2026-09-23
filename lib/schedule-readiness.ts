@@ -1,8 +1,11 @@
 import type { ClassDefinition, ClassSession, PlanningDatasetVersion, StudioState } from "@/lib/domain";
 import { compileConstraintModel } from "@/lib/constraint-compiler-v3";
-import { validateConstraintModelBindings, type ConstraintDataBindingReport } from "@/lib/constraint-data-binding";
+import { canonicalBindingName, validateConstraintModelBindings, type ConstraintDataBindingReport } from "@/lib/constraint-data-binding";
 import { ruleExecutionCoverage } from "@/lib/rule-execution-registry";
+import { reviewedDwdePolicySupport } from "@/lib/dwde-policy-transition";
 import { sessionDurationMinutes } from "@/lib/schedule-builder";
+import { readinessCertificationIssues } from "@/lib/readiness-certification";
+import { parseTenantPolicyManifest, type TenantPolicyManifestV1 } from "@/lib/tenant-policy";
 
 export type ScheduleReadinessSeverity = "BLOCKER" | "WARNING";
 
@@ -12,6 +15,10 @@ export interface ScheduleReadinessIssue {
   message: string;
   ruleIds: string[];
   entityIds: string[];
+  classification?: "MUST" | "PREFER" | "INFORMATIONAL";
+  requiredAction?: string;
+  deepLink?: string;
+  operationsBlocked?: Array<"CERTIFICATION" | "AUTOMATIC_SOLVE" | "CANDIDATE_ADOPTION" | "FINAL_EXPORT">;
 }
 
 export interface ScheduleReadinessReport {
@@ -58,7 +65,7 @@ const KARLY_DAUGHTER_CLASS_NAMES = [
   "Hip Hop 2",
   "Pre-Company Technique 1",
 ] as const;
-const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+const normalizeName = canonicalBindingName;
 const sorted = (values: number[]) => [...values].sort((a, b) => a - b);
 const sortedStrings = (values: string[]) => [...values].sort();
 const sameStrings = (a: string[], b: string[]) => {
@@ -96,18 +103,23 @@ function effectiveDurations(klass: ClassDefinition, sessions: ClassSession[]) {
   return sorted(sessions.map((session) => sessionDurationMinutes(session, klass)));
 }
 
-// External source manifests are optional provenance/comparison baselines. DWDE's
-// working teachers, dancers, rooms, classes and rosters are intentionally fluid.
-// Solver provenance is established by confirming the immutable current
-// PlanningDatasetVersion after the manager has reviewed those working facts.
-function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatasetVersion | null, issues: ScheduleReadinessIssue[]) {
+function checkSourceManifest(
+  state: StudioState,
+  currentPlanning: PlanningDatasetVersion | null,
+  issues: ScheduleReadinessIssue[],
+  tenantManifest: TenantPolicyManifestV1 | null,
+) {
+  // A converted tenant Rulebook owns its own rule IDs. The source manifest is
+  // provenance only, so legacy DWDE IDs must not leak into tenant-neutral drift
+  // warnings.
+  const sourceManifestRuleIds = tenantManifest ? [] : SOURCE_MANIFEST_RULE_IDS;
   const pin = currentPlanning?.snapshot.sourceManifest ?? null;
   if (!pin) {
     add(
       issues,
       "SOURCE_MANIFEST_NOT_PINNED",
       "No external roster/source manifest is pinned. This is allowed for fluid planning; the confirmed current Planning Dataset is the scheduling authority.",
-      SOURCE_MANIFEST_RULE_IDS,
+      sourceManifestRuleIds,
       [],
       "WARNING",
     );
@@ -119,7 +131,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
       issues,
       "SOURCE_MANIFEST_INCOMPLETE",
       `Planning Source Manifest v${pin.version} is incomplete and is treated only as a provenance baseline.`,
-      SOURCE_MANIFEST_RULE_IDS,
+      sourceManifestRuleIds,
       [],
       "WARNING",
     );
@@ -130,7 +142,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
       issues,
       "SOURCE_MANIFEST_SCHEMA_UNSUPPORTED",
       `Planning Source Manifest v${pin.version} uses unsupported schema ${pin.snapshot.schemaVersion}; it cannot be compared to current planning data.`,
-      SOURCE_MANIFEST_RULE_IDS,
+      sourceManifestRuleIds,
       [],
       "WARNING",
     );
@@ -148,7 +160,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
       issues,
       "SOURCE_MANIFEST_CLASS_SET_MISMATCH",
       `Current planning inventory differs from Source Manifest v${pin.version}: ${missing.length} former class${missing.length === 1 ? "" : "es"} absent and ${extra.length} newer class${extra.length === 1 ? "" : "es"} present. This is recorded drift, not automatic illegality.`,
-      ["CUR-001", "CUR-002", "CUR-003", "CUR-004"],
+      tenantManifest ? [] : ["CUR-001", "CUR-002", "CUR-003", "CUR-004"],
       [...missing, ...extra],
       "WARNING",
     );
@@ -164,7 +176,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
         issues,
         "SOURCE_MANIFEST_FREQUENCY_MISMATCH",
         `${klass.name} differs from Source Manifest v${pin.version}: baseline ${expected.weeklyFrequency} weekly session(s), current planning frequency ${klass.weeklyFrequency} with ${sessions.length} session row(s).`,
-        ["CUR-001", "CUR-006"],
+        tenantManifest ? [] : ["CUR-001", "CUR-006"],
         [klass.id, ...sessions.map((session) => session.id)],
         "WARNING",
       );
@@ -177,7 +189,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
         issues,
         "SOURCE_MANIFEST_DURATION_MISMATCH",
         `${klass.name} duration data differs from Source Manifest v${pin.version}: baseline ${expectedDurations.join("/")} minutes, current planning ${actualDurations.join("/") || "none"}.`,
-        ["CUR-005"],
+        tenantManifest ? [] : ["CUR-005"],
         [klass.id, ...sessions.map((session) => session.id)],
         "WARNING",
       );
@@ -188,7 +200,7 @@ function checkSourceManifest(state: StudioState, currentPlanning: PlanningDatase
         issues,
         "SOURCE_MANIFEST_ROSTER_MISMATCH",
         `${klass.name}'s current roster differs from Source Manifest v${pin.version}. The confirmed current Planning Dataset is authoritative.`,
-        ["STU-002"],
+        tenantManifest ? [] : ["STU-002"],
         [klass.id, ...new Set([...klass.rosterStudentIds, ...expected.rosterStudentIds])],
         "WARNING",
       );
@@ -309,13 +321,21 @@ function checkKarlyDaughterEnrollment(state: StudioState, issues: ScheduleReadin
   }
 }
 
-function checkGenericPlanningIntegrity(state: StudioState, issues: ScheduleReadinessIssue[]) {
+function checkGenericPlanningIntegrity(
+  state: StudioState,
+  issues: ScheduleReadinessIssue[],
+  tenantManifest: TenantPolicyManifestV1 | null,
+) {
+  // These checks remain useful for every tenant, but their legacy Rulebook IDs
+  // are only meaningful before conversion. Converted manifests provide no
+  // license to attribute generic planning-data defects to DWDE constants.
+  const ruleIds = (legacyRuleIds: string[]) => tenantManifest ? [] : legacyRuleIds;
   const classIds = new Set(state.classes.map((klass) => klass.id));
   const studentIds = new Set(state.students.map((student) => student.id));
 
   for (const session of state.sessions) {
     if (!classIds.has(session.classId)) {
-      add(issues, "SESSION_CLASS_MISSING", `${session.id} references missing class ${session.classId}.`, ["CUR-001"], [session.id, session.classId]);
+      add(issues, "SESSION_CLASS_MISSING", `${session.id} references missing class ${session.classId}.`, ruleIds(["CUR-001"]), [session.id, session.classId]);
     }
   }
 
@@ -324,11 +344,11 @@ function checkGenericPlanningIntegrity(state: StudioState, issues: ScheduleReadi
     const ordinals = new Set<number>();
     for (const session of sessions) {
       if (ordinals.has(session.ordinal)) {
-        add(issues, "DUPLICATE_SESSION_ORDINAL", `${klass.name} has duplicate session ordinal ${session.ordinal}.`, ["CUR-001", "CUR-006"], [klass.id, session.id]);
+        add(issues, "DUPLICATE_SESSION_ORDINAL", `${klass.name} has duplicate session ordinal ${session.ordinal}.`, ruleIds(["CUR-001", "CUR-006"]), [klass.id, session.id]);
       }
       ordinals.add(session.ordinal);
       if (sessionDurationMinutes(session, klass) <= 0) {
-        add(issues, "INVALID_SESSION_DURATION", `${klass.name} session ${session.ordinal} has no valid duration.`, ["CUR-005"], [klass.id, session.id]);
+        add(issues, "INVALID_SESSION_DURATION", `${klass.name} session ${session.ordinal} has no valid duration.`, ruleIds(["CUR-005"]), [klass.id, session.id]);
       }
     }
 
@@ -337,7 +357,7 @@ function checkGenericPlanningIntegrity(state: StudioState, issues: ScheduleReadi
         issues,
         "SESSION_COUNT_MISMATCH",
         `${klass.name} declares weekly frequency ${klass.weeklyFrequency} but has ${sessions.length} session row${sessions.length === 1 ? "" : "s"}.`,
-        ["CUR-006"],
+        ruleIds(["CUR-006"]),
         [klass.id, ...sessions.map((session) => session.id)],
       );
     }
@@ -348,15 +368,17 @@ function checkGenericPlanningIntegrity(state: StudioState, issues: ScheduleReadi
         issues,
         "ROSTER_STUDENT_MISSING",
         `${klass.name} contains ${missingRosterIds.length} roster student reference${missingRosterIds.length === 1 ? "" : "s"} that do not exist in planning data.`,
-        ["STU-002"],
+        ruleIds(["STU-002"]),
         [klass.id, ...missingRosterIds],
       );
     }
   }
 
-  const tap1 = findClass(state, "Tap 1");
-  if (tap1?.companyOnly) {
-    add(issues, "TAP_1_COMPANY_ONLY_ERROR", "Tap 1 is incorrectly marked Company Only in planning data.", ["REV-001"], [tap1.id]);
+  if (!tenantManifest) {
+    const tap1 = findClass(state, "Tap 1");
+    if (tap1?.companyOnly) {
+      add(issues, "TAP_1_COMPANY_ONLY_ERROR", "Tap 1 is incorrectly marked Company Only in planning data.", ["REV-001"], [tap1.id]);
+    }
   }
 }
 
@@ -364,17 +386,95 @@ function checkConstraintBindings(state: StudioState, issues: ScheduleReadinessIs
   const model = compileConstraintModel(state);
   const binding = validateConstraintModelBindings(state, model);
   for (const issue of binding.issues) {
+    const expected = issue.expectedName ?? issue.expectedId ?? "unknown reference";
+    const referenceKind = issue.expectedName ? "name" : "stable ID";
     add(
       issues,
       issue.status === "MISSING" ? "CONSTRAINT_ENTITY_MISSING" : "CONSTRAINT_ENTITY_AMBIGUOUS",
       issue.status === "MISSING"
-        ? `${issue.constraintId} expects ${issue.entityType.toLowerCase()} “${issue.expectedName}”, but no current planning entity resolves to that name.`
-        : `${issue.constraintId} expects one ${issue.entityType.toLowerCase()} “${issue.expectedName}”, but ${issue.matchedEntityIds.length} current planning entities resolve to that name.`,
+        ? `${issue.constraintId} expects ${issue.entityType.toLowerCase()} ${referenceKind} “${expected}”, but no current planning entity resolves to that reference.`
+        : `${issue.constraintId} expects one ${issue.entityType.toLowerCase()} ${referenceKind} “${expected}”, but ${issue.matchedEntityIds.length} current planning entities resolve to that reference.`,
       issue.ruleIds,
       issue.matchedEntityIds,
     );
   }
   return binding;
+}
+
+function checkTenantPreconditions(state: StudioState, manifest: TenantPolicyManifestV1, issues: ScheduleReadinessIssue[]) {
+  const entitiesByType = {
+    CLASS: state.classes.map((item) => item.id),
+    TEACHER: state.teachers.map((item) => item.id),
+    ROOM: state.rooms.map((item) => item.id),
+    STUDENT: state.students.map((item) => item.id),
+    SESSION: state.sessions.map((item) => item.id),
+  };
+  const matchingIds = (entityType: keyof typeof entitiesByType, id: string) => entitiesByType[entityType].filter((candidate) => candidate === id);
+  const sessionsFor = (classId: string) => state.sessions.filter((session) => session.classId === classId).sort((a, b) => a.ordinal - b.ordinal);
+  const sameNumbers = (left: number[], right: number[]) => {
+    const a = [...left].sort((x, y) => x - y);
+    const b = [...right].sort((x, y) => x - y);
+    return a.length === b.length && a.every((value, index) => value === b[index]);
+  };
+
+  for (const precondition of manifest.preconditions) {
+    if (precondition.kind === "CLASS_STRUCTURE") {
+      const classMatches = state.classes.filter((klass) => klass.id === precondition.classId);
+      if (classMatches.length === 0) {
+        add(issues, "MISSING_REQUIRED_CLASS", `Tenant Rulebook requires class ${precondition.classId}, but it is not represented in the current Planning Dataset.`, precondition.ruleIds, [precondition.classId!]);
+        continue;
+      }
+      if (classMatches.length > 1) {
+        add(issues, "TENANT_POLICY_ENTITY_AMBIGUOUS", `Tenant Rulebook class precondition ${precondition.classId} resolves to multiple current Planning Dataset records.`, precondition.ruleIds, classMatches.map((klass) => klass.id));
+        continue;
+      }
+      const klass = classMatches[0];
+      const sessions = sessionsFor(klass.id);
+      if (klass.weeklyFrequency !== precondition.expectedFrequency || sessions.length !== precondition.expectedFrequency) {
+        add(issues, "CLASS_FREQUENCY_MISMATCH", `${klass.name} must have ${precondition.expectedFrequency} weekly session${precondition.expectedFrequency === 1 ? "" : "s"} under the current tenant Rulebook.`, precondition.ruleIds, [klass.id, ...sessions.map((session) => session.id)]);
+      }
+      if (precondition.expectedDurations && !sameNumbers(sessions.map((session) => sessionDurationMinutes(session, klass)), precondition.expectedDurations)) {
+        add(issues, "CLASS_DURATION_MISMATCH", `${klass.name} has session durations that do not match the current tenant Rulebook.`, precondition.ruleIds, [klass.id, ...sessions.map((session) => session.id)]);
+      }
+      continue;
+    }
+
+    if (precondition.kind === "ROSTER_MEMBERSHIP") {
+      const classMatches = state.classes.filter((candidate) => candidate.id === precondition.classId);
+      if (classMatches.length === 0) {
+        add(issues, "MISSING_REQUIRED_CLASS", `Tenant Rulebook requires roster class ${precondition.classId}, but it is not represented in the current Planning Dataset.`, precondition.ruleIds, [precondition.classId!]);
+        continue;
+      }
+      if (classMatches.length > 1) {
+        add(issues, "TENANT_POLICY_ENTITY_AMBIGUOUS", `Tenant Rulebook roster class ${precondition.classId} resolves to multiple current Planning Dataset records.`, precondition.ruleIds, classMatches.map((klass) => klass.id));
+        continue;
+      }
+      const klass = classMatches[0];
+      const requiredStudentIds = precondition.requiredStudentIds ?? [];
+      const missingStudents = requiredStudentIds.filter((id) => matchingIds("STUDENT", id).length === 0);
+      const ambiguousStudents = requiredStudentIds.filter((id) => matchingIds("STUDENT", id).length > 1);
+      if (missingStudents.length) add(issues, "ROSTER_STUDENT_MISSING", `${klass.name} requires student records that are missing from the current Planning Dataset.`, precondition.ruleIds, [klass.id, ...missingStudents]);
+      if (ambiguousStudents.length) add(issues, "TENANT_POLICY_ENTITY_AMBIGUOUS", `${klass.name} has tenant-required student IDs that resolve to multiple current Planning Dataset records.`, precondition.ruleIds, [klass.id, ...ambiguousStudents]);
+      const missingRoster = requiredStudentIds.filter((id) => matchingIds("STUDENT", id).length === 1 && !klass.rosterStudentIds.includes(id));
+      if (missingRoster.length) add(issues, "ROSTER_REQUIRED_STUDENT_MISSING", `${klass.name} is missing tenant-required roster student${missingRoster.length === 1 ? "" : "s"}.`, precondition.ruleIds, [klass.id, ...missingRoster]);
+      continue;
+    }
+
+    if (precondition.kind === "ENTITY_EXISTS") {
+      const entityType = precondition.entityType!;
+      const missing = (precondition.entityIds ?? []).filter((id) => matchingIds(entityType, id).length === 0);
+      const ambiguous = (precondition.entityIds ?? []).filter((id) => matchingIds(entityType, id).length > 1);
+      if (missing.length) add(issues, "TENANT_POLICY_ENTITY_MISSING", `Tenant Rulebook references planning ${precondition.entityType?.toLowerCase()} records that are missing.`, precondition.ruleIds, missing);
+      if (ambiguous.length) add(issues, "TENANT_POLICY_ENTITY_AMBIGUOUS", `Tenant Rulebook references planning ${precondition.entityType?.toLowerCase()} IDs that resolve to multiple records.`, precondition.ruleIds, ambiguous);
+      continue;
+    }
+
+    const allEntityIds = (id: string) => Object.values(entitiesByType).flatMap((ids) => ids.filter((candidate) => candidate === id));
+    const missing = (precondition.entityIds ?? []).filter((id) => allEntityIds(id).length === 0);
+    const ambiguous = (precondition.entityIds ?? []).filter((id) => allEntityIds(id).length > 1);
+    if (missing.length) add(issues, "TENANT_POLICY_RELATIONSHIP_MISSING", `Tenant Rulebook relationship ${precondition.relationshipKind ?? "requirement"} references missing planning records.`, precondition.ruleIds, missing);
+    if (ambiguous.length) add(issues, "TENANT_POLICY_ENTITY_AMBIGUOUS", `Tenant Rulebook relationship ${precondition.relationshipKind ?? "requirement"} references ambiguous planning IDs.`, precondition.ruleIds, ambiguous);
+  }
 }
 
 function planningConfirmation(currentPlanning: PlanningDatasetVersion | null) {
@@ -383,17 +483,26 @@ function planningConfirmation(currentPlanning: PlanningDatasetVersion | null) {
 
 export function evaluateScheduleReadiness(state: StudioState): ScheduleReadinessReport {
   const issues: ScheduleReadinessIssue[] = [];
-  const ruleCoverage = ruleExecutionCoverage(state.rules);
-  if (!ruleCoverage.complete || ruleCoverage.activeRules !== 178) {
+  const currentRulebook = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? null;
+  const tenantManifestResult = parseTenantPolicyManifest(currentRulebook, state.rules);
+  const tenantManifest = tenantManifestResult.status === "VALID" ? tenantManifestResult.manifest : null;
+  const ruleCoverage = ruleExecutionCoverage(state.rules, tenantManifest);
+  if (!ruleCoverage.complete) {
     add(
       issues,
       "RULE_EXECUTION_REGISTRY_INCOMPLETE",
-      `Execution Registry accounts for ${ruleCoverage.accountedRules} of ${ruleCoverage.activeRules} active Rulebook rules; automatic scheduling requires exact 178/178 accounting.`,
+      `Tenant execution accounting covers ${ruleCoverage.accountedRules} of ${ruleCoverage.activeRules} active Rulebook rules; automatic scheduling requires every active rule to be accounted for.`,
       [...ruleCoverage.missingRuleIds, ...ruleCoverage.unknownRuleIds],
     );
   }
 
   const currentPlanning = state.planningDatasetVersions?.find((version) => version.status === "CURRENT") ?? null;
+  if (tenantManifestResult.status === "INVALID") {
+    add(issues, "TENANT_POLICY_MANIFEST_INVALID", tenantManifestResult.message, tenantManifestResult.ruleIds);
+  } else if (!tenantManifest) {
+    const policySupport = reviewedDwdePolicySupport(currentRulebook, state.rules, state.rulebookVersions);
+    if (!policySupport.supported) add(issues, "UNSUPPORTED_REVIEWED_POLICY", policySupport.message, policySupport.ruleIds);
+  }
   const currentSchedule = state.scheduleVersions.find((version) => version.isCurrent) ?? null;
   const schedulePlanningVersion = currentSchedule?.planningDatasetVersion ?? null;
   const confirmedPlanning = planningConfirmation(currentPlanning);
@@ -420,12 +529,32 @@ export function evaluateScheduleReadiness(state: StudioState): ScheduleReadiness
     }
   }
 
-  checkGenericPlanningIntegrity(state, issues);
-  checkStructure(state, issues);
-  checkAdvancedBalletParticipation(state, issues);
-  checkKarlyDaughterEnrollment(state, issues);
-  checkSourceManifest(state, currentPlanning, issues);
+  checkGenericPlanningIntegrity(state, issues, tenantManifest);
+  if (tenantManifest) {
+    checkTenantPreconditions(state, tenantManifest, issues);
+  } else if (tenantManifestResult.status === "MISSING") {
+    checkStructure(state, issues);
+    checkAdvancedBalletParticipation(state, issues);
+    checkKarlyDaughterEnrollment(state, issues);
+  }
+  checkSourceManifest(state, currentPlanning, issues, tenantManifest);
   const constraintBinding = checkConstraintBindings(state, issues);
+
+  if (state.readinessCertification) {
+    if (planningDatasetConfirmed && !state.readinessCertification.certification) {
+      add(
+        issues,
+        "PLANNING_CERTIFICATION_CONTEXT_MISSING",
+        "The Planning Dataset has an older confirmation, but no current Rulebook, Constraint Model, and review-set certification context is pinned.",
+        [],
+        [],
+        "BLOCKER",
+      );
+    }
+    for (const issue of readinessCertificationIssues(state.readinessCertification)) {
+      issues.push(issue);
+    }
+  }
 
   const blockers = issues.filter((issue) => issue.severity === "BLOCKER");
   const warnings = issues.filter((issue) => issue.severity === "WARNING");

@@ -12,10 +12,10 @@ export function CopilotPanel({mobile=false,onClose}:{mobile?:boolean;onClose?:()
   const pathname=usePathname();
   const {
     session,canEdit,applyRulePatch,applySchedulePatch,currentRulebookVersion,currentEnforcementVersion,currentScheduleVersion,
-    currentScheduleRulebookVersion,currentScheduleEnforcementVersion,scheduleIsStale,validation,
+    currentScheduleRulebookVersion,currentScheduleEnforcementVersion,scheduleIsStale,validation,selectedStudioId,
   }=useWorkspace();
   const [message,setMessage]=useState("");const [result,setResult]=useState<Result|null>(null);const [busy,setBusy]=useState(false);const [notice,setNotice]=useState("");
-  const prompts=["What rules affect Karly?","Which HARD rules mention Cami?","What time does Saturday have to end?","Why is this schedule only partially validated?"];
+  const prompts=["What rules affect this class?","Which HARD rules apply here?","What time does Saturday have to end?","Why is this schedule only partially validated?"];
 
   useEffect(()=>{
     const listener=(event:Event)=>{const detail=(event as CustomEvent<{message?:string}>).detail;const text=detail?.message?.trim();if(text){setMessage(text);void send(text);}};
@@ -23,11 +23,20 @@ export function CopilotPanel({mobile=false,onClose}:{mobile?:boolean;onClose?:()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[session?.access_token,pathname]);
 
+  useEffect(()=>{
+    let active=true;
+    queueMicrotask(()=>{
+      if (!active) return;
+      setMessage("");setResult(null);setNotice("");
+    });
+    return ()=>{ active=false; };
+  },[selectedStudioId]);
+
   async function send(text?:string){
-    const value=(text??message).trim();if(!value||!session?.access_token)return;
+    const value=(text??message).trim();if(!value||!session?.access_token||!selectedStudioId)return;
     setBusy(true);setNotice("");setResult(null);
     try{
-      const response=await fetch("/api/copilot",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({message:value,screen:pathname})});
+      const response=await fetch("/api/copilot",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`,"x-studio-id":selectedStudioId},body:JSON.stringify({message:value,screen:pathname})});
       const data=await response.json();if(!response.ok)throw new Error(data.error||"Copilot request failed.");setResult(data);setMessage("");
     }catch(e){setNotice(e instanceof Error?e.message:String(e));}finally{setBusy(false);}
   }

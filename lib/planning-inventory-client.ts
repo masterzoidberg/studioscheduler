@@ -4,6 +4,7 @@ export type PlanningEntityType = "TEACHER" | "STUDENT" | "ROOM" | "CLASS";
 export type PlanningEntityOperation = "CREATE" | "UPDATE";
 
 export interface PlanningInventoryMutationInput {
+  studioId: string;
   operation: PlanningEntityOperation;
   entityType: PlanningEntityType;
   entityId?: string | null;
@@ -22,6 +23,7 @@ export interface PlanningInventoryMutationResult {
 }
 
 export interface ReviewedRequiredClassMutationInput {
+  studioId: string;
   changes: Record<string, unknown>;
   reason: string;
   expectedPlanningDatasetVersion: number;
@@ -33,18 +35,21 @@ export interface ReviewedRequiredClassMutationInput {
 }
 
 export interface RulebookStructureRepairMutationInput {
+  studioId: string;
   classId: string;
   reason: string;
   expectedPlanningDatasetVersion: number;
 }
 
 export interface RulebookRosterRepairMutationInput {
+  studioId: string;
   classId: string;
   reason: string;
   expectedPlanningDatasetVersion: number;
 }
 
 export interface ClassSessionDurationMutationInput {
+  studioId: string;
   classId: string;
   /** Session ID -> override minutes. null means inherit the class-level duration. */
   sessionDurations: Record<string, number | null>;
@@ -80,7 +85,8 @@ function planningMutationResult(data: unknown): PlanningInventoryMutationResult 
 
 export async function mutatePlanningEntity(input: PlanningInventoryMutationInput): Promise<PlanningInventoryMutationResult> {
   try {
-    const { data, error } = await getBrowserSupabase().rpc("mutate_planning_entity_v28", {
+    const { data, error } = await getBrowserSupabase().rpc("mutate_planning_entity_v63", {
+      p_studio_id: input.studioId,
       p_operation: input.operation,
       p_entity_type: input.entityType,
       p_entity_id: input.entityId ?? null,
@@ -99,7 +105,8 @@ export async function createReviewedRequiredClass(
   input: ReviewedRequiredClassMutationInput,
 ): Promise<PlanningInventoryMutationResult> {
   try {
-    const { data, error } = await getBrowserSupabase().rpc("create_reviewed_required_class_v34", {
+    const { data, error } = await getBrowserSupabase().rpc("create_reviewed_required_class_v63", {
+      p_studio_id: input.studioId,
       p_changes: input.changes,
       p_reason: input.reason,
       p_expected_planning_dataset_version: input.expectedPlanningDatasetVersion,
@@ -116,7 +123,8 @@ export async function applyRulebookStructureRepair(
   input: RulebookStructureRepairMutationInput,
 ): Promise<PlanningInventoryMutationResult> {
   try {
-    const { data, error } = await getBrowserSupabase().rpc("apply_rulebook_structure_repair_v36", {
+    const { data, error } = await getBrowserSupabase().rpc("apply_rulebook_structure_repair_v63", {
+      p_studio_id: input.studioId,
       p_class_id: input.classId,
       p_reason: input.reason,
       p_expected_planning_dataset_version: input.expectedPlanningDatasetVersion,
@@ -132,7 +140,8 @@ export async function applyRulebookRosterRepair(
   input: RulebookRosterRepairMutationInput,
 ): Promise<PlanningInventoryMutationResult> {
   try {
-    const { data, error } = await getBrowserSupabase().rpc("apply_rulebook_roster_repair_v36", {
+    const { data, error } = await getBrowserSupabase().rpc("apply_rulebook_roster_repair_v63", {
+      p_studio_id: input.studioId,
       p_class_id: input.classId,
       p_reason: input.reason,
       p_expected_planning_dataset_version: input.expectedPlanningDatasetVersion,
@@ -148,7 +157,8 @@ export async function updateClassSessionDurations(
   input: ClassSessionDurationMutationInput,
 ): Promise<ClassSessionDurationMutationResult> {
   try {
-    const { data, error } = await getBrowserSupabase().rpc("update_class_session_durations_v31", {
+    const { data, error } = await getBrowserSupabase().rpc("update_class_session_durations_v63", {
+      p_studio_id: input.studioId,
       p_class_id: input.classId,
       p_session_durations: input.sessionDurations,
       p_reason: input.reason,

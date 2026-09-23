@@ -1,0 +1,723 @@
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdtempSync,
+  openSync,
+  closeSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
+import { spawn, spawnSync } from 'node:child_process';
+import { createClient } from '@supabase/supabase-js';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const studioId = '11111111-1111-4111-8111-111111111111';
+const ownerEmail = 'verify01-owner@example.test';
+const requiredSupabaseCliVersion = '2.117.0';
+const playwrightVersion = '1.62.1';
+const productionProjectHost = 'kbgzrefivxqoiwumfyui.supabase.co';
+
+class E2EHarnessError extends Error {}
+
+function executable(name) {
+  return process.platform === 'win32' ? `${name}.cmd` : name;
+}
+
+function supabaseInvocation() {
+  return {
+    command: executable('npx'),
+    args: ['--yes', `supabase@${requiredSupabaseCliVersion}`],
+  };
+}
+
+function runSupabase(args, options = {}) {
+  const invocation = supabaseInvocation();
+  return run(invocation.command, [...invocation.args, ...args], options);
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd ?? repoRoot,
+    env: options.env ?? process.env,
+    encoding: 'utf8',
+    input: options.input,
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: options.timeout ?? 10 * 60 * 1000,
+    windowsHide: true,
+    shell: process.platform === 'win32' && command.toLowerCase().endsWith('.cmd'),
+  });
+  if (result.error) throw new E2EHarnessError(`${command} could not be started: ${result.error.message}`);
+  if (result.status !== 0) {
+    const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+    throw new E2EHarnessError(`${command} ${args[0] ?? ''} failed with exit ${result.status}.\n${output}`);
+  }
+  return result;
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function startHangingSolver() {
+  const server = createServer(() => {});
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new E2EHarnessError('Could not bind the synthetic timeout solver to loopback.');
+  return { server, url: `http://127.0.0.1:${address.port}` };
+}
+
+function isLoopbackHost(host) {
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+export function assertLoopbackUrl(name, value) {
+  if (!value?.trim()) return;
+  let parsed;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    throw new E2EHarnessError(`${name} is not a valid URL.`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host === productionProjectHost || value.includes(productionProjectHost)) {
+    throw new E2EHarnessError(`Refusing production target from ${name}. VERIFY-01 is disposable-only.`);
+  }
+  if (!isLoopbackHost(host)) {
+    throw new E2EHarnessError(`Refusing external target from ${name}: ${host}. VERIFY-01 accepts loopback URLs only.`);
+  }
+}
+
+function assertExistingEnvironmentIsSafe(env = process.env) {
+  for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL', 'STUDIO_SCHEDULER_TEST_DB_URL', 'SOLVER_SERVICE_URL']) {
+    assertLoopbackUrl(name, env[name]);
+  }
+}
+
+function ensureSupabaseCli() {
+  const result = runSupabase(['--version']);
+  const version = result.stdout.trim().replace(/^v/, '');
+  if (version !== requiredSupabaseCliVersion) {
+    throw new E2EHarnessError(
+      `VERIFY-01 requires Supabase CLI ${requiredSupabaseCliVersion}; found ${version || 'unknown'}. `
+      + 'CI pins the required version with supabase/setup-cli.',
+    );
+  }
+}
+
+function ensurePlaywright() {
+  const packagePath = path.join(repoRoot, 'node_modules', '@playwright', 'test', 'package.json');
+  const installed = existsSync(packagePath) ? JSON.parse(readFileSync(packagePath, 'utf8')).version : null;
+  if (installed !== playwrightVersion) {
+    run(executable('npm'), [
+      'install', '--no-save', '--package-lock=false', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps',
+      `@playwright/test@${playwrightVersion}`,
+    ]);
+  }
+
+  const cli = path.join(repoRoot, 'node_modules', '@playwright', 'test', 'cli.js');
+  if (!existsSync(cli)) throw new E2EHarnessError('Pinned Playwright CLI was not installed.');
+  const installArgs = [cli, 'install'];
+  if (process.platform === 'linux') installArgs.push('--with-deps');
+  installArgs.push('chromium');
+  run(process.execPath, installArgs, { timeout: 10 * 60 * 1000 });
+  return cli;
+}
+
+function setTomlValue(text, section, key, rawValue, required = true) {
+  const lines = text.split(/\r?\n/);
+  let currentSection = null;
+  let replaced = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const sectionMatch = lines[index].match(/^\s*\[([^\]]+)\]\s*$/);
+    if (sectionMatch) {
+      currentSection = sectionMatch[1];
+      continue;
+    }
+    if (currentSection !== section) continue;
+    const keyMatch = lines[index].match(new RegExp(`^(\\s*)${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=`));
+    if (!keyMatch) continue;
+    lines[index] = `${keyMatch[1]}${key} = ${rawValue}`;
+    replaced = true;
+    break;
+  }
+  if (required && !replaced) throw new E2EHarnessError(`Generated Supabase config is missing [${section}] ${key}.`);
+  return lines.join('\n');
+}
+
+function configureSupabaseProject(tempRoot, ports, projectId) {
+  const configPath = path.join(tempRoot, 'supabase', 'config.toml');
+  let config = readFileSync(configPath, 'utf8');
+  config = config.replace(/^project_id\s*=.*$/m, `project_id = "${projectId}"`);
+  config = setTomlValue(config, 'api', 'port', String(ports.api));
+  config = setTomlValue(config, 'db', 'port', String(ports.db));
+  config = setTomlValue(config, 'db', 'shadow_port', String(ports.shadow));
+  config = setTomlValue(config, 'studio', 'port', String(ports.studio), false);
+  config = setTomlValue(config, 'local_smtp', 'port', String(ports.mailpit));
+  config = setTomlValue(config, 'analytics', 'port', String(ports.analytics), false);
+  config = setTomlValue(config, 'db.pooler', 'port', String(ports.pooler), false);
+  config = setTomlValue(config, 'edge_runtime', 'inspector_port', String(ports.inspector), false);
+  config = setTomlValue(config, 'auth', 'site_url', `"${ports.appUrl}"`);
+  config = setTomlValue(config, 'auth', 'additional_redirect_urls', `["${ports.appUrl}"]`);
+  writeFileSync(configPath, config, 'utf8');
+}
+
+function sqlFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.sql'))
+    .map((entry) => path.join(directory, entry.name))
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), 'en'));
+}
+
+function validateArchiveManifest(archiveFiles) {
+  const manifestPath = path.join(repoRoot, 'supabase', 'production-ledger', 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const names = archiveFiles.map((file) => path.basename(file));
+  if (JSON.stringify(names) !== JSON.stringify(manifest.entries.map((entry) => entry.file))) {
+    throw new E2EHarnessError('Production-ledger archive does not match manifest.json.');
+  }
+  for (const entry of manifest.entries) {
+    const bytes = readFileSync(path.join(repoRoot, 'supabase', 'production-ledger', entry.file));
+    const blobHeader = Buffer.from(`blob ${bytes.length}\0`, 'utf8');
+    const sha = createHash('sha1').update(Buffer.concat([blobHeader, bytes])).digest('hex');
+    if (bytes.length !== entry.bytes || sha !== entry.git_blob_sha1) {
+      throw new E2EHarnessError(`Production-ledger integrity check failed for ${entry.file}.`);
+    }
+  }
+}
+
+function preparedBootstrap() {
+  const file = path.join(repoRoot, 'supabase', 'bootstrap', '2026-08-31-production-schema-baseline.sql');
+  const bootstrap = readFileSync(file, 'utf8');
+  const vaultExtension = /^create extension if not exists supabase_vault;\r?\n?/im;
+  if (!vaultExtension.test(bootstrap)) throw new E2EHarnessError('Bootstrap Vault extension boundary changed unexpectedly.');
+  return bootstrap.replace(vaultExtension, '');
+}
+
+const compatibilityBridge = String.raw`
+alter table public.entity_versions add column if not exists version integer;
+alter table public.entity_versions add column if not exists before_entity jsonb;
+alter table public.entity_versions add column if not exists after_entity jsonb;
+update public.entity_versions
+set version=coalesce(version,1), before_entity=coalesce(before_entity,before_data), after_entity=coalesce(after_entity,after_data,'{}'::jsonb)
+where version is null or before_entity is null or after_entity is null;
+alter table public.entity_versions alter column version set not null;
+alter table public.entity_versions alter column after_entity set not null;
+create unique index if not exists entity_versions_studio_entity_version_uq on public.entity_versions(studio_id,entity_type,entity_id,version);
+create or replace function public.apply_rule_patch(text,text,jsonb,text,boolean) returns jsonb language plpgsql security definer set search_path='' as $function$ begin raise exception 'Legacy rule mutation RPC is unavailable'; end $function$;
+create or replace function public.apply_schedule_patch(text,jsonb,text,jsonb,boolean) returns jsonb language plpgsql security definer set search_path='' as $function$ begin raise exception 'Legacy schedule mutation RPC is unavailable'; end $function$;
+create or replace function public.import_canonical_rulebook(jsonb,text) returns jsonb language plpgsql security definer set search_path='' as $function$ begin raise exception 'Legacy canonical import RPC is unavailable'; end $function$;
+create or replace function public.import_reviewed_rulebook(jsonb,text,text) returns jsonb language plpgsql security definer set search_path='' as $function$ begin raise exception 'Legacy reviewed import RPC is unavailable'; end $function$;
+`;
+
+const rulebookMigrationPrereqSql = String.raw`
+insert into public.rules(
+  id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
+) values
+('OPS-002','${studioId}','OPS','TEST_FIXTURE','Weekday 4:30 start exceptions','Only Elementary 1, Elementary 2, Level 4B, and 4B/5 levels may start at 4:30 PM. 4:45 PM remains the preferred normal weekday start time.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',2,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+('ADV-004','${studioId}','ADV','TEST_FIXTURE','Kiran Landis lower-level exception','Kiran Landis has more flexibility than the normal lower-level rule; pursue lower-level placement, but do not treat it with the same hard rigidity as the general requirement.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',2,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED');
+insert into public.rules(
+  id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
+)
+select 'VERIFY01-MIGRATION-'||lpad(n::text,3,'0'),'${studioId}','TEST','TEST_FIXTURE','Migration fixture '||n,'Deidentified migration prerequisite only.','LIGHT','ACTIVE','VERIFIED','{}','{}','[]','{}',2,'LIGHT','VERIFIED','{}','{}','NOT_IMPLEMENTED'
+from generate_series(1,176) as s(n);
+insert into public.rulebook_versions(
+  studio_id,version,name,actor_label,reason,changed_rule_ids,snapshot,rulebook_id,status,source_hash,rule_count,parent_version,format_version,document_type,source_metadata
+)
+select '${studioId}',2,'VERIFY-01 migration prerequisite','VERIFY-01 fixture','Schema replay prerequisite','{}',coalesce(jsonb_agg(to_jsonb(r) order by r.id),'[]'::jsonb),
+  'dwde-2026-2027-master-rulebook','CURRENT',encode(extensions.digest(pg_catalog.convert_to(coalesce(jsonb_agg(to_jsonb(r) order by r.id),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex'),
+  count(*)::integer,null,'2.0','DWDE_SITE_RULEBOOK','{"fixture":"VERIFY-01-migration-prerequisite"}'::jsonb
+from public.rules r where r.studio_id='${studioId}';
+`;
+
+function applySql(dbContainer, sql, label) {
+  process.stdout.write(`Applying ${label}\n`);
+  run('docker', [
+    'exec', '-i', dbContainer, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres',
+  ], { input: `begin;\n${sql}\ncommit;\n` });
+}
+
+function findDatabaseContainer(projectId) {
+  const names = run('docker', ['ps', '--format', '{{.Names}}']).stdout.split(/\r?\n/).filter(Boolean);
+  const exact = `supabase_db_${projectId}`;
+  const match = names.find((name) => name === exact) ?? names.find((name) => name.startsWith('supabase_db_') && name.includes(projectId));
+  if (!match) throw new E2EHarnessError(`Could not find disposable Supabase database container for ${projectId}.`);
+  return match;
+}
+
+function replayRepositorySchema(dbContainer) {
+  const archiveFiles = sqlFiles(path.join(repoRoot, 'supabase', 'production-ledger'));
+  const migrationFiles = sqlFiles(path.join(repoRoot, 'supabase', 'migrations'));
+  validateArchiveManifest(archiveFiles);
+  applySql(dbContainer, preparedBootstrap(), 'bootstrap schema');
+  applySql(dbContainer, compatibilityBridge, 'bootstrap/archive compatibility bridge');
+  for (const file of archiveFiles) applySql(dbContainer, readFileSync(file, 'utf8'), `archived migration ${path.basename(file)}`);
+  for (const file of migrationFiles) {
+    if (path.basename(file) === '20260902130713_rulebook_v3_post_review_confirmations.sql') {
+      applySql(dbContainer, rulebookMigrationPrereqSql, 'deidentified Rulebook V3 migration prerequisite');
+    }
+    applySql(dbContainer, readFileSync(file, 'utf8'), `forward migration ${path.basename(file)}`);
+  }
+}
+
+function syntheticOutageFixtureSql(ownerUserId) {
+  const emptyModel = JSON.stringify({
+    schemaVersion: '1.0',
+    compilerVersion: 'dwde-ir-0.9',
+    rulebookVersion: 1,
+    activeRuleCount: 0,
+    hardConstraints: [],
+    objectivePrioritySpine: [],
+    readinessRuleIds: [],
+    governanceAssertions: [],
+    uncompiledConstraintRuleIds: [],
+    completeHardConstraintCompilation: true,
+  });
+  return String.raw`
+set search_path=public,extensions;
+delete from public.assignments where studio_id='${studioId}';
+delete from public.schedule_versions where studio_id='${studioId}';
+delete from public.scenarios where studio_id='${studioId}';
+delete from public.constraint_model_versions where studio_id='${studioId}';
+delete from public.rule_enforcement_proposals where studio_id='${studioId}';
+delete from public.rule_enforcement_versions where studio_id='${studioId}';
+delete from public.rule_history where studio_id='${studioId}';
+delete from public.audit_events where studio_id='${studioId}';
+delete from public.entity_versions where studio_id='${studioId}';
+delete from public.setup_review_attestations where studio_id='${studioId}';
+delete from public.rules where studio_id='${studioId}';
+delete from public.rulebook_versions where studio_id='${studioId}';
+delete from public.class_sessions where studio_id='${studioId}';
+delete from public.class_definitions where studio_id='${studioId}';
+delete from public.students where studio_id='${studioId}';
+delete from public.cohorts where studio_id='${studioId}';
+delete from public.teachers where studio_id='${studioId}';
+delete from public.rooms where studio_id='${studioId}';
+delete from public.studio_invites where studio_id='${studioId}';
+delete from public.studio_members where studio_id='${studioId}';
+delete from public.planning_dataset_versions where studio_id='${studioId}';
+delete from public.studio_creation_requests where studio_id='${studioId}';
+do $block$ begin
+  if to_regclass('public.planning_source_manifest_versions') is not null then
+    delete from public.planning_source_manifest_versions where studio_id='${studioId}';
+  end if;
+end $block$;
+
+update public.studios set name='VERIFY-01 Synthetic Outage Studio', slug='verify01-synthetic-outage' where id='${studioId}';
+insert into public.studio_members(studio_id,user_id,role) values('${studioId}','${ownerUserId}','OWNER');
+with source as (
+  select encode(extensions.digest(pg_catalog.convert_to('[]','UTF8'),'sha256'),'hex') as source_hash
+)
+insert into public.rulebook_versions(
+  studio_id,version,name,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,
+  rulebook_id,status,source_hash,rule_count,format_version,document_type,source_metadata
+)
+select '${studioId}',1,'VERIFY-01 Empty Rulebook','${ownerUserId}','Verify Owner','Synthetic empty ready-state outage fixture','{}','[]'::jsonb,
+  'verify01-empty-rulebook','CURRENT',source.source_hash,0,'1.0','STUDIO_RULEBOOK',
+  jsonb_build_object('fixture','VERIFY-01-outage','tenantPolicyManifest',jsonb_build_object(
+    'schemaVersion','1.0','sourceRulebookVersion',1,'sourceRulebookId','verify01-empty-rulebook','sourceHash',source.source_hash,
+    'activeRuleIds','[]'::jsonb,'records','[]'::jsonb,'constraints','[]'::jsonb,'objectivePrioritySpine','[]'::jsonb,
+    'readinessRuleIds','[]'::jsonb,'governanceAssertions','[]'::jsonb,'preconditions','[]'::jsonb,
+    'conversion',jsonb_build_object('kind','REVIEWED_RULEBOOK_TO_TENANT_RECORDS','sourceVersion',1,'sourceRuleCount',0)
+  ))
+from source;
+insert into public.rule_enforcement_versions(studio_id,version,rulebook_version,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,status)
+values('${studioId}',1,1,'${ownerUserId}','Verify Owner','Synthetic empty enforcement fixture','{}','[]'::jsonb,'CURRENT');
+select private.ensure_planning_dataset_version_v25('${studioId}','${ownerUserId}','Verify Owner','VERIFY-01 synthetic empty outage planning fixture');
+do $block$
+declare
+  v_model jsonb := '${emptyModel}'::jsonb;
+  v_planning integer;
+begin
+  select version into v_planning from public.planning_dataset_versions where studio_id='${studioId}' and status='CURRENT';
+  insert into public.constraint_model_versions(
+    studio_id,version,rulebook_version,compiler_version,actor_user_id,actor_label,reason,snapshot,snapshot_hash,complete_hard_constraint_compilation,status
+  ) values(
+    '${studioId}',1,1,'dwde-ir-0.9','${ownerUserId}','Verify Owner','Synthetic empty outage Constraint IR',v_model,
+    private.constraint_model_hash_v27(v_model),true,'CURRENT'
+  );
+  update public.planning_dataset_versions
+  set confirmed_for_scheduling_at=now(),confirmed_for_scheduling_by='${ownerUserId}',confirmed_for_scheduling_by_label='Verify Owner',
+      scheduling_confirmation_note='Synthetic empty-state fixture for the disposable outage journey',
+      certification_rulebook_version=1,certification_constraint_model_version=1,
+      certification_constraint_model_snapshot_hash=private.constraint_model_hash_v27(v_model),
+      certification_review_set_fingerprint=private.build_readiness_review_set_v60('${studioId}') ->> 'fingerprint',
+      certification_review_schema_version=1
+  where studio_id='${studioId}' and version=v_planning and status='CURRENT';
+  insert into public.schedule_versions(
+    studio_id,version,rulebook_version,enforcement_version,planning_dataset_version,constraint_model_version,
+    actor_user_id,actor_label,reason,is_current,validation_result
+  ) values(
+    '${studioId}',1,1,1,v_planning,1,'${ownerUserId}','Verify Owner','VERIFY-01 synthetic empty current schedule',true,
+    '{"valid":true,"fullyValidated":true,"hardViolations":0,"warnings":0,"violations":[],"coverage":{"applicableHardRules":0,"implementedHardRules":0,"partialHardRules":0,"notImplementedHardRules":0,"notApplicableHardRules":0,"uncoveredHardRuleIds":[]}}'::jsonb
+  );
+end
+$block$;
+select pg_notify('pgrst','reload schema');
+`;
+}
+
+function syntheticFixtureSql(ownerUserId) {
+  const qualificationDescription = 'Synthetic qualification domain for the disposable VERIFY-01 teacher.';
+    const model = JSON.stringify({
+      schemaVersion: '1.0',
+      compilerVersion: 'dwde-ir-0.4',
+      rulebookVersion: 4,
+      activeRuleCount: 8,
+      hardConstraints: [
+        {
+          id: 'aimee-subject-domain',
+          kind: 'TEACHER_SUBJECT_DOMAIN',
+          ruleIds: ['AIM-001'],
+          selector: { teacherNames: ['Aimee'] },
+          parameters: { allowedSubjects: ['Ballet', 'Pre-Pointe', 'Pointe'], balletLevels: 'ALL' },
+          explanation: qualificationDescription,
+        },
+        {
+          id: 'ballet-levels-studio-a',
+          kind: 'REQUIRED_ROOM',
+          ruleIds: ['CUR-008', 'ROOM-002'],
+          selector: { classNames: ['Ballet 1', 'Ballet 2', 'Ballet 3', 'Ballet 4A', 'Ballet 4A/4B', 'Ballet 4B/5', 'Ballet 5'] },
+          parameters: { roomName: 'Studio A' },
+          explanation: 'Synthetic room-unavailable setup policy owner. Synthetic curriculum room requirement.',
+        },
+        {
+          id: 'elementary-ballet-studio-c',
+          kind: 'REQUIRED_ROOM',
+          ruleIds: ['ROOM-009'],
+          selector: { classNames: ['Elementary Ballet 1', 'Elementary Ballet 2'] },
+          parameters: { roomName: 'Studio C' },
+          explanation: 'Synthetic room-feature setup policy owner.',
+        },
+        {
+          id: 'studio-c-capacity',
+          kind: 'ROOM_CAPACITY',
+          ruleIds: ['ROOM-007', 'ROOM-008'],
+          selector: { roomNames: ['Studio C'] },
+          parameters: { maxDancers: 15, exemptLevels: ['Elementary 1', 'Elementary 2'], hardCapInterpretation: true },
+          explanation: 'Synthetic room-capacity setup policy owner. Synthetic room-capacity exception.',
+        },
+        {
+          id: 'weekday-earliest-start',
+          kind: 'DAY_TIME_WINDOW',
+          ruleIds: ['OPS-001', 'OPS-002'],
+          selector: {},
+          parameters: {
+            days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+            normalEarliestStart: '16:45',
+            exceptionEarliestStart: '16:30',
+            exceptionLevels: ['Elementary 1', 'Elementary 2', 'Level 4B', 'Level 4B/5', 'Level 5'],
+            preferredNormalStart: '16:45',
+            displayOnlyEarlierTime: '16:15',
+          },
+          explanation: 'Synthetic operating-window setup policy owner. Synthetic preferred start.',
+        },
+      ],
+    objectivePrioritySpine: [],
+    readinessRuleIds: [],
+    governanceAssertions: [],
+    uncompiledConstraintRuleIds: [],
+    completeHardConstraintCompilation: true,
+  });
+  return String.raw`
+set search_path=public,extensions;
+delete from public.assignments where studio_id='${studioId}';
+delete from public.schedule_versions where studio_id='${studioId}';
+delete from public.scenarios where studio_id='${studioId}';
+delete from public.constraint_model_versions where studio_id='${studioId}';
+delete from public.rule_enforcement_proposals where studio_id='${studioId}';
+delete from public.rule_enforcement_versions where studio_id='${studioId}';
+delete from public.rule_history where studio_id='${studioId}';
+delete from public.audit_events where studio_id='${studioId}';
+delete from public.entity_versions where studio_id='${studioId}';
+delete from public.planning_dataset_versions where studio_id='${studioId}';
+delete from public.rules where studio_id='${studioId}';
+delete from public.rulebook_versions where studio_id='${studioId}';
+delete from public.class_sessions where studio_id='${studioId}';
+delete from public.class_definitions where studio_id='${studioId}';
+delete from public.students where studio_id='${studioId}';
+delete from public.cohorts where studio_id='${studioId}';
+delete from public.teachers where studio_id='${studioId}';
+delete from public.rooms where studio_id='${studioId}';
+delete from public.studio_invites where studio_id='${studioId}';
+delete from public.studio_members where studio_id='${studioId}';
+do $block$ begin
+  if to_regclass('public.planning_source_manifest_versions') is not null then
+    delete from public.planning_source_manifest_versions where studio_id='${studioId}';
+  end if;
+end $block$;
+
+update public.studios set name='VERIFY-01 Synthetic Studio', slug='verify01-synthetic' where id='${studioId}';
+insert into public.studio_members(studio_id,user_id,role) values('${studioId}','${ownerUserId}','OWNER');
+insert into public.teachers(id,studio_id,name,subjects,notes) values('verify01-teacher','${studioId}','Aimee','{}','Synthetic browser fixture alias for the current qualification adapter');
+insert into public.rooms(id,studio_id,name,capacity,features) values('verify01-room','${studioId}','Verify Room',20,'{}');
+insert into public.class_definitions(id,studio_id,name,subject,level,duration_minutes,weekly_frequency,roster_student_ids,eligible_teacher_ids,company_only)
+values('verify01-class','${studioId}','Verify Class','Ballet','Test Level',60,1,'{}','{}',false);
+insert into public.class_sessions(id,studio_id,class_id,ordinal,locked) values('verify01-session','${studioId}','verify01-class',1,false);
+  insert into public.rules(
+  id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
+  ) values(
+    'AIM-001','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 teacher qualification','${qualificationDescription}','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'
+  );
+  insert into public.rules(
+    id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
+  ) values
+    ('CUR-008','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 curriculum room requirement','Synthetic curriculum room requirement.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+    ('OPS-002','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 preferred start','Synthetic preferred start.','LIGHT','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'LIGHT','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+    ('ROOM-008','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 room-capacity exception','Synthetic room-capacity exception.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',1,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED');
+  insert into public.rules(
+  id,studio_id,category,type,title,description,strength,status,verification_status,affected_entity_ids,parameters,exceptions,source,version_introduced,classification_raw,review_status,review,source_raw,enforcement_status
+) values
+  ('OPS-001','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 operating windows','Synthetic operating-window setup policy owner.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',4,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+  ('ROOM-002','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 unavailable windows','Synthetic room-unavailable setup policy owner.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',4,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+  ('ROOM-007','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 room capacity','Synthetic room-capacity setup policy owner.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',4,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED'),
+  ('ROOM-009','${studioId}','TEST','TEST_FIXTURE','VERIFY-01 room features','Synthetic room-feature setup policy owner.','HARD','ACTIVE','VERIFIED','{}','{}','[]','{}',4,'HARD','VERIFIED','{}','{}','NOT_IMPLEMENTED');
+insert into public.rulebook_versions(studio_id,version,name,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,rulebook_id,status,rule_count,format_version,document_type,source_metadata)
+  select '${studioId}',4,'VERIFY-01 Generic Rulebook v4','${ownerUserId}','Verify Owner','Synthetic non-DWDE browser fixture','{}',jsonb_agg(to_jsonb(r) order by r.id),'verify01-generic-rulebook','CURRENT',count(*)::integer,'2.2','VERIFY01_TEST_RULEBOOK','{"fixture":"VERIFY-01","privateData":false}'::jsonb
+from public.rules r where r.studio_id='${studioId}';
+insert into public.rule_enforcement_versions(studio_id,version,rulebook_version,actor_user_id,actor_label,reason,changed_rule_ids,snapshot,status)
+values('${studioId}',1,4,'${ownerUserId}','Verify Owner','Synthetic empty enforcement fixture','{}','[]'::jsonb,'CURRENT');
+select private.ensure_planning_dataset_version_v25('${studioId}','${ownerUserId}','Verify Owner','VERIFY-01 synthetic planning fixture');
+insert into public.constraint_model_versions(studio_id,version,rulebook_version,compiler_version,actor_user_id,actor_label,reason,snapshot,snapshot_hash,complete_hard_constraint_compilation,status)
+  select '${studioId}',1,4,'dwde-ir-0.4','${ownerUserId}','Verify Owner','Synthetic generic Constraint IR','${model}'::jsonb,
+  private.constraint_model_hash_v27('${model}'::jsonb),true,'CURRENT';
+insert into public.schedule_versions(studio_id,version,rulebook_version,enforcement_version,planning_dataset_version,constraint_model_version,actor_user_id,actor_label,reason,is_current,validation_result)
+select '${studioId}',1,4,1,p.version,1,'${ownerUserId}','Verify Owner','VERIFY-01 synthetic current schedule',true,
+  '{"valid":true,"fullyValidated":true,"hardViolations":0,"warnings":0,"violations":[],"coverage":{"applicableHardRules":0,"implementedHardRules":0,"partialHardRules":0,"notImplementedHardRules":0,"notApplicableHardRules":0,"uncoveredHardRuleIds":[]}}'::jsonb
+from public.planning_dataset_versions p where p.studio_id='${studioId}' and p.status='CURRENT';
+insert into public.assignments(schedule_version_id,id,studio_id,session_id,day,start_time,end_time,teacher_id,room_id,locked,status)
+select s.id,'verify01-assignment','${studioId}','verify01-session','Monday','17:00','18:00','verify01-teacher','verify01-room',false,'NORMAL'
+from public.schedule_versions s where s.studio_id='${studioId}' and s.is_current;
+select pg_notify('pgrst','reload schema');
+`;
+}
+
+function parseStatusJson(text) {
+  const value = JSON.parse(text);
+  const normalized = new Map(Object.entries(value).map(([key, item]) => [key.toUpperCase(), item]));
+  const pick = (...keys) => keys.map((key) => normalized.get(key)).find((item) => typeof item === 'string' && item.length > 0);
+  return {
+    apiUrl: pick('API_URL', 'SUPABASE_URL'),
+    anonKey: pick('ANON_KEY', 'PUBLISHABLE_KEY'),
+    serviceRoleKey: pick('SERVICE_ROLE_KEY', 'SECRET_KEY'),
+    mailpitUrl: pick('MAILPIT_URL', 'INBUCKET_URL'),
+  };
+}
+
+async function waitForHttp(url, child, logPath) {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    if (child.exitCode !== null) {
+      throw new E2EHarnessError(`Next.js exited before becoming ready.\n${readFileSync(logPath, 'utf8')}`);
+    }
+    try {
+      const response = await fetch(url, { redirect: 'manual' });
+      if (response.status < 500) return;
+    } catch {
+      // Retry until the local process accepts connections.
+    }
+    await delay(1000);
+  }
+  throw new E2EHarnessError(`Next.js did not become ready at ${url}.\n${readFileSync(logPath, 'utf8')}`);
+}
+
+async function stopChild(child) {
+  if (!child) return;
+  if (process.platform === 'win32') {
+    if (child.pid) spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
+    return;
+  }
+  if (child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  await delay(500);
+  if (child.exitCode === null) child.kill('SIGKILL');
+}
+
+async function runHarness(simulationMode = null) {
+  assertExistingEnvironmentIsSafe();
+  ensureSupabaseCli();
+  const playwrightCli = ensurePlaywright();
+
+  const simulateSolverFailure = simulationMode === 'outage' || simulationMode === 'timeout';
+
+  const base = 55000 + (process.pid % 650) * 10;
+  const ports = {
+    shadow: base,
+    api: base + 1,
+    db: base + 2,
+    studio: base + 3,
+    mailpit: base + 4,
+    analytics: base + 7,
+    pooler: base + 8,
+    inspector: base + 9,
+    app: base + 10,
+  };
+  ports.appUrl = `http://127.0.0.1:${ports.app}`;
+  const projectId = `studioscheduler-verify01-${process.pid}`;
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'studioscheduler-verify01-'));
+  const nextLogPath = path.join(tempRoot, 'next.log');
+  let nextProcess = null;
+  let nextLogFd = null;
+  let supabaseStarted = false;
+  let hangingSolver = null;
+
+  try {
+    runSupabase(['init'], { cwd: tempRoot });
+    configureSupabaseProject(tempRoot, ports, projectId);
+    runSupabase(['start'], { cwd: tempRoot, timeout: 10 * 60 * 1000 });
+    supabaseStarted = true;
+
+    const status = parseStatusJson(runSupabase(['status', '--output', 'json'], { cwd: tempRoot }).stdout);
+    if (!status.apiUrl || !status.anonKey || !status.serviceRoleKey || !status.mailpitUrl) {
+      throw new E2EHarnessError('Supabase status did not expose the local API, public key, service-role credential and Mailpit URL.');
+    }
+    assertLoopbackUrl('local Supabase API', status.apiUrl);
+    assertLoopbackUrl('local Mailpit', status.mailpitUrl);
+    assertLoopbackUrl('local Next.js', ports.appUrl);
+
+    const dbContainer = findDatabaseContainer(projectId);
+    replayRepositorySchema(dbContainer);
+
+    const admin = createClient(status.apiUrl, status.serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const created = await admin.auth.admin.createUser({
+      email: ownerEmail,
+      email_confirm: true,
+      user_metadata: { full_name: 'Verify Owner' },
+    });
+    if (created.error || !created.data.user) {
+      throw new E2EHarnessError(`Could not create synthetic local Auth user: ${created.error?.message || 'missing user'}`);
+    }
+    if (simulationMode === 'timeout') hangingSolver = await startHangingSolver();
+    applySql(
+      dbContainer,
+      simulateSolverFailure ? syntheticOutageFixtureSql(created.data.user.id) : syntheticFixtureSql(created.data.user.id),
+      simulateSolverFailure ? 'VERIFY-01 synthetic ready solver-failure fixture' : 'VERIFY-01 synthetic browser fixture',
+    );
+    await delay(1000);
+
+    const appEnv = {
+      ...process.env,
+      NEXT_PUBLIC_SUPABASE_URL: status.apiUrl,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: status.anonKey,
+      SUPABASE_URL: status.apiUrl,
+      SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
+      ...(simulateSolverFailure ? {
+        SOLVER_SERVICE_URL: simulationMode === 'timeout' ? hangingSolver.url : 'http://127.0.0.1:1',
+        SOLVER_INTERNAL_TOKEN: 'disposable-e2e-solver-token',
+      } : {}),
+      ...(simulationMode === 'timeout' ? { SOLVER_MAX_SECONDS: '1' } : {}),
+    };
+    nextLogFd = openSync(nextLogPath, 'w');
+    nextProcess = spawn(executable('npm'), ['run', 'dev', '--', '--hostname', '127.0.0.1', '--port', String(ports.app)], {
+      cwd: repoRoot,
+      env: appEnv,
+      stdio: ['ignore', nextLogFd, nextLogFd],
+      windowsHide: true,
+      shell: process.platform === 'win32',
+    });
+    await waitForHttp(ports.appUrl, nextProcess, nextLogPath);
+
+    const e2eEnv = {
+      ...appEnv,
+      E2E_APP_URL: ports.appUrl,
+      E2E_SUPABASE_URL: status.apiUrl,
+      E2E_SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
+      E2E_MAILPIT_URL: status.mailpitUrl,
+      E2E_DB_CONTAINER: dbContainer,
+      E2E_OWNER_EMAIL: ownerEmail,
+      E2E_STUDIO_ID: studioId,
+      ...(simulationMode === 'outage' ? { E2E_SIMULATE_SOLVER_OUTAGE: '1' } : {}),
+      ...(simulationMode === 'timeout' ? { E2E_SIMULATE_SOLVER_TIMEOUT: '1' } : {}),
+    };
+    const testArgs = [
+      playwrightCli,
+      'test',
+      'tests/e2e/verify01-authenticated.spec.mjs',
+      '--workers=1',
+      '--reporter=line',
+    ];
+    if (simulateSolverFailure) testArgs.push('--grep=OPS-02');
+    const testRun = run(process.execPath, testArgs, { env: e2eEnv, timeout: 4 * 60 * 1000 });
+    process.stdout.write(testRun.stdout);
+    process.stderr.write(testRun.stderr);
+    if (simulateSolverFailure) {
+      const logLines = readFileSync(nextLogPath, 'utf8').split(/\r?\n/);
+      const events = logLines.flatMap((line) => {
+        const marker = line.indexOf('{"event":"solver_feasibility_request"');
+        if (marker < 0) return [];
+        try { return [JSON.parse(line.slice(marker))]; } catch { return []; }
+      });
+      const expected = simulationMode === 'timeout'
+        ? { outcome: 'TIMEOUT', httpStatus: 504, code: 'SOLVER_SERVICE_TIMEOUT' }
+        : { outcome: 'UNAVAILABLE', httpStatus: 503, code: 'SOLVER_SERVICE_UNAVAILABLE' };
+      const failureEvent = events.find((event) => event.outcome === expected.outcome && event.failure === true && event.httpStatus === expected.httpStatus && event.code === expected.code);
+      if (!failureEvent) throw new E2EHarnessError(`OPS-02 synthetic ${simulationMode} did not produce its countable structured solver event.`);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(failureEvent.requestId)) {
+        throw new E2EHarnessError(`OPS-02 structured ${simulationMode} event did not include a valid request correlation ID.`);
+      }
+      if (simulationMode === 'timeout' && failureEvent.durationMs < 5000) {
+        throw new E2EHarnessError('OPS-02 synthetic timeout event was logged before the server-side timeout elapsed.');
+      }
+      if (logLines.some((line) => line.includes('Synthetic Private Student') || line.includes(ownerEmail))) {
+        throw new E2EHarnessError(`OPS-02 synthetic ${simulationMode} logs included private fixture data.`);
+      }
+      process.stdout.write(`OPS-02 log verification PASS: correlated ${simulationMode} event is countable and contains no private fixture data.\n`);
+    }
+  } finally {
+    await stopChild(nextProcess);
+    if (nextLogFd !== null) closeSync(nextLogFd);
+    if (hangingSolver) {
+      hangingSolver.server.closeAllConnections();
+      await new Promise((resolve) => hangingSolver.server.close(resolve));
+    }
+    if (supabaseStarted) {
+      const invocation = supabaseInvocation();
+      const stopped = spawnSync(invocation.command, [...invocation.args, 'stop', '--no-backup'], {
+        cwd: tempRoot,
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 2 * 60 * 1000,
+        shell: process.platform === 'win32',
+      });
+      if (stopped.status !== 0) process.stderr.write(`Warning: Supabase cleanup failed.\n${stopped.stderr || stopped.stdout}\n`);
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function main() {
+  const args = new Set(process.argv.slice(2));
+  assertExistingEnvironmentIsSafe();
+  if (args.has('--check-target')) {
+    process.stdout.write('VERIFY-01 loopback target guard passed; no service was started.\n');
+    return;
+  }
+  if (!args.has('--allow-disposable') && process.env.STUDIO_SCHEDULER_E2E_ALLOW_DISPOSABLE !== '1') {
+    throw new E2EHarnessError('Refusing to run without explicit disposable opt-in. Use npm run test:e2e.');
+  }
+  const simulationMode = args.has('--simulate-solver-timeout')
+    ? 'timeout'
+    : args.has('--simulate-solver-outage')
+      ? 'outage'
+      : null;
+  if (args.has('--simulate-solver-timeout') && args.has('--simulate-solver-outage')) {
+    throw new E2EHarnessError('Choose one solver simulation mode: outage or timeout.');
+  }
+  await runHarness(simulationMode);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  main().catch((error) => {
+    process.stderr.write(`Actionable VERIFY-01 setup/test failure: ${error.message}\n`);
+    process.exitCode = 1;
+  });
+}

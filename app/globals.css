@@ -14,3 +14,24 @@ button:not(:disabled), a { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
+
+.schedule-export-print-root { display: none; }
+
+@media print {
+  @page { margin: 12mm; size: auto; }
+  body { background: white !important; color: #0f172a !important; }
+  body > * { display: none !important; }
+  body > div:has(.schedule-export-print-root) { display: block !important; }
+  body > div:has(.schedule-export-print-root) * { visibility: hidden; }
+  body > div:has(.schedule-export-print-root) .schedule-export-print-root,
+  body > div:has(.schedule-export-print-root) .schedule-export-print-root * { visibility: visible; }
+  body > div:has(.schedule-export-print-root) .schedule-export-print-root { display: block !important; position: absolute; inset: 0; width: 100%; }
+  .schedule-export-panel { border: 0 !important; padding: 0 !important; }
+  .schedule-export-panel > [data-print-hide] { display: none !important; }
+  .schedule-print-page { break-after: page; border: 0 !important; border-bottom: 1px solid #cbd5e1 !important; border-radius: 0 !important; padding: 0 0 8mm !important; }
+  .schedule-print-page:last-child { break-after: auto; }
+  .schedule-print-day, .schedule-print-room { break-inside: avoid; }
+  .schedule-print-unassigned { break-inside: avoid; }
+  .schedule-print-header { break-after: avoid; }
+  .schedule-print-footer { break-before: avoid; }
+}

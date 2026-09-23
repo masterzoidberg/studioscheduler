@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateCopilotProposal, type CopilotProposal } from "@/lib/copilot-contract";
 import { getServerSupabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase";
+import { selectedStudioIdFromHeader } from "@/lib/selected-studio";
 
 export const runtime = "nodejs";
-const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 const DEFAULT_FAST_MODEL = "openai/gpt-5.6-luna";
 const DEFAULT_REASONING_MODEL = "openai/gpt-5.6-sol";
 
@@ -88,34 +88,34 @@ function selectModel(message: string) {
   return { model: useReasoning ? reasoning : fast, effort: useReasoning ? "medium" : "low" } as const;
 }
 
-async function authorizeWorkspace(request: NextRequest) {
+async function authorizeWorkspace(request: NextRequest, studioId: string) {
   const auth = request.headers.get("authorization");
   if (!auth) return { supabase: null, allowed: false, auth: null, role: null, userId: null };
   const supabase = getServerSupabase(auth);
   const userResult = await supabase.auth.getUser();
   const user = userResult.data.user;
   if (userResult.error || !user) return { supabase, allowed: false, auth, role: null, userId: null };
-  const membership = await supabase.from("studio_members").select("role").eq("studio_id",STUDIO_ID).eq("user_id",user.id).maybeSingle();
+  const membership = await supabase.from("studio_members").select("role").eq("studio_id",studioId).eq("user_id",user.id).maybeSingle();
   return { supabase, allowed: !membership.error && Boolean(membership.data), auth, role: membership.data?.role || null, userId: user.id };
 }
 
-async function accountCredentialStatus(authHeader: string | null) {
+async function accountCredentialStatus(authHeader: string | null, studioId: string) {
   if (!authHeader) return { configured: false };
   try {
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/user-openrouter`, { method: "GET", headers: { Authorization: authHeader, apikey: SUPABASE_PUBLISHABLE_KEY }, cache: "no-store" });
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/user-openrouter`, { method: "GET", headers: { Authorization: authHeader, apikey: SUPABASE_PUBLISHABLE_KEY, "x-studio-id": studioId }, cache: "no-store" });
     if (!response.ok) return { configured: false };
     return await response.json() as { configured?: boolean; keyHint?: string | null };
   } catch { return { configured: false }; }
 }
 
-async function callAccountOpenRouter(authHeader: string, body: Record<string, unknown>) {
-  return fetch(`${SUPABASE_URL}/functions/v1/user-openrouter`, { method: "POST", headers: { Authorization: authHeader, apikey: SUPABASE_PUBLISHABLE_KEY, "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
+async function callAccountOpenRouter(authHeader: string, studioId: string, body: Record<string, unknown>) {
+  return fetch(`${SUPABASE_URL}/functions/v1/user-openrouter`, { method: "POST", headers: { Authorization: authHeader, apikey: SUPABASE_PUBLISHABLE_KEY, "x-studio-id": studioId, "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
 }
 
 async function callServerOpenRouter(key: string, body: Record<string, unknown>) {
   return fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": process.env.APP_URL || "https://studioscheduler-three.vercel.app", "X-Title": "DWDE Studio Scheduler" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": process.env.APP_URL || "https://studioscheduler-three.vercel.app", "X-Title": "Studio Scheduler" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(90_000),
   });
@@ -123,9 +123,11 @@ async function callServerOpenRouter(key: string, body: Record<string, unknown>) 
 
 export async function GET(request: NextRequest) {
   try {
-    const { allowed, auth } = await authorizeWorkspace(request);
+    const studioId = selectedStudioIdFromHeader(request);
+    if (!studioId) return NextResponse.json({ error: "An explicit studio selection is required." }, { status: 400 });
+    const { allowed, auth } = await authorizeWorkspace(request, studioId);
     if (!allowed) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
-    const account = await accountCredentialStatus(auth);
+    const account = await accountCredentialStatus(auth, studioId);
     const serverConfigured = Boolean(process.env.OPENROUTER_API_KEY);
     return NextResponse.json({ openRouterConfigured: Boolean(account.configured) || serverConfigured, keySource: account.configured ? "account" : serverConfigured ? "server" : null, keyHint: account.keyHint || null, reasoningModel: process.env.OPENROUTER_MODEL_REASONING || DEFAULT_REASONING_MODEL, fastModel: process.env.OPENROUTER_MODEL_FAST || DEFAULT_FAST_MODEL });
   } catch (error) {
@@ -135,7 +137,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const authz = await authorizeWorkspace(request);
+    const studioId = selectedStudioIdFromHeader(request);
+    if (!studioId) return NextResponse.json({ error: "An explicit studio selection is required." }, { status: 400 });
+    const authz = await authorizeWorkspace(request, studioId);
     if (!authz.allowed || !authz.supabase || !authz.auth) return NextResponse.json({ error: "Workspace access denied." }, { status: 401 });
     const supabase = authz.supabase;
     const auth = authz.auth;
@@ -145,15 +149,15 @@ export async function POST(request: NextRequest) {
     if (message.length > 5000) return NextResponse.json({ error: "Message is too long." }, { status: 400 });
 
     const [rulesQ,teachersQ,roomsQ,classesQ,sessionsQ,scheduleQ,rulebookQ,enforcementQ,proposalsQ] = await Promise.all([
-      supabase.from("rules").select("id,category,title,description,strength,classification_raw,status,verification_status,review_status,review,source_raw").eq("studio_id",STUDIO_ID),
-      supabase.from("teachers").select("id,name").eq("studio_id",STUDIO_ID),
-      supabase.from("rooms").select("id,name,capacity").eq("studio_id",STUDIO_ID),
-      supabase.from("class_definitions").select("id,name,subject,level,duration_minutes,weekly_frequency,roster_student_ids,company_only").eq("studio_id",STUDIO_ID),
-      supabase.from("class_sessions").select("id,class_id,locked").eq("studio_id",STUDIO_ID),
-      supabase.from("schedule_versions").select("id,version,rulebook_version,enforcement_version,validation_result").eq("studio_id",STUDIO_ID).eq("is_current",true).maybeSingle(),
-      supabase.from("rulebook_versions").select("version,status,source_hash,rule_count,document_type").eq("studio_id",STUDIO_ID).eq("status","CURRENT").maybeSingle(),
-      supabase.from("rule_enforcement_versions").select("version,rulebook_version,snapshot,status,reason").eq("studio_id",STUDIO_ID).eq("status","CURRENT").maybeSingle(),
-      supabase.from("rule_enforcement_proposals").select("rule_id,proposed_mapping,rationale,proposal_source,status").eq("studio_id",STUDIO_ID).eq("status","PROPOSED"),
+      supabase.from("rules").select("id,category,title,description,strength,classification_raw,status,verification_status,review_status,review,source_raw").eq("studio_id",studioId),
+      supabase.from("teachers").select("id,name").eq("studio_id",studioId),
+      supabase.from("rooms").select("id,name,capacity").eq("studio_id",studioId),
+      supabase.from("class_definitions").select("id,name,subject,level,duration_minutes,weekly_frequency,roster_student_ids,company_only").eq("studio_id",studioId),
+      supabase.from("class_sessions").select("id,class_id,locked").eq("studio_id",studioId),
+      supabase.from("schedule_versions").select("id,version,rulebook_version,enforcement_version,validation_result").eq("studio_id",studioId).eq("is_current",true).maybeSingle(),
+      supabase.from("rulebook_versions").select("version,status,source_hash,rule_count,document_type").eq("studio_id",studioId).eq("status","CURRENT").maybeSingle(),
+      supabase.from("rule_enforcement_versions").select("version,rulebook_version,snapshot,status,reason").eq("studio_id",studioId).eq("status","CURRENT").maybeSingle(),
+      supabase.from("rule_enforcement_proposals").select("rule_id,proposed_mapping,rationale,proposal_source,status").eq("studio_id",studioId).eq("status","PROPOSED"),
     ]);
     const firstError = [rulesQ,teachersQ,roomsQ,classesQ,sessionsQ,scheduleQ,rulebookQ,enforcementQ,proposalsQ].find((query) => query.error)?.error;
     if (firstError) throw firstError;
@@ -189,12 +193,12 @@ export async function POST(request: NextRequest) {
       approved_enforcement_mapping: mappingByRule.get(String(rule.id)) || null,
       pending_enforcement_proposal: (proposalsQ.data || []).find((proposal) => proposal.rule_id === rule.id) || null,
     }));
-    const account = await accountCredentialStatus(auth);
+    const account = await accountCredentialStatus(auth, studioId);
     const serverKey = process.env.OPENROUTER_API_KEY?.trim() || "";
 
     if (!account.configured && !serverKey) {
       const local = localAnswer(message,rules,teachers,classes,coverage,mappingByRule,enforcementVersion);
-      if (authz.role !== "VIEWER") await supabase.rpc("record_ai_proposal_v21", { p_proposal_type: "QUESTION", p_request_text: message, p_response_text: local.answer, p_patch: null, p_impact: { provider: "LOCAL", rulebookVersion, enforcementVersion, scheduleVersion } });
+      if (authz.role !== "VIEWER") await supabase.rpc("record_ai_proposal_v63", { p_studio_id: studioId, p_proposal_type: "QUESTION", p_request_text: message, p_response_text: local.answer, p_patch: null, p_impact: { provider: "LOCAL", rulebookVersion, enforcementVersion, scheduleVersion } });
       return NextResponse.json(local);
     }
 
@@ -213,14 +217,14 @@ export async function POST(request: NextRequest) {
       assignments,
     };
 
-    const instructions = `You are the DWDE Studio Scheduler Copilot. CURRENT_DATABASE_CONTEXT is closed-world scheduling truth. Human RulebookVersion and machine EnforcementVersion are separate authorities. The reviewed Rulebook wording is authoritative even when unmapped. Only mappings inside currentEnforcement.mappings are approved deterministic enforcement. Pending mapping proposals do not enforce. Never infer that zero detected violations means full validity unless validatorCoverage is complete. Never claim a change was applied. Return ONLY one JSON object: {"answer":"plain-language answer","proposal":null OR {"kind":"RULE_PATCH"|"SCHEDULE_PATCH","title":"short title","patch":OBJECT}}. RULE_PATCH changes human Rulebook policy only and may use CREATE|UPDATE|RETIRE|DISABLE|ENABLE. It MUST NOT contain type, parameters, affectedEntityIds, exceptions, enforcementStatus, provenance, version metadata, or audit data. If the user asks to alter machine enforcement or map an unmapped rule, explain that it requires a separate Enforcement mapping review; do not disguise it as a Rulebook edit. SCHEDULE_PATCH in V2.2 may ONLY MOVE an existing unlocked assignment and may contain only day,startTime,endTime,teacherId,roomId,status. If currentSchedule.stale is true, do not propose a schedule mutation. Rule changes use camelCase domain fields. For what-if requests recommend a Scenario rather than canonical mutation. If uncertain, answer without a proposal. Every proposal is only a preview and requires explicit Apply.`;
+    const instructions = `You are the Studio Scheduler Copilot. CURRENT_DATABASE_CONTEXT is closed-world scheduling truth. Human RulebookVersion and machine EnforcementVersion are separate authorities. The reviewed Rulebook wording is authoritative even when unmapped. Only mappings inside currentEnforcement.mappings are approved deterministic enforcement. Pending mapping proposals do not enforce. Never infer that zero detected violations means full validity unless validatorCoverage is complete. Never claim a change was applied. Return ONLY one JSON object: {"answer":"plain-language answer","proposal":null OR {"kind":"RULE_PATCH"|"SCHEDULE_PATCH","title":"short title","patch":OBJECT}}. RULE_PATCH changes human Rulebook policy only and may use CREATE|UPDATE|RETIRE|DISABLE|ENABLE. It MUST NOT contain type, parameters, affectedEntityIds, exceptions, enforcementStatus, provenance, version metadata, or audit data. If the user asks to alter machine enforcement or map an unmapped rule, explain that it requires a separate Enforcement mapping review; do not disguise it as a Rulebook edit. SCHEDULE_PATCH in V2.2 may ONLY MOVE an existing unlocked assignment and may contain only day,startTime,endTime,teacherId,roomId,status. If currentSchedule.stale is true, do not propose a schedule mutation. Rule changes use camelCase domain fields. For what-if requests recommend a Scenario rather than canonical mutation. If uncertain, answer without a proposal. Every proposal is only a preview and requires explicit Apply.`;
     const selection = selectModel(message);
     const openRouterBody = { model: selection.model, messages: [{ role: "system", content: `${instructions}\n\nCURRENT_DATABASE_CONTEXT:\n${JSON.stringify(context)}` }, { role: "user", content: message }], response_format: { type: "json_object" }, reasoning: { effort: selection.effort } };
 
     let apiResponse: Response;
     let keySource: "account" | "server";
     if (account.configured) {
-      apiResponse = await callAccountOpenRouter(auth,openRouterBody);
+      apiResponse = await callAccountOpenRouter(auth,studioId,openRouterBody);
       keySource = "account";
       if (!apiResponse.ok && serverKey && [401,403,409].includes(apiResponse.status)) { apiResponse = await callServerOpenRouter(serverKey,openRouterBody); keySource = "server"; }
     } else {
@@ -250,7 +254,8 @@ export async function POST(request: NextRequest) {
     const answer = typeof parsed?.answer === "string" ? parsed.answer : "I received a response but could not parse it safely. No change was proposed.";
     const result: CopilotResult = { mode: "OPENROUTER", model: payload.model || selection.model, answer: proposalProblem ? `${answer}\n\nThe proposed mutation was discarded: ${proposalProblem}` : answer, proposal };
 
-    if (authz.role !== "VIEWER") await supabase.rpc("record_ai_proposal_v21", {
+    if (authz.role !== "VIEWER") await supabase.rpc("record_ai_proposal_v63", {
+      p_studio_id: studioId,
       p_proposal_type: result.proposal?.kind || "QUESTION",
       p_request_text: message,
       p_response_text: result.answer,

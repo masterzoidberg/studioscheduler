@@ -1,4 +1,4 @@
-import type { ReviewedRulebookPackage, ReviewedRuleRecord, RuleStrength, StudioRule } from "@/lib/domain";
+import type { ReviewedRulebookPackage, ReviewedRuleRecord, RulebookVersion, RuleStrength, StudioRule } from "@/lib/domain";
 
 export interface ReviewedImportIssue { level: "ERROR" | "WARNING"; path: string; message: string }
 export interface ReviewedImportValidation {
@@ -17,6 +17,101 @@ export interface ReviewedImportValidation {
 const stableId = /^[A-Z0-9]+-[0-9]{3}$/;
 const sha256 = /^[0-9a-f]{64}$/i;
 export const DWDE_REVIEWED_V2_RULES_SHA256 = "5ef0a282e68b199fae94976335ede2484e80a966b2b5d2c3fa71355a26d5866b";
+export const DWDE_REVIEWED_V3_RULEBOOK_ID = "dwde-2026-2027-master-rulebook";
+export const DWDE_REVIEWED_V3_SOURCE_HASH = "7d03e131bd0b6a1eddafff70fd3024628215236d3d846cb156d1514329120c5b";
+export const DWDE_REVIEWED_V3_RULE_COUNT = 178;
+
+export interface ReviewedDwdePolicySupport {
+  recognized: boolean;
+  supported: boolean;
+  ruleIds: string[];
+  message: string;
+}
+
+function canonicalPolicyJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalPolicyJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${canonicalPolicyJson((value as Record<string, unknown>)[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function comparablePolicyRule(value: unknown) {
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const strength = raw.strength ?? null;
+  const classification = raw.classificationRaw ?? raw.classification_raw ?? (typeof strength === "string" ? strength.replaceAll("_", " ") : "");
+  const verificationStatus = raw.verificationStatus ?? raw.verification_status ?? raw.reviewStatus ?? raw.review_status ?? "UNVERIFIED";
+  const source = raw.source && typeof raw.source === "object" && !Array.isArray(raw.source)
+    ? { type: "IMPORT", ...(raw.source as Record<string, unknown>) }
+    : { type: "IMPORT" };
+  return {
+    id: String(raw.id ?? ""),
+    category: String(raw.category ?? ""),
+    type: raw.type ?? null,
+    title: String(raw.title ?? ""),
+    description: String(raw.description ?? raw.text ?? ""),
+    strength,
+    classificationRaw: String(classification),
+    status: String(raw.status ?? ""),
+    verificationStatus: String(verificationStatus),
+    reviewStatus: String(raw.reviewStatus ?? raw.review_status ?? verificationStatus),
+    review: raw.review ?? {},
+    affectedEntityIds: raw.affectedEntityIds ?? raw.affected_entity_ids ?? [],
+    parameters: raw.parameters ?? {},
+    exceptions: raw.exceptions ?? [],
+    source,
+    sourceRaw: raw.sourceRaw ?? raw.source_raw ?? {},
+    enforcementStatus: raw.enforcementStatus ?? raw.enforcement_status ?? "NOT_IMPLEMENTED",
+    versionIntroduced: raw.versionIntroduced ?? raw.version_introduced ?? 1,
+  };
+}
+
+function snapshotMismatchIds(rules: StudioRule[], snapshot: unknown[]): string[] {
+  const current = new Map(rules.map((rule) => [rule.id, comparablePolicyRule(rule)]));
+  const pinned = new Map(snapshot.map((rule) => {
+    const comparable = comparablePolicyRule(rule);
+    return [String(comparable.id), comparable] as const;
+  }));
+  const ids = new Set([...current.keys(), ...pinned.keys()]);
+  return [...ids].filter((id) => canonicalPolicyJson(current.get(id)) !== canonicalPolicyJson(pinned.get(id))).sort();
+}
+
+/**
+ * Temporary DWDE adapter boundary. The static compiler is only authoritative
+ * for the exact reviewed V3 artifact; T21/T25 must replace this with typed
+ * tenant policy records before the adapter is generalized.
+ */
+export function reviewedDwdeV3PolicySupport(current: RulebookVersion | null, rules: StudioRule[]): ReviewedDwdePolicySupport {
+  const recognized = Boolean(current && (
+    current.rulebookId === DWDE_REVIEWED_V3_RULEBOOK_ID
+    || current.documentType === "DWDE_SITE_RULEBOOK"
+  ));
+  if (!recognized) {
+    return { recognized: false, supported: true, ruleIds: [], message: "No DWDE reviewed-policy provenance was supplied to the legacy adapter." };
+  }
+
+  const metadataMismatches: string[] = [];
+  if (!current || current.version !== 3) metadataMismatches.push(`Rulebook version is ${current?.version ?? "missing"}, expected 3`);
+  if (current?.rulebookId !== DWDE_REVIEWED_V3_RULEBOOK_ID) metadataMismatches.push("Rulebook ID does not match the reviewed DWDE artifact");
+  if (current?.ruleCount !== DWDE_REVIEWED_V3_RULE_COUNT) metadataMismatches.push(`rule count is ${current?.ruleCount ?? "missing"}, expected ${DWDE_REVIEWED_V3_RULE_COUNT}`);
+  if (current?.sourceHash?.toLowerCase() !== DWDE_REVIEWED_V3_SOURCE_HASH) metadataMismatches.push("source hash does not match the reviewed DWDE V3 artifact");
+  if (current?.formatVersion !== "2.1") metadataMismatches.push(`format version is ${current?.formatVersion ?? "missing"}, expected 2.1`);
+  if (current?.documentType !== "DWDE_SITE_RULEBOOK") metadataMismatches.push("document type is not DWDE_SITE_RULEBOOK");
+  if (current?.sourceMetadata?.provenance !== "POST_REVIEW_CAMI_CONFIRMATION") metadataMismatches.push("reviewed post-confirmation provenance is missing");
+
+  const snapshotIds = current?.snapshot && Array.isArray(current.snapshot) ? snapshotMismatchIds(rules, current.snapshot) : [];
+  if (!current?.snapshot || !Array.isArray(current.snapshot)) metadataMismatches.push("immutable Rulebook snapshot is missing");
+  const ruleIds = [...new Set([...current?.changedRuleIds || [], ...snapshotIds])].sort();
+  const supported = metadataMismatches.length === 0 && snapshotIds.length === 0;
+  return {
+    recognized: true,
+    supported,
+    ruleIds,
+    message: supported
+      ? "The static DWDE adapter is pinned to reviewed Rulebook V3."
+      : `The static DWDE adapter supports only reviewed Rulebook V3 (${DWDE_REVIEWED_V3_RULEBOOK_ID}, source hash ${DWDE_REVIEWED_V3_SOURCE_HASH}). ${metadataMismatches.join("; ") || `immutable snapshot differs for ${snapshotIds.join(", ")}`}. No changed policy may be treated as current executable semantics.`,
+  };
+}
 
 export function normalizeReviewedClassification(value: string): RuleStrength | null {
   switch (value.trim().toUpperCase()) {

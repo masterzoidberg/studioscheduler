@@ -45,8 +45,30 @@ export function constraintModelDefinition(model: ConstraintModelSnapshotV1): Con
   };
 }
 
+/**
+ * Canonicalize JSON model values for semantic comparison. Object keys are
+ * sorted recursively; arrays remain ordered because their position is part of
+ * the Constraint Model contract.
+ */
+function canonicalizeConstraintModelValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeConstraintModelValue);
+  }
+
+  if (value !== null && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(object)
+        .sort()
+        .map((key) => [key, canonicalizeConstraintModelValue(object[key])]),
+    );
+  }
+
+  return value;
+}
+
 export function canonicalConstraintModelJson(model: ConstraintModelDefinitionV1) {
-  return JSON.stringify(model);
+  return JSON.stringify(canonicalizeConstraintModelValue(model));
 }
 
 export function constraintModelDefinitionsMatch(a: ConstraintModelDefinitionV1, b: ConstraintModelDefinitionV1) {

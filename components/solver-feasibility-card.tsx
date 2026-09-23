@@ -1,8 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Cpu, Loader2, Play, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Play, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-provider";
+import type { Day } from "@/lib/domain";
+import type { ReviewedSolverCandidateContextV1 } from "@/lib/solver-candidate-context";
+import {
+  cancelledSolverOutcome,
+  presentSolverOutcome,
+  type SolverOutcome,
+} from "@/lib/solver-outcome";
+import { safeSolverSupportBundle } from "@/lib/solver-operations";
 
 type GatewayBlocker = { code: string; message: string; ruleIds?: string[]; entityIds?: string[] };
 type SolveContext = {
@@ -23,7 +32,7 @@ type GatewayStatus = {
 };
 type SolverAssignment = {
   sessionId: string;
-  day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
+  day: Day;
   startTime: string;
   endTime?: string;
   teacherId: string;
@@ -35,13 +44,27 @@ type SolveResult = {
   status?: string;
   error?: string;
   code?: string;
+  requestId?: string;
+  httpStatus?: number;
+  serviceStatus?: number;
+  serviceVersion?: string | null;
   blockers?: GatewayBlocker[];
+  blockingConstraintIds?: string[];
+  unsupportedConstraintIds?: string[];
+  wallTimeSeconds?: number | null;
+  optimizationStatus?: "FEASIBILITY_ONLY" | "OPTIMAL" | "FEASIBLE_INCUMBENT" | "NO_FEASIBLE_SOLUTION" | "INFEASIBLE";
+  provenOptimal?: boolean;
+  candidateId?: string;
+  persisted?: boolean;
   context?: SolveContext;
+  candidateContext?: ReviewedSolverCandidateContextV1;
   candidate?: {
     assignments?: SolverAssignment[];
     validation?: { hardViolations?: number; unsupportedConstraintIds?: string[] };
+    quality?: { comparable?: boolean; breakdown?: Record<string, number>; tiers?: unknown[] } | null;
   } | null;
-  diagnostics?: { wallTimeSeconds?: number | null; branches?: number | null; conflicts?: number | null };
+  qualityComparison?: { status?: "IMPROVED" | "UNCHANGED" | "WORSE_THAN_BASELINE" | "NOT_COMPARABLE" };
+  diagnostics?: { wallTimeSeconds?: number | null; branches?: number | null; conflicts?: number | null; objectiveValues?: unknown[] };
   adoptionMessage?: string;
 };
 type AdoptionResult = {
@@ -71,6 +94,7 @@ export function SolverFeasibilityCard() {
     session,
     canEdit,
     state,
+    selectedStudioId,
     refresh,
     currentRulebookVersion,
     currentPlanningDatasetVersion,
@@ -81,11 +105,40 @@ export function SolverFeasibilityCard() {
   const [running, setRunning] = useState(false);
   const [adopting, setAdopting] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const [reviewStale, setReviewStale] = useState(false);
   const [notice, setNotice] = useState("");
   const [adoptionSuccess, setAdoptionSuccess] = useState("");
+  const [supportDetailsCopied, setSupportDetailsCopied] = useState(false);
   const [result, setResult] = useState<SolveResult | null>(null);
+  const [outcome, setOutcome] = useState<SolverOutcome | null>(null);
+  const [progressStage, setProgressStage] = useState(0);
+  const solveRequestId = useRef(0);
+  const solveAbortController = useRef<AbortController | null>(null);
 
-  const authHeaders = useCallback(() => session ? { Authorization: `Bearer ${session.access_token}` } : null, [session]);
+  const authHeaders = useCallback(() => session && selectedStudioId
+    ? { Authorization: `Bearer ${session.access_token}`, "x-studio-id": selectedStudioId }
+    : null, [session, selectedStudioId]);
+
+  useEffect(() => {
+    solveRequestId.current += 1;
+    solveAbortController.current?.abort();
+    solveAbortController.current = null;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setStatus(null);
+      setResult(null);
+      setOutcome(null);
+      setReviewAcknowledged(false);
+      setReviewStale(false);
+      setAdoptionSuccess("");
+      setSupportDetailsCopied(false);
+      setNotice("");
+      setRunning(false);
+      setAdopting(false);
+    });
+    return () => { active = false; };
+  }, [selectedStudioId]);
 
   const refreshStatus = useCallback(async (options: { preserveNotice?: boolean } = {}) => {
     const headers = authHeaders();
@@ -121,6 +174,10 @@ export function SolverFeasibilityCard() {
       .catch((error: unknown) => {
         if (!active) return;
         setNotice(error instanceof Error ? error.message : String(error));
+        setOutcome(presentSolverOutcome({
+          responseOk: false,
+          transportError: error instanceof Error ? error.message : String(error),
+        }));
         setStatus(null);
       })
       .finally(() => {
@@ -129,6 +186,16 @@ export function SolverFeasibilityCard() {
 
     return () => { active = false; };
   }, [authHeaders, currentRulebookVersion, currentPlanningDatasetVersion, currentScheduleVersion]);
+
+  useEffect(() => {
+    if (!running) return;
+    const stageTwo = window.setTimeout(() => setProgressStage(1), 900);
+    const stageThree = window.setTimeout(() => setProgressStage(2), 2400);
+    return () => {
+      window.clearTimeout(stageTwo);
+      window.clearTimeout(stageThree);
+    };
+  }, [running]);
 
   const reviewRows = useMemo(() => {
     const assignments = result?.candidate?.assignments || [];
@@ -160,37 +227,94 @@ export function SolverFeasibilityCard() {
   async function runSolver() {
     const headers = authHeaders();
     if (!headers || running || !canEdit) return;
+    const requestId = solveRequestId.current + 1;
+    solveRequestId.current = requestId;
+    const controller = new AbortController();
+    solveAbortController.current = controller;
     setRunning(true);
+    setProgressStage(0);
     setResult(null);
+    setOutcome(null);
     setReviewAcknowledged(false);
+    setReviewStale(false);
     setAdoptionSuccess("");
     setNotice("");
     try {
       const response = await fetch("/api/solver/feasibility", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ studioId: selectedStudioId }),
         cache: "no-store",
+        signal: controller.signal,
       });
       const payload = await response.json() as SolveResult;
-      setResult(payload);
-      if (!response.ok) setNotice(payload.error || `Solver gateway returned HTTP ${response.status}.`);
+      if (requestId !== solveRequestId.current) return;
+      const resultWithReference = {
+        ...payload,
+        requestId: response.headers.get("x-request-id") || undefined,
+        httpStatus: response.status,
+      };
+      setResult(resultWithReference);
+      setSupportDetailsCopied(false);
+      setOutcome(presentSolverOutcome({ payload: resultWithReference, responseOk: response.ok, httpStatus: response.status }));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      if (requestId !== solveRequestId.current) return;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setOutcome(cancelledSolverOutcome());
+      } else {
+        setResult(null);
+        setOutcome(presentSolverOutcome({
+          responseOk: false,
+          transportError: error instanceof Error ? error.message : String(error),
+        }));
+      }
     } finally {
+      if (requestId !== solveRequestId.current) return;
+      solveAbortController.current = null;
       setRunning(false);
       await refreshStatus({ preserveNotice: true });
+    }
+  }
+
+  function cancelSolver() {
+    if (!running) return;
+    solveRequestId.current += 1;
+    solveAbortController.current?.abort();
+    solveAbortController.current = null;
+    setRunning(false);
+    setResult(null);
+    setOutcome(cancelledSolverOutcome());
+    setReviewAcknowledged(false);
+    setReviewStale(false);
+    setNotice("");
+  }
+
+  async function copySafeSupportDetails() {
+    if (!result?.requestId) return;
+    const bundle = safeSolverSupportBundle({
+      requestId: result.requestId,
+      code: result.code,
+      httpStatus: result.httpStatus,
+    });
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+      setSupportDetailsCopied(true);
+      setNotice("");
+    } catch {
+      setNotice(`Copy failed. The safe support reference is ${result.requestId}.`);
     }
   }
 
   async function adoptCandidate() {
     const headers = authHeaders();
     const assignments = result?.candidate?.assignments;
-    const context = result?.context;
-    if (!headers || !assignments?.length || !context || !canEdit || !status?.adoptionConfigured || !reviewAcknowledged || adopting) return;
+    const candidateContext = result?.candidateContext;
+    const reviewedScheduleVersion = candidateContext?.solverContextToken.scheduleVersion;
+    const contextStale = Boolean(candidateContext && candidateContext.solverContextToken.scheduleVersion !== currentScheduleVersion);
+    if (!headers || !assignments?.length || !candidateContext || !canEdit || !status?.adoptionConfigured || !reviewAcknowledged || reviewStale || contextStale || adopting) return;
 
     const confirmed = window.confirm(
-      `Adopt this reviewed ${assignments.length}-assignment candidate as a new immutable schedule version? The server will reload canonical data and independently validate it again before replacing the current schedule.`,
+      `Adopt this reviewed ${assignments.length}-assignment candidate from Schedule v${reviewedScheduleVersion ?? "?"} as a new immutable schedule version? Any intervening schedule or lock change will reject adoption and require a fresh review.`,
     );
     if (!confirmed) return;
 
@@ -202,7 +326,8 @@ export function SolverFeasibilityCard() {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
-          context,
+          studioId: selectedStudioId,
+          candidateContext,
           assignments,
           reason: "Adopt reviewed CP-SAT candidate from solver feasibility review",
         }),
@@ -210,6 +335,17 @@ export function SolverFeasibilityCard() {
       });
       const payload = await response.json() as AdoptionResult;
       if (!response.ok || payload.status !== "ADOPTED") {
+        if (payload.code === "SOLVER_ADOPTION_REVIEW_CONTEXT_STALE") {
+          setReviewAcknowledged(false);
+          setReviewStale(true);
+          setOutcome(presentSolverOutcome({
+            responseOk: false,
+            httpStatus: response.status,
+            payload: { code: "SOLVER_CONTEXT_CHANGED_RETRY" },
+          }));
+          setNotice(payload.error || "This reviewed candidate is stale. Generate a fresh candidate and review it again.");
+          return;
+        }
         setNotice(payload.error || `Solver adoption returned HTTP ${response.status}.`);
         return;
       }
@@ -222,7 +358,9 @@ export function SolverFeasibilityCard() {
           : `The reviewed candidate was adopted with ${count} assignments after fresh server-side validation.`,
       );
       setResult(null);
+      setOutcome(null);
       setReviewAcknowledged(false);
+      setReviewStale(false);
       await refresh();
       await refreshStatus();
     } catch (error) {
@@ -234,90 +372,148 @@ export function SolverFeasibilityCard() {
 
   if (!session) return null;
 
-  const ready = Boolean(status?.readyToRun && canEdit);
-  const feasible = result?.status === "FEASIBLE" && Boolean(result.candidate);
-  const infeasible = result?.status === "INFEASIBLE";
+  const canStartSolve = Boolean(canEdit && !loading && (status ? status.readyToRun : true));
+  const feasible = outcome?.kind === "CANDIDATE" && Boolean(result?.candidate);
+  const candidateContextStale = Boolean(
+    result?.candidateContext
+    && result.candidateContext.solverContextToken.scheduleVersion !== currentScheduleVersion,
+  );
+  const candidateIsStale = reviewStale || candidateContextStale;
+  const displayedOutcome = outcome || (!loading && status && !status.serviceConfigured
+    ? presentSolverOutcome({ responseOk: false, httpStatus: 503, payload: { code: "SOLVER_SERVICE_NOT_CONFIGURED" } })
+    : null);
+  const reviewedScheduleVersion = result?.candidateContext?.solverContextToken.scheduleVersion ?? null;
+  const reviewedScheduleFingerprint = result?.candidateContext?.solverContextToken.scheduleAssignmentsHash?.slice(0, 12) || "";
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="max-w-3xl">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            <Cpu className="size-4" />
-            CP-SAT feasibility gateway
+            <Play className="size-4" />
+            Setup review → schedule
           </div>
-          <h2 className="mt-2 text-xl font-semibold tracking-tight">Find a feasible schedule candidate</h2>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight">Build a schedule</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            The browser never sends scheduling facts to CP-SAT. The authenticated server reloads canonical Supabase truth, reruns readiness and delegated preflight, verifies the published Constraint Model, then forwards the exact versioned problem to the private solver service. Returned schedules are independently revalidated and are never saved automatically.
+            Use the confirmed Setup review to create a complete schedule. Building checks the current Must happen rules and locks, then shows the proposed changes here. Your current schedule stays unchanged until you review and adopt the proposal.
           </p>
         </div>
-        <button
-          type="button"
-          disabled={!ready || running || loading}
-          onClick={() => void runSolver()}
-          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {running ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
-          {running ? "Solving…" : "Find feasible schedule"}
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            disabled={!canStartSolve || running}
+            onClick={() => void runSolver()}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {running ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+            {running ? "Building…" : "Build schedule"}
+          </button>
+          {running ? (
+            <button
+              type="button"
+              onClick={cancelSolver}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
+            >
+              <X className="size-4" />
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Private solver</div>
-          <div className="mt-1 flex items-center gap-2 font-semibold">
-            {status?.serviceConfigured ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-amber-600" />}
-            {loading ? "Checking…" : status?.serviceConfigured ? "Configured" : "Not configured"}
+      <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+        <summary className="cursor-pointer font-semibold text-slate-900">Help with setup, generation, editing, and recovery</summary>
+        <p className="mt-2">Complete Setup and review Must happen requirements before building. Build schedule creates a proposal; the current schedule stays unchanged until you review and adopt it.</p>
+        <p className="mt-2">Edit the current schedule from Schedule. Use Versions to compare history; recovery is checked against current policy before it is saved.</p>
+        <p className="mt-2">If a build times out or the service is unavailable, check readiness, wait briefly, and try again. No candidate is saved. If the problem repeats, copy the safe support details and give them to your workspace operator.</p>
+        <nav aria-label="Schedule help" className="mt-3 flex flex-wrap gap-2">
+          <Link href="/setup" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold">Setup</Link>
+          <Link href="/planning-repairs" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold">Must happen requirements</Link>
+          <Link href="/schedule" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold">Edit schedule</Link>
+          <Link href="/versions" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold">Review versions</Link>
+        </nav>
+      </details>
+
+      {running ? (
+        <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4" role="status" aria-live="polite">
+          <p className="font-semibold text-blue-950">Building a schedule…</p>
+          <p className="mt-1 text-xs leading-5 text-blue-800">This may take a moment. You can cancel safely; cancellation keeps the current schedule in place.</p>
+          <ol className="mt-4 grid gap-2 sm:grid-cols-3">
+            {["Check current Setup", "Build a candidate", "Validate the proposal"].map((stage, index) => (
+              <li key={stage} aria-current={index === progressStage ? "step" : undefined} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${index <= progressStage ? "border-blue-300 bg-white text-blue-950" : "border-blue-100 text-blue-700"}`}>
+                <span className="mr-2 inline-flex size-5 items-center justify-center rounded-full bg-blue-100 align-middle text-[10px]">{index < progressStage ? "✓" : index === progressStage ? "…" : index + 1}</span>
+                {stage}
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className={`rounded-2xl border p-4 ${status?.readyToRun ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Setup review</div>
+          <div className="mt-1 flex items-center gap-2 font-semibold text-slate-950">
+            {status?.readyToRun ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-amber-600" />}
+            {loading ? "Checking…" : status?.readyToRun ? "Ready to build" : "Needs attention"}
           </div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">{status?.readyToRun ? "The current reviewed setup can be used." : "Resolve the review findings before building."}</p>
         </div>
         <div className="rounded-2xl border border-slate-200 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Governed adoption</div>
-          <div className="mt-1 flex items-center gap-2 font-semibold">
-            {status?.adoptionConfigured ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-amber-600" />}
-            {loading ? "Checking…" : status?.adoptionConfigured ? "Configured" : "Not configured"}
-          </div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current schedule</div>
+          <div className="mt-1 flex items-center gap-2 font-semibold text-slate-950"><ShieldCheck className="size-4 text-slate-600" /> Protected</div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">Nothing changes until you review and adopt a proposal.</p>
         </div>
         <div className="rounded-2xl border border-slate-200 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Server preflight</div>
-          <div className="mt-1 flex items-center gap-2 font-semibold">
-            {status?.preparationReady && !status.blockers?.length ? <ShieldCheck className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-amber-600" />}
-            {status?.preparationReady && !status.blockers?.length ? "Passed" : "Blocked"}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pinned context</div>
-          <div className="mt-1 text-sm font-semibold">
-            {status?.context
-              ? `Rulebook v${status.context.rulebookVersion} · Planning v${status.context.planningDatasetVersion}`
-              : "Not ready"}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">{status?.context?.compilerVersion || "Compiler unavailable"}</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">After building</div>
+          <div className="mt-1 flex items-center gap-2 font-semibold text-slate-950"><CheckCircle2 className="size-4 text-slate-600" /> Review changes</div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">Every assignment and lock is shown before adoption.</p>
         </div>
       </div>
 
       {status?.blockers?.length ? (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <div className="font-semibold text-amber-950">Gateway blockers</div>
-          <div className="mt-2 space-y-2 text-sm text-amber-900">
+          <div className="font-semibold text-amber-950">Review before building</div>
+          <p className="mt-1 text-xs leading-5 text-amber-900">The current Setup review has {status.blockers.length} item{status.blockers.length === 1 ? "" : "s"} to resolve.</p>
+          <div className="mt-3 space-y-2 text-sm text-amber-900">
             {status.blockers.slice(0, 8).map((blocker) => (
-              <div key={`${blocker.code}-${blocker.message}`}><span className="font-semibold">{blocker.code}:</span> {blocker.message}</div>
+              <div key={`${blocker.code}-${blocker.message}`}>{blocker.message}</div>
             ))}
             {status.blockers.length > 8 ? <div>+ {status.blockers.length - 8} more blocker(s)</div> : null}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href="/setup" className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-950 px-3 text-xs font-semibold text-white">Open Setup review <ArrowRight className="size-3.5" /></Link>
+            <Link href="/planning-repairs" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-950">Review requirements</Link>
           </div>
         </div>
       ) : null}
 
+      <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
+        <summary className="cursor-pointer font-semibold text-slate-900">Advanced diagnostics</summary>
+        <p className="mt-3 leading-5">These details identify the exact server-prepared policy, planning, model, and schedule context. They are for troubleshooting; the manager-facing result is shown above.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="font-semibold text-slate-500">Private solver</div><div className="mt-1 font-semibold">{loading ? "Checking…" : status?.serviceConfigured ? "Configured" : "Not configured"}</div></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="font-semibold text-slate-500">Governed adoption</div><div className="mt-1 font-semibold">{loading ? "Checking…" : status?.adoptionConfigured ? "Configured" : "Not configured"}</div></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="font-semibold text-slate-500">Server preflight</div><div className="mt-1 font-semibold">{status?.preparationReady && !status.blockers?.length ? "Passed" : "Blocked"}</div></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="font-semibold text-slate-500">Pinned context</div><div className="mt-1 font-semibold">{status?.context ? `Rulebook v${status.context.rulebookVersion} · Planning v${status.context.planningDatasetVersion}` : "Not ready"}</div><div className="mt-1 break-all text-slate-500">{status?.context?.compilerVersion || "Compiler unavailable"}</div></div>
+        </div>
+        {status?.blockers?.length ? <div className="mt-4 space-y-2"><p className="font-semibold">Raw blocker codes</p>{status.blockers.slice(0, 8).map((blocker) => <div key={`advanced-${blocker.code}-${blocker.message}`} className="rounded-lg bg-white p-2"><span className="font-semibold">{blocker.code}</span>{blocker.ruleIds?.length ? ` · rules ${blocker.ruleIds.join(", ")}` : ""}{blocker.entityIds?.length ? ` · entities ${blocker.entityIds.join(", ")}` : ""}</div>)}</div> : null}
+        {result?.context ? <div className="mt-4 rounded-xl bg-white p-3"><p className="font-semibold">Candidate context</p><p className="mt-1 break-all">Rulebook v{result.context.rulebookVersion} · Planning Dataset v{result.context.planningDatasetVersion} · compiler {result.context.compilerVersion} · base Schedule v{reviewedScheduleVersion ?? "?"} · lock fingerprint {reviewedScheduleFingerprint || "unavailable"}</p></div> : null}
+        {result?.diagnostics || outcome?.diagnostic || result?.blockingConstraintIds?.length || result?.unsupportedConstraintIds?.length ? <div className="mt-4 rounded-xl bg-white p-3"><p className="font-semibold">Last solver response</p><p className="mt-1 break-all">{result?.status || outcome?.kind || "No response"}{result?.code ? ` · ${result.code}` : ""}{result?.serviceVersion ? ` · service ${result.serviceVersion}` : ""}{result?.serviceStatus ? ` · HTTP ${result.serviceStatus}` : ""}{result?.diagnostics?.wallTimeSeconds != null ? ` · ${result.diagnostics.wallTimeSeconds}s` : result?.wallTimeSeconds != null ? ` · ${result.wallTimeSeconds}s` : ""}</p>{result?.diagnostics ? <p className="mt-1">branches {result.diagnostics.branches ?? "—"} · conflicts {result.diagnostics.conflicts ?? "—"}</p> : null}{result?.blockingConstraintIds?.length ? <p className="mt-1 break-all">blocking constraints: {result.blockingConstraintIds.join(", ")}</p> : null}{result?.unsupportedConstraintIds?.length ? <p className="mt-1 break-all">unsupported constraints: {result.unsupportedConstraintIds.join(", ")}</p> : null}{outcome?.diagnostic ? <p className="mt-1 break-all">detail: {outcome.diagnostic}</p> : null}</div> : null}
+      </details>
+
       {feasible ? (
         <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-          <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="size-4" /> Feasible candidate independently validated</div>
-          <p className="mt-2">
-            {reviewRows.length} session assignments returned with {result.candidate?.validation?.hardViolations ?? 0} detected HARD violations under the shared Constraint IR. Review every row before adoption.
+          <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="size-4" /> {outcome?.title}</div>
+          <p className="mt-2">{outcome?.message} It contains {reviewRows.length} assignment{reviewRows.length === 1 ? "" : "s"} and is saved as a candidate review. Review every row before adoption.</p>
+          <p className="mt-2 text-xs leading-5 text-emerald-800">
+            {result?.optimizationStatus === "OPTIMAL"
+              ? "Reviewed objectives reached a proven optimum."
+              : result?.optimizationStatus === "FEASIBLE_INCUMBENT"
+                ? "A feasible incumbent was found before the solver deadline; optimality was not proven."
+                : "The candidate passed HARD feasibility without a quality optimization claim."}
+            {result?.qualityComparison?.status === "WORSE_THAN_BASELINE" ? " Its reviewed objective score is worse than the current schedule." : null}
           </p>
-          {result.context ? (
-            <p className="mt-2 text-xs leading-5 text-emerald-800">
-              Solved against Rulebook v{result.context.rulebookVersion}, Planning Dataset v{result.context.planningDatasetVersion}, and {result.context.compilerVersion}.
-            </p>
-          ) : null}
+          <p className="mt-2 text-xs leading-5 text-emerald-800">This review is tied to the current schedule and lock context. Any change will require a fresh build and review.</p>
 
           <div className="mt-4 overflow-x-auto rounded-xl border border-emerald-200 bg-white">
             <table className="min-w-full border-collapse text-left text-xs text-slate-800">
@@ -346,6 +542,12 @@ export function SolverFeasibilityCard() {
             </table>
           </div>
 
+          {candidateIsStale ? (
+            <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+              This reviewed candidate is stale. It remains visible for comparison, but the current schedule or lock context changed after it was generated. Generate a fresh candidate and review it again before adoption.
+            </div>
+          ) : null}
+
           {!status?.adoptionConfigured ? (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
               This candidate can be reviewed, but governed adoption is disabled until the server-only Supabase service-role credential is configured on the application backend.
@@ -355,21 +557,21 @@ export function SolverFeasibilityCard() {
           <label className={`mt-4 flex items-start gap-3 rounded-xl border p-3 text-sm leading-5 ${status?.adoptionConfigured ? "border-emerald-200 bg-white text-slate-800" : "border-slate-200 bg-slate-50 text-slate-400"}`}>
             <input
               type="checkbox"
-              checked={reviewAcknowledged}
-              disabled={!status?.adoptionConfigured}
+              checked={reviewAcknowledged && !candidateContextStale}
+              disabled={!status?.adoptionConfigured || candidateIsStale}
               onChange={(event) => setReviewAcknowledged(event.target.checked)}
               className="mt-0.5 size-4"
             />
-            <span>I reviewed every assignment above and want this candidate to replace the current schedule with a new immutable ScheduleVersion.</span>
+            <span>I reviewed every assignment above against the displayed current schedule and lock context, and want this candidate to replace that exact reviewed base with a new immutable schedule version.</span>
           </label>
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-2xl text-xs leading-5 text-emerald-800">
-              Adoption reloads canonical state, verifies the exact version context, independently validates the candidate again, preserves locks, runs the legacy HARD validator, and only then commits atomically.
+              Adoption verifies the exact reviewed base ScheduleVersion and schedule/lock fingerprint, independently validates the candidate again, preserves locks, runs the legacy HARD validator, and only then commits atomically. Any intervening change requires regeneration and re-review.
             </p>
             <button
               type="button"
-              disabled={!status?.adoptionConfigured || !reviewAcknowledged || adopting || !canEdit}
+              disabled={!status?.adoptionConfigured || !reviewAcknowledged || candidateIsStale || adopting || !canEdit}
               onClick={() => void adoptCandidate()}
               className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -380,16 +582,33 @@ export function SolverFeasibilityCard() {
         </div>
       ) : null}
 
-      {infeasible ? (
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          <div className="font-semibold">No complete feasible candidate was proven under the supplied HARD model.</div>
-          <p className="mt-1 text-xs leading-5">This does not modify the current schedule. Constraint diagnostics can be used next to explain the blocking core.</p>
+      {displayedOutcome && displayedOutcome.kind !== "CANDIDATE" ? (
+        <div className={`mt-4 rounded-2xl border p-4 text-sm ${displayedOutcome.kind === "UNKNOWN" || displayedOutcome.kind === "UNAVAILABLE" || displayedOutcome.kind === "INCOMPLETE" ? "border-blue-200 bg-blue-50 text-blue-950" : displayedOutcome.kind === "CANCELLED" ? "border-slate-200 bg-slate-50 text-slate-900" : "border-amber-200 bg-amber-50 text-amber-950"}`} aria-live="polite">
+          <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="size-4" /> {displayedOutcome.title}</div>
+          <p className="mt-2 max-w-3xl leading-6">{displayedOutcome.message}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {displayedOutcome.links.map((link) => <Link key={link.href} href={link.href} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-current/25 bg-white px-3 text-xs font-semibold">{link.label}<ArrowRight className="size-3.5" /></Link>)}
+            {displayedOutcome.retryable ? (
+              <button type="button" disabled={!canStartSolve} onClick={() => void runSolver()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">
+                <RefreshCw className="size-3.5" /> Try again
+              </button>
+            ) : null}
+          </div>
+          {result?.requestId ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-current/15 bg-white/70 p-3 text-xs">
+              <span>Support reference: <code className="select-all font-semibold">{result.requestId}</code></span>
+              <button type="button" onClick={() => void copySafeSupportDetails()} className="min-h-9 rounded-lg border border-current/25 px-3 font-semibold">
+                {supportDetailsCopied ? "Support details copied" : "Copy safe support details"}
+              </button>
+              <span className="text-slate-600">Contains only this reference, error code, and HTTP status.</span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {adoptionSuccess ? (
         <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-          <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="size-4" /> Candidate adopted</div>
+          <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="size-4" /> Schedule created</div>
           <p className="mt-1">{adoptionSuccess}</p>
         </div>
       ) : null}

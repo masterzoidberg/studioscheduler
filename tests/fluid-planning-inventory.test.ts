@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const sql = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260902133511_fluid_planning_inventory_v28.sql"),
   "utf8",
-);
+).replace(/\r\n?/g, "\n");
 
 describe("fluid planning inventory V2.8", () => {
   it("supports separately creating and updating teachers, students, rooms, and classes", () => {

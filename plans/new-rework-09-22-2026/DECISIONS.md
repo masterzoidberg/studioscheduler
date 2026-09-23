@@ -1,0 +1,11 @@
+# Planning and architecture decisions
+
+| Decision | Status / basis | Rationale and consequence |
+|---|---|---|
+| Keep four versioned authorities: Rulebook, PlanningDataset, ConstraintModel, Schedule; Supabase canonical writes, Next.js UI/API, Python CP-SAT solver. | **Confirmed**, source and archived `DEC-101`, `DEC-104`. | Existing commands, history and parity depend on this. No second setup/policy/schedule store or historical migration rewrite. |
+| Keep exact tenant/current-role authorization, deterministic HARD fail-closed legality and coherent version tokens at commit. | **Confirmed**, effective migrations/routes/tests and archived execution rules. | Required invariant for every M01 mutation and M02 acceptance; stale or unauthorized attempts have no canonical write. |
+| Scope remains recurring daytime weekly sessions in one timezone on a 15-minute grid; optional AI does not decide legality. | **Confirmed**, archived `DEC-106/107` and app/solver source. | Calendar holidays, billing, attendance, CRM, autonomous AI writes are outside M01–M04. |
+| Treat engineering completion and real-world qualification as separate evidence. | **Confirmed planning decision**, prior OPS-01/ACC-01/GEN-05 ledger and current source audit. | A bounded code/test pass cannot mark a deployed service, manager workflow, or second studio accepted. M02 needs authorized external evidence. |
+| Select OPS-02 account/privacy engineering before external GEN-05 qualification. | **Confirmed for this audit**, current GEN-05 blocker and existing unfinished OPS-02 engineering. | Gives the next session one executable required task while preserving GEN-05 as the mandatory M02 gate. The old blocked-task order is superseded, not the acceptance criteria. |
+| Carry the uncommitted setup-assignment slice as pending verification, not a release dependency or accepted feature. | **Confirmed from working tree**, V69/UI/tests and old TASKS note. | Preserve user work and close its DB/browser evidence in M01-T03; independent manager acceptance remains separate. |
+| Retention/deletion terms, named support owner and commercial limits. | **Unresolved external decision**; prior EXT-PILOT. | M01 can define mechanisms and explicit limitations; M03 cannot claim supported operation until the operator supplies terms. |

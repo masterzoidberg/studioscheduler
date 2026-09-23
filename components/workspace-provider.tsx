@@ -1,10 +1,11 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type {
   Assignment,
   ClassDefinition,
+  PendingStudioInvite,
   PlanningDatasetVersion,
   RuleEnforcementMapping,
   RuleEnforcementProposal,
@@ -12,10 +13,12 @@ import type {
   RuleHistoryEntry,
   RulePatch,
   RulebookVersion,
+  ReadinessCertificationState,
   Room,
   Scenario,
   SchedulePatch,
   ScheduleVersion,
+  SetupAssignment,
   StudioInvite,
   StudioMember,
   StudioRule,
@@ -24,12 +27,23 @@ import type {
   Teacher,
   ValidationResult,
 } from "@/lib/domain";
-import { applyAssignmentChanges, emptyValidation, validateSchedule } from "@/lib/validator";
+import { emptyValidation, validateSchedule } from "@/lib/validator";
 import { getBrowserSupabase } from "@/lib/supabase";
+import { applySetupTypedPolicies as applySetupTypedPoliciesClient } from "@/lib/setup-policy-client";
+import type { SetupTypedPolicyMutationResult, SetupTypedPolicyPatch } from "@/lib/setup-policy";
+import type { SolverSnapshotContextToken } from "@/lib/server-studio-state";
+import { parseSolverCandidateReview, type SolverCandidateReview } from "@/lib/solver-candidate-review";
+import { applyReviewedCsvImport as applyReviewedCsvImportClient } from "@/lib/reviewed-csv-import-client";
+import type { ReviewedPlanningImportRow } from "@/lib/reviewed-csv-intake";
+import { createSetupAssignment as createSetupAssignmentClient, mapSetupAssignment, updateSetupAssignment as updateSetupAssignmentClient, type SetupAssignmentInput, type SetupAssignmentUpdate } from "@/lib/setup-assignments-client";
 
-const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
+const SELECTED_STUDIO_STORAGE_KEY = "studio-scheduler.selected-studio-id";
+
+type AvailableWorkspace = { id: string; name: string; role: StudioRole };
+type CreateWorkspaceResult = { ok: boolean; message: string; requestId: string; studioId?: string };
 
 type MutationResult = { ok: boolean; error?: string; validation?: ValidationResult; version?: number; details?: Record<string, unknown> };
+type PlanningConfirmationResponse = { certification?: ReadinessCertificationState | null; error?: string };
 
 interface WorkspaceContextValue {
   loading: boolean;
@@ -40,8 +54,14 @@ interface WorkspaceContextValue {
   canEdit: boolean;
   isOwner: boolean;
   state: StudioState | null;
+  availableWorkspaces: AvailableWorkspace[];
+  selectedStudioId: string | null;
+  switchStudio: (studioId: string) => Promise<void>;
   members: StudioMember[];
   invites: StudioInvite[];
+  pendingInvitations: PendingStudioInvite[];
+  setupAssignments: SetupAssignment[];
+  candidateReviews: SolverCandidateReview[];
   currentAssignments: Assignment[];
   currentRulebookVersion: number;
   currentEnforcementVersion: number;
@@ -50,31 +70,48 @@ interface WorkspaceContextValue {
   currentScheduleRulebookVersion: number;
   currentScheduleEnforcementVersion: number;
   currentSchedulePlanningDatasetVersion: number;
+  solverContextToken: SolverSnapshotContextToken | null;
   scheduleIsStale: boolean;
   validation: ValidationResult;
   refresh: () => Promise<void>;
   signInWithEmail: (email: string) => Promise<{ ok: boolean; message: string }>;
   signOut: () => Promise<void>;
+  createWorkspace: (name: string, slug: string, requestId?: string) => Promise<CreateWorkspaceResult>;
   applyRulePatch: (patch: RulePatch) => Promise<MutationResult>;
+  applySetupTypedPolicies: (policies: SetupTypedPolicyPatch[], reason: string) => Promise<SetupTypedPolicyMutationResult>;
   applySchedulePatch: (patch: SchedulePatch) => Promise<MutationResult>;
+  toggleSessionLock: (sessionId: string, locked: boolean, reason: string) => Promise<MutationResult>;
+  previewScheduleRecovery: (operation: "REBASE" | "UNDO") => Promise<MutationResult>;
   rebaseSchedule: () => Promise<MutationResult>;
+  undoSchedule: () => Promise<MutationResult>;
   proposeEnforcementMapping: (ruleId: string, mapping: RuleEnforcementMapping, rationale: string, source?: "USER" | "AI") => Promise<MutationResult>;
   reviewEnforcementProposal: (proposalId: string, decision: "APPROVE" | "REJECT", reason: string) => Promise<MutationResult>;
+  applyReviewedCsvImport: (input: { batchId: string; rows: ReviewedPlanningImportRow[]; reason: string; sourceMetadata?: Record<string, unknown> }) => Promise<MutationResult>;
   exportPackage: () => Record<string, unknown> | null;
+  exportWorkspaceData: () => Promise<MutationResult>;
   updateTeacher: (teacher: Teacher, reason: string) => Promise<MutationResult>;
   updateRoom: (room: Room, reason: string) => Promise<MutationResult>;
   updateClass: (klass: ClassDefinition, reason: string) => Promise<MutationResult>;
   createScenario: (name: string, rulePatches?: RulePatch[], schedulePatches?: SchedulePatch[]) => Promise<MutationResult>;
+  deleteSolverCandidateReview: (candidateId: string) => Promise<MutationResult>;
   inviteMember: (email: string, role: StudioRole) => Promise<MutationResult>;
   setMemberRole: (userId: string, role: StudioRole) => Promise<MutationResult>;
   removeMember: (userId: string) => Promise<MutationResult>;
   cancelInvite: (inviteId: string) => Promise<MutationResult>;
+  acceptInvitation: (studioId: string, inviteId: string) => Promise<MutationResult>;
+  createSetupAssignment: (input: SetupAssignmentInput) => Promise<MutationResult>;
+  updateSetupAssignment: (input: SetupAssignmentUpdate) => Promise<MutationResult>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 const time = (value: string) => value.slice(0, 5);
 const object = (value: unknown) => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
 const source = (value: unknown) => ({ type: "IMPORT", ...object(value) }) as StudioRule["source"];
+
+function isSolverSnapshotContextToken(value: unknown, studioId: string): value is SolverSnapshotContextToken {
+  const token = object(value);
+  return token.schemaVersion === "1.0" && token.studioId === studioId;
+}
 
 function mapRule(row: Record<string, unknown>): StudioRule {
   const strength = row.strength ? row.strength as StudioRule["strength"] : null;
@@ -125,6 +162,11 @@ function mapPlanningDatasetVersion(row: Record<string, unknown>): PlanningDatase
       confirmedForSchedulingAt: row.confirmed_for_scheduling_at ? String(row.confirmed_for_scheduling_at) : null,
       confirmedForSchedulingByLabel: row.confirmed_for_scheduling_by_label ? String(row.confirmed_for_scheduling_by_label) : null,
       schedulingConfirmationNote: row.scheduling_confirmation_note ? String(row.scheduling_confirmation_note) : null,
+      certificationRulebookVersion: row.certification_rulebook_version == null ? null : Number(row.certification_rulebook_version),
+      certificationConstraintModelVersion: row.certification_constraint_model_version == null ? null : Number(row.certification_constraint_model_version),
+      certificationConstraintModelSnapshotHash: row.certification_constraint_model_snapshot_hash ? String(row.certification_constraint_model_snapshot_hash) : null,
+      certificationReviewSetFingerprint: row.certification_review_set_fingerprint ? String(row.certification_review_set_fingerprint) : null,
+      certificationReviewSchemaVersion: row.certification_review_schema_version == null ? null : Number(row.certification_review_schema_version),
     },
   } as PlanningDatasetVersion;
 }
@@ -145,6 +187,22 @@ function fail(error: unknown): MutationResult {
   return { ok: false, error: message.replace(/^.*?message[:=]\s*/i, "") };
 }
 
+function workspaceCreationMessage(error: unknown): string {
+  const record = object(error);
+  const raw = String(record.message || (error instanceof Error ? error.message : error));
+  const code = raw.match(/STUDIO_CREATION_[A-Z_]+/)?.[0];
+  switch (code) {
+    case "STUDIO_CREATION_AUTH_REQUIRED": return "Sign in before creating a workspace.";
+    case "STUDIO_CREATION_NAME_INVALID": return "Enter a workspace name between 1 and 120 characters.";
+    case "STUDIO_CREATION_SLUG_INVALID": return "Use a workspace link with letters, numbers, and single hyphens only.";
+    case "STUDIO_CREATION_SLUG_TAKEN": return "That workspace link is already in use. Choose another link and retry.";
+    case "STUDIO_CREATION_REQUEST_FORBIDDEN": return "This retry belongs to another account. Start a new workspace request.";
+    case "STUDIO_CREATION_REQUEST_ID_REQUIRED": return "The workspace request expired. Submit the form again.";
+    case "STUDIO_CREATION_PLANNING_AUTHORITY_INVALID": return "The workspace could not finish setup. Retry the same request.";
+    default: return "The workspace could not be created. Your form is still here; check the connection and retry.";
+  }
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -153,49 +211,111 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StudioState | null>(null);
   const [members, setMembers] = useState<StudioMember[]>([]);
   const [invites, setInvites] = useState<StudioInvite[]>([]);
+  const [pendingInvitations, setPendingInvitations] = useState<PendingStudioInvite[]>([]);
+  const [setupAssignments, setSetupAssignments] = useState<SetupAssignment[]>([]);
+  const [candidateReviews, setCandidateReviews] = useState<SolverCandidateReview[]>([]);
+  const [solverContextToken, setSolverContextToken] = useState<SolverSnapshotContextToken | null>(null);
+  const [availableWorkspaces, setAvailableWorkspaces] = useState<AvailableWorkspace[]>([]);
+  const [selectedStudioId, setSelectedStudioId] = useState<string | null>(() => (
+    typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_STUDIO_STORAGE_KEY)
+  ));
+  const loadGeneration = useRef(0);
   const accessMode: WorkspaceContextValue["accessMode"] = session ? "AUTHENTICATED" : "NONE";
   const canEdit = role === "OWNER" || role === "EDITOR";
   const isOwner = role === "OWNER";
 
-  const load = useCallback(async (activeSession?: Session | null) => {
+  const load = useCallback(async (activeSession?: Session | null, requestedStudioId?: string) => {
+    const generation = ++loadGeneration.current;
     const sess = activeSession === undefined ? session : activeSession;
     if (!sess) {
-      setRole(null); setState(null); setMembers([]); setInvites([]); setLoading(false); setError(null); return;
+      setRole(null); setState(null); setMembers([]); setInvites([]); setPendingInvitations([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null); setAvailableWorkspaces([]); setSelectedStudioId(null); setLoading(false); setError(null); return;
     }
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setSolverContextToken(null);
     try {
       const supabase = getBrowserSupabase();
-      const membershipQ = await supabase.from("studio_members").select("studio_id,role").eq("studio_id", STUDIO_ID).eq("user_id", sess.user.id).maybeSingle();
-      if (membershipQ.error) throw membershipQ.error;
-      if (!membershipQ.data) {
-        setRole(null); setState(null); setMembers([]); setInvites([]);
-        setError("This account is signed in but has not been invited to the DWDE Studio workspace.");
+      const [membershipsQ, pendingInvitationsQ] = await Promise.all([
+        supabase.from("studio_members").select("studio_id,role").eq("user_id", sess.user.id).order("studio_id"),
+        supabase.rpc("list_my_studio_invites_v71"),
+      ]);
+      if (membershipsQ.error) throw membershipsQ.error;
+      if (pendingInvitationsQ.error) throw pendingInvitationsQ.error;
+      const membershipRows = membershipsQ.data || [];
+      const workspaceIds = membershipRows.map((row) => String(row.studio_id));
+      const studiosQ = workspaceIds.length
+        ? await supabase.from("studios").select("id,name").in("id", workspaceIds)
+        : { data: [], error: null };
+      if (studiosQ.error) throw studiosQ.error;
+      const studioNames = new Map((studiosQ.data || []).map((row) => [String(row.id), String(row.name || "Studio workspace")]));
+      const workspaces = membershipRows.map((row) => ({
+        id: String(row.studio_id), name: studioNames.get(String(row.studio_id)) || "Studio workspace", role: row.role as StudioRole,
+      }));
+      if (generation !== loadGeneration.current) return;
+      setAvailableWorkspaces(workspaces);
+      const pendingInvitationRows = Array.isArray(pendingInvitationsQ.data) ? pendingInvitationsQ.data : [];
+      setPendingInvitations(pendingInvitationRows.map((row: Record<string, unknown>) => ({
+        id: String(row.invite_id), studioId: String(row.studio_id), studioName: String(row.studio_name || "Studio workspace"),
+        role: row.role as StudioRole, createdAt: String(row.created_at), expiresAt: String(row.expires_at),
+        expired: Date.parse(String(row.expires_at)) <= Date.now(),
+      })));
+      const persistedStudioId = requestedStudioId
+        || (typeof window === "undefined" ? selectedStudioId : window.localStorage.getItem(SELECTED_STUDIO_STORAGE_KEY))
+        || (workspaces.length === 1 ? workspaces[0].id : null);
+      const selected = workspaces.find((workspace) => workspace.id === persistedStudioId) || null;
+      if (!selected) {
+        setRole(null); setState(null); setMembers([]); setInvites([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null);
+        setSelectedStudioId(null);
+        setError(workspaces.length ? "Select a workspace to continue." : pendingInvitationRows.length ? null : "This account is signed in but is not a member of a studio workspace.");
         return;
       }
-      const nextRole = membershipQ.data.role as StudioRole;
+      const activeStudioId = selected.id;
+      setSelectedStudioId(activeStudioId);
+      if (typeof window !== "undefined") window.localStorage.setItem(SELECTED_STUDIO_STORAGE_KEY, activeStudioId);
+      const membershipQ = membershipRows.find((row) => String(row.studio_id) === activeStudioId);
+      if (!membershipQ) {
+        setRole(null); setState(null); setMembers([]); setInvites([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null);
+        setError("The selected workspace is no longer available to this account.");
+        return;
+      }
+      const nextRole = membershipQ.role as StudioRole;
       setRole(nextRole);
 
-      const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ] = await Promise.all([
-        supabase.from("studios").select("*").eq("id", STUDIO_ID).single(),
-        supabase.from("teachers").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
-        supabase.from("rooms").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
-        supabase.from("students").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
-        supabase.from("cohorts").select("*").eq("studio_id", STUDIO_ID).order("name"),
-        supabase.from("class_definitions").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("name"),
-        supabase.from("class_sessions").select("*").eq("studio_id", STUDIO_ID).is("archived_at", null).order("id"),
-        supabase.from("rules").select("*").eq("studio_id", STUDIO_ID).order("id"),
-        supabase.from("rulebook_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
-        supabase.from("rule_enforcement_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
-        supabase.from("planning_dataset_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
-        supabase.from("rule_enforcement_proposals").select("*").eq("studio_id", STUDIO_ID).order("created_at", { ascending: false }),
-        supabase.from("rule_history").select("*").eq("studio_id", STUDIO_ID).order("changed_at", { ascending: false }),
-        supabase.from("schedule_versions").select("*").eq("studio_id", STUDIO_ID).order("version", { ascending: false }),
-        supabase.from("scenarios").select("*").eq("studio_id", STUDIO_ID).order("created_at", { ascending: false }),
-        supabase.from("audit_events").select("*").eq("studio_id", STUDIO_ID).order("created_at", { ascending: false }).limit(100),
-        supabase.rpc("list_studio_members_v21"),
+      const [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ, contextTokenQ, setupAssignmentsQ] = await Promise.all([
+        supabase.from("studios").select("*").eq("id", activeStudioId).single(),
+        supabase.from("teachers").select("*").eq("studio_id", activeStudioId).is("archived_at", null).order("name"),
+        supabase.from("rooms").select("*").eq("studio_id", activeStudioId).is("archived_at", null).order("name"),
+        supabase.from("students").select("*").eq("studio_id", activeStudioId).is("archived_at", null).order("name"),
+        supabase.from("cohorts").select("*").eq("studio_id", activeStudioId).order("name"),
+        supabase.from("class_definitions").select("*").eq("studio_id", activeStudioId).is("archived_at", null).order("name"),
+        supabase.from("class_sessions").select("*").eq("studio_id", activeStudioId).is("archived_at", null).order("id"),
+        supabase.from("rules").select("*").eq("studio_id", activeStudioId).order("id"),
+        supabase.from("rulebook_versions").select("*").eq("studio_id", activeStudioId).order("version", { ascending: false }),
+        supabase.from("rule_enforcement_versions").select("*").eq("studio_id", activeStudioId).order("version", { ascending: false }),
+        supabase.from("planning_dataset_versions").select("*").eq("studio_id", activeStudioId).order("version", { ascending: false }),
+        supabase.from("rule_enforcement_proposals").select("*").eq("studio_id", activeStudioId).order("created_at", { ascending: false }),
+        supabase.from("rule_history").select("*").eq("studio_id", activeStudioId).order("changed_at", { ascending: false }),
+        supabase.from("schedule_versions").select("*").eq("studio_id", activeStudioId).order("version", { ascending: false }),
+        supabase.from("scenarios").select("*").eq("studio_id", activeStudioId).order("created_at", { ascending: false }),
+        supabase.from("audit_events").select("*").eq("studio_id", activeStudioId).order("created_at", { ascending: false }).limit(100),
+        supabase.rpc("list_studio_members_v63", { p_studio_id: activeStudioId }),
+        supabase.rpc("get_solver_context_token_v43", { p_studio_id: activeStudioId }),
+        supabase.rpc("list_setup_assignments_v69", { p_studio_id: activeStudioId }),
       ]);
-      const queryError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ].find((query) => query.error)?.error;
+      const queryError = [studioQ, teachersQ, roomsQ, studentsQ, cohortsQ, classesQ, sessionsQ, rulesQ, rbvQ, enforcementQ, planningQ, proposalsQ, historyQ, scheduleQ, scenariosQ, auditQ, memberQ, contextTokenQ, setupAssignmentsQ].find((query) => query.error)?.error;
       if (queryError) throw queryError;
+      if (generation !== loadGeneration.current) return;
+      if (!isSolverSnapshotContextToken(contextTokenQ.data, activeStudioId)) {
+        throw new Error("The current solver context token is missing or malformed.");
+      }
+      setSolverContextToken(contextTokenQ.data);
+
+      const candidateResponse = await fetch("/api/solver/candidates", {
+        headers: { Authorization: `Bearer ${sess.access_token}`, "x-studio-id": activeStudioId },
+        cache: "no-store",
+      });
+      const candidatePayload = await candidateResponse.json().catch(() => ({})) as { candidates?: unknown[]; error?: string };
+      if (!candidateResponse.ok) throw new Error(candidatePayload.error || "The server could not load saved solver reviews.");
+      const parsedCandidates = (Array.isArray(candidatePayload.candidates) ? candidatePayload.candidates : []).map(parseSolverCandidateReview);
+      if (parsedCandidates.some((candidate) => candidate === null)) throw new Error("A saved solver review is malformed and cannot be safely reopened.");
 
       const currentScheduleRow = (scheduleQ.data || []).find((row) => row.is_current);
       const assignmentQ = currentScheduleRow
@@ -203,6 +323,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         : { data: [], error: null };
       if (assignmentQ.error) throw assignmentQ.error;
       const assignments = (assignmentQ.data || []).map((row) => mapAssignment(row as Record<string, unknown>));
+      const certificationResponse = await fetch("/api/planning/confirmation", {
+        headers: { Authorization: `Bearer ${sess.access_token}`, "x-studio-id": activeStudioId },
+        cache: "no-store",
+      });
+      const certificationPayload = await certificationResponse.json() as PlanningConfirmationResponse;
+      if (!certificationResponse.ok) {
+        throw new Error(certificationPayload.error || "The server could not load the current readiness certification.");
+      }
       const scheduleVersions: ScheduleVersion[] = (scheduleQ.data || []).map((row) => ({
         id: row.id, version: row.version, rulebookVersion: row.rulebook_version, enforcementVersion: Number(row.enforcement_version || 0),
         planningDatasetVersion: row.planning_dataset_version == null ? undefined : Number(row.planning_dataset_version), createdAt: row.created_at,
@@ -211,7 +339,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }));
 
       const mapped: StudioState = {
-        studioId: STUDIO_ID, studioName: studioQ.data?.name || "DWDE Studio",
+        studioId: activeStudioId, studioName: studioQ.data?.name || "Studio workspace",
         teachers: (teachersQ.data || []).map((row) => ({ id: row.id, name: row.name, subjects: row.subjects || [], notes: row.notes || undefined, displayColor: row.display_color || undefined })),
         rooms: (roomsQ.data || []).map((row) => ({ id: row.id, name: row.name, capacity: row.capacity ?? undefined, features: row.features || [] })),
         students: (studentsQ.data || []).map((row) => ({ id: row.id, name: row.name, level: row.level, cohortIds: row.cohort_ids || [] })),
@@ -244,22 +372,29 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           rulePatches: (row.rule_patches || []) as unknown as RulePatch[], schedulePatches: (row.schedule_patches || []) as unknown as SchedulePatch[], createdAt: row.created_at,
         } as Scenario)),
         auditEvents: (auditQ.data || []).map((row) => ({ id: row.id, at: row.created_at, actor: row.actor_label, action: row.action, entityType: row.entity_type, entityId: row.entity_id || undefined, detail: row.detail })),
+        readinessCertification: certificationPayload.certification || undefined,
       };
+      if (generation !== loadGeneration.current) return;
       setState(mapped);
+      setCandidateReviews(parsedCandidates as SolverCandidateReview[]);
       setMembers((memberQ.data || []).map((row: Record<string, unknown>) => ({
         userId: String(row.user_id), role: row.role as StudioRole, displayName: String(row.display_name || ""), email: String(row.email || ""), createdAt: String(row.created_at || ""),
       })));
+      setSetupAssignments((Array.isArray(setupAssignmentsQ.data) ? setupAssignmentsQ.data : [])
+        .map((row) => mapSetupAssignment(row as Record<string, unknown>))
+        .filter((row): row is SetupAssignment => row !== null));
       if (nextRole === "OWNER") {
-        const inviteQ = await supabase.from("studio_invites").select("id,email,role,created_at,accepted_at").eq("studio_id", STUDIO_ID).order("created_at", { ascending: false });
+        const inviteQ = await supabase.from("studio_invites").select("id,email,role,created_at,expires_at,accepted_at,revoked_at").eq("studio_id", activeStudioId).order("created_at", { ascending: false });
         if (inviteQ.error) throw inviteQ.error;
-        setInvites((inviteQ.data || []).map((row) => ({ id: row.id, email: row.email, role: row.role as StudioRole, createdAt: row.created_at, acceptedAt: row.accepted_at })));
+        setInvites((inviteQ.data || []).map((row) => ({ id: row.id, email: row.email, role: row.role as StudioRole, createdAt: row.created_at, expiresAt: row.expires_at, expired: Date.parse(String(row.expires_at)) <= Date.now(), acceptedAt: row.accepted_at, revokedAt: row.revoked_at })));
       } else setInvites([]);
     } catch (caught) {
+      if (generation !== loadGeneration.current) return;
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [session]);
+  }, [session, selectedStudioId]);
 
   useEffect(() => {
     const supabase = getBrowserSupabase();
@@ -268,6 +403,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return () => listener.subscription.unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function switchStudio(nextStudioId: string) {
+    if (!session || !availableWorkspaces.some((workspace) => workspace.id === nextStudioId)) return;
+    if (typeof window !== "undefined") window.localStorage.setItem(SELECTED_STUDIO_STORAGE_KEY, nextStudioId);
+    setSelectedStudioId(nextStudioId);
+    setState(null); setRole(null); setMembers([]); setInvites([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null); setError(null);
+    await load(session, nextStudioId);
+  }
 
   const currentSchedule = useMemo(() => state?.scheduleVersions.find((version) => version.isCurrent) || null, [state]);
   const currentAssignments = useMemo(() => currentSchedule?.assignments || [], [currentSchedule]);
@@ -291,19 +434,42 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         email, options: { emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined, shouldCreateUser: true },
       });
       if (authError) throw authError;
-      return { ok: true, message: "Check your email for the DWDE sign-in link." };
+      return { ok: true, message: "Check your email for the sign-in link." };
     } catch (caught) { return { ok: false, message: caught instanceof Error ? caught.message : String(caught) }; }
   }
 
   async function signOut() {
     await getBrowserSupabase().auth.signOut();
-    setSession(null); setRole(null); setState(null); setMembers([]); setInvites([]);
+    setSession(null); setRole(null); setState(null); setMembers([]); setInvites([]); setSetupAssignments([]); setCandidateReviews([]); setSolverContextToken(null);
+  }
+
+  async function createWorkspace(name: string, slug: string, requestId = crypto.randomUUID()): Promise<CreateWorkspaceResult> {
+    if (!session) return { ok: false, message: "Sign in before creating a workspace.", requestId };
+    try {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("create_studio_v64", {
+        p_request_id: requestId,
+        p_name: name.trim(),
+        p_slug: slug.trim() || null,
+      });
+      if (rpcError) throw rpcError;
+      const result = object(data);
+      const studioId = typeof result.studioId === "string" ? result.studioId : "";
+      if (!studioId) return { ok: false, message: "The workspace response was incomplete. Retry the same request.", requestId };
+      if (typeof window !== "undefined") window.localStorage.setItem(SELECTED_STUDIO_STORAGE_KEY, studioId);
+      setSelectedStudioId(studioId);
+      setState(null); setRole(null); setMembers([]); setInvites([]); setCandidateReviews([]); setSolverContextToken(null); setError(null);
+      await load(session, studioId);
+      return { ok: true, message: "Workspace created.", requestId, studioId };
+    } catch (caught) {
+      return { ok: false, message: workspaceCreationMessage(caught), requestId };
+    }
   }
 
   async function applyRulePatch(patch: RulePatch): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("apply_rule_patch_v22", {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("apply_rule_patch_v63", {
+        p_studio_id: state?.studioId,
         p_operation: patch.operation, p_rule_id: patch.ruleId || String(patch.changes.id || ""), p_changes: patch.changes,
         p_reason: patch.reason, p_expected_rulebook_version: currentRulebookVersion, p_ai_proposed: patch.proposedBy === "AI",
       });
@@ -312,70 +478,156 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (caught) { return fail(caught); }
   }
 
+  async function applySetupTypedPolicies(policies: SetupTypedPolicyPatch[], reason: string): Promise<SetupTypedPolicyMutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required." };
+    const result = await applySetupTypedPoliciesClient({
+      studioId: state?.studioId || "",
+      policies,
+      reason,
+      expectedRulebookVersion: currentRulebookVersion,
+      expectedEnforcementVersion: currentEnforcementVersion,
+      expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
+      emptyWorkspace: state?.rulebookVersions.find((version) => version.status === "CURRENT")?.sourceMetadata?.provisioning === "EMPTY_WORKSPACE",
+    });
+    if (result.ok) await load();
+    return result;
+  }
+
   async function applySchedulePatch(patch: SchedulePatch): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
-    if (patch.operation !== "MOVE") return { ok: false, error: "This command path moves an existing assignment only." };
+    if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
     if (scheduleIsStale) return {
       ok: false,
       error: `Schedule v${currentScheduleVersion} is linked to Rulebook v${currentScheduleRulebookVersion} / Enforcement v${currentScheduleEnforcementVersion} / Planning Dataset v${currentSchedulePlanningDatasetVersion || "unversioned"}. Revalidate it against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} / Planning Dataset v${currentPlanningDatasetVersion} first.`,
     };
-    const existing = currentAssignments.find((assignment) => assignment.id === patch.assignmentId);
-    if (!existing) return { ok: false, error: "Assignment does not exist." };
-    if (existing.locked) return { ok: false, error: "This assignment is locked." };
-    const proposed = applyAssignmentChanges(currentAssignments, patch.assignmentId, patch.changes);
-    const preview = state ? validateSchedule(state, proposed) : emptyValidation();
-    if (validation.hardViolations === 0 && preview.hardViolations > 0) {
-      return { ok: false, error: "The proposed move creates a detected HARD violation.", validation: preview };
-    }
-    if (validation.hardViolations > 0 && preview.hardViolations >= validation.hardViolations) {
-      return { ok: false, error: `Repair mode: this schedule currently has ${validation.hardViolations} HARD violation(s). A move must strictly reduce that count.`, validation: preview };
-    }
-    const changes = {
-      day: patch.changes.day ?? existing.day,
-      startTime: patch.changes.startTime ?? existing.startTime,
-      teacherId: patch.changes.teacherId ?? existing.teacherId,
-      roomId: patch.changes.roomId ?? existing.roomId,
-      status: patch.changes.status ?? existing.status ?? "NORMAL",
+    try {
+      const requestInit: RequestInit = {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ studioId: state.studioId, patch }),
+      };
+      const response = patch.operation === "MOVE"
+        ? await fetch("/api/schedule/move", requestInit)
+        : await fetch("/api/schedule/incremental", requestInit);
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: String(payload.error || "The authoritative server schedule gate rejected this change."),
+          validation: (payload.legacyValidation || payload.validation) as ValidationResult | undefined,
+          details: payload,
+        };
+      }
+      await load();
+      return {
+        ok: true,
+        version: Number(payload.scheduleVersion || 0),
+        validation: payload.validation as ValidationResult | undefined,
+        details: payload,
+      };
+    } catch (caught) { return fail(caught); }
+  }
+
+  async function toggleSessionLock(sessionId: string, locked: boolean, reason: string): Promise<MutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required." };
+    if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
+    if (!solverContextToken) return { ok: false, error: "The current scheduling context is still loading. Refresh and retry." };
+    if (!sessionId.trim()) return { ok: false, error: "An explicit session is required." };
+    if (!reason.trim()) return { ok: false, error: "A reason is required for a governed lock change." };
+    if (scheduleIsStale) return {
+      ok: false,
+      error: `Schedule v${currentScheduleVersion} needs revalidation before its lock can change. Review the current scheduling context first.`,
     };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("apply_schedule_command_v25", {
-        p_operation: "MOVE",
-        p_assignment_id: patch.assignmentId,
-        p_session_id: existing.sessionId,
-        p_changes: changes,
-        p_reason: patch.reason,
-        p_expected_schedule_version: currentScheduleVersion,
-        p_expected_rulebook_version: currentRulebookVersion,
-        p_expected_enforcement_version: currentEnforcementVersion,
-        p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-        p_ai_proposed: patch.proposedBy === "AI",
+      const response = await fetch("/api/schedule/lock", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          studioId: state.studioId,
+          sessionId: sessionId.trim(),
+          locked,
+          reason: reason.trim(),
+          expectedContext: solverContextToken,
+        }),
       });
-      if (rpcError) throw rpcError;
-      const details = object(data); await load();
-      return { ok: true, validation: details.validation as unknown as ValidationResult, version: Number(details.scheduleVersion || 0), details };
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: String(payload.error || "The governed session lock change was rejected."),
+          details: payload,
+        };
+      }
+      await load();
+      return {
+        ok: true,
+        version: Number(payload.scheduleVersion || 0),
+        details: payload,
+      };
+    } catch (caught) { return fail(caught); }
+  }
+
+  async function runScheduleRecovery(operation: "REBASE" | "UNDO", preview = false): Promise<MutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required." };
+    if (!state || !session) return { ok: false, error: "An authenticated workspace is required." };
+    try {
+      const response = await fetch("/api/schedule/recovery", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          studioId: state.studioId,
+          operation,
+          preview,
+          reason: operation === "REBASE"
+            ? `Revalidate Schedule v${currentScheduleVersion} against the current scheduling context`
+            : `Undo Schedule v${currentScheduleVersion} under the current scheduling context`,
+        }),
+      });
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: String(payload.error || "The authoritative recovery gate rejected this operation."),
+          validation: (payload.legacyValidation || payload.validation) as ValidationResult | undefined,
+          details: payload,
+        };
+      }
+      if (!preview) await load();
+      return {
+        ok: true,
+        version: Number(payload.scheduleVersion || 0),
+        validation: payload.validation as ValidationResult | undefined,
+        details: payload,
+      };
     } catch (caught) { return fail(caught); }
   }
 
   async function rebaseSchedule(): Promise<MutationResult> {
-    if (!canEdit) return { ok: false, error: "Editor access is required." };
-    try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("rebase_current_schedule_v25", {
-        p_expected_schedule_version: currentScheduleVersion,
-        p_expected_rulebook_version: currentRulebookVersion,
-        p_expected_enforcement_version: currentEnforcementVersion,
-        p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-        p_reason: `Revalidate unchanged assignments against Rulebook v${currentRulebookVersion} / Enforcement v${currentEnforcementVersion} / Planning Dataset v${currentPlanningDatasetVersion}`,
-      });
-      if (rpcError) throw rpcError;
-      const details = object(data); await load();
-      return { ok: true, version: Number(details.scheduleVersion || 0), validation: details.validation as unknown as ValidationResult, details };
-    } catch (caught) { return fail(caught); }
+    return runScheduleRecovery("REBASE");
+  }
+
+  async function undoSchedule(): Promise<MutationResult> {
+    return runScheduleRecovery("UNDO");
+  }
+
+  async function previewScheduleRecovery(operation: "REBASE" | "UNDO"): Promise<MutationResult> {
+    return runScheduleRecovery(operation, true);
   }
 
   async function proposeEnforcementMapping(ruleId: string, mapping: RuleEnforcementMapping, rationale: string, proposalSource: "USER" | "AI" = "USER"): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("propose_rule_enforcement_mapping_v22", {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("propose_rule_enforcement_mapping_v63", {
+        p_studio_id: state?.studioId,
         p_rule_id: ruleId,
         p_mapping: mapping,
         p_rationale: rationale,
@@ -391,7 +643,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function reviewEnforcementProposal(proposalId: string, decision: "APPROVE" | "REJECT", reason: string): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("review_rule_enforcement_mapping_v22", {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("review_rule_enforcement_mapping_v63", {
+        p_studio_id: state?.studioId,
         p_proposal_id: proposalId,
         p_decision: decision,
         p_reason: reason,
@@ -404,6 +657,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (caught) { return fail(caught); }
   }
 
+  async function applyReviewedCsvImport(input: { batchId: string; rows: ReviewedPlanningImportRow[]; reason: string; sourceMetadata?: Record<string, unknown> }): Promise<MutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required." };
+    if (!state?.studioId) return { ok: false, error: "An authenticated workspace is required." };
+    const result = await applyReviewedCsvImportClient({
+      studioId: state.studioId,
+      batchId: input.batchId,
+      rows: input.rows,
+      expectedPlanningDatasetVersion: currentPlanningDatasetVersion,
+      reason: input.reason,
+      sourceMetadata: input.sourceMetadata,
+    });
+    if (result.ok) await load();
+    return {
+      ok: result.ok,
+      error: result.error,
+      version: result.planningDatasetVersion,
+      details: result.details,
+    };
+  }
+
   function exportPackage(): Record<string, unknown> | null {
     if (!state) return null;
     const current = state.rulebookVersions.find((version) => version.status === "CURRENT") ?? state.rulebookVersions[0];
@@ -413,9 +686,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const approved = state.rules.filter((rule) => rule.review?.decision === "APPROVED").length;
     const edited = state.rules.filter((rule) => rule.review?.decision === "EDIT").length;
     return {
-      format_version: current?.formatVersion || "2.0", document_type: current?.documentType || "DWDE_CANONICAL_RULEBOOK",
+      format_version: current?.formatVersion || "2.0", document_type: current?.documentType || "STUDIO_RULEBOOK",
       rulebook: {
-        id: current?.rulebookId || "dwde-2026-2027-master-rulebook", name: "DWDE 2026-2027 Master Rulebook",
+        id: current?.rulebookId || "studio-rulebook", name: current?.name || "Studio Rulebook",
         version: currentRulebookVersion, status: current?.sourceHash ? "REVIEWED" : "CURRENT", total_rules: state.rules.length,
         reviewed_rules: verified, approved_without_edit: approved, edited_and_approved: edited, rules_sha256: current?.sourceHash || null,
       },
@@ -441,7 +714,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function updateTeacher(teacher: Teacher, reason: string): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("update_studio_entity_v21", {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("update_studio_entity_v63", {
+        p_studio_id: state?.studioId,
         p_entity_type: "TEACHER", p_entity_id: teacher.id, p_changes: { name: teacher.name, notes: teacher.notes || "" }, p_reason: reason,
         p_expected_rulebook_version: currentRulebookVersion, p_expected_schedule_version: currentScheduleVersion,
       });
@@ -452,7 +726,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function updateRoom(room: Room, reason: string): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("update_studio_entity_v21", {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("update_studio_entity_v63", {
+        p_studio_id: state?.studioId,
         p_entity_type: "ROOM", p_entity_id: room.id, p_changes: { name: room.name, capacity: room.capacity ?? null, features: room.features || [] }, p_reason: reason,
         p_expected_rulebook_version: currentRulebookVersion, p_expected_schedule_version: currentScheduleVersion,
       });
@@ -463,7 +738,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function updateClass(klass: ClassDefinition, reason: string): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("update_studio_entity_v21", {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("update_studio_entity_v63", {
+        p_studio_id: state?.studioId,
         p_entity_type: "CLASS", p_entity_id: klass.id,
         p_changes: {
           name: klass.name, subject: klass.subject, level: klass.level, durationMinutes: klass.durationMinutes,
@@ -478,7 +754,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function createScenario(name: string, rulePatches: RulePatch[] = [], schedulePatches: SchedulePatch[] = []): Promise<MutationResult> {
     if (!canEdit) return { ok: false, error: "Editor access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("create_scenario_v21", {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("create_scenario_v63", {
+        p_studio_id: state?.studioId,
         p_name: name, p_rule_patches: rulePatches, p_schedule_patches: schedulePatches,
         p_expected_rulebook_version: currentRulebookVersion, p_expected_schedule_version: currentScheduleVersion,
       });
@@ -486,10 +763,56 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (caught) { return fail(caught); }
   }
 
+  async function exportWorkspaceData(): Promise<MutationResult> {
+    if (!state?.studioId) return { ok: false, error: "An authenticated workspace is required." };
+    if (!isOwner) return { ok: false, error: "Owner access is required." };
+    try {
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("export_studio_data_v72", { p_studio_id: state.studioId });
+      if (rpcError) throw rpcError;
+      const payload = object(data);
+      if (payload.format !== "studio-scheduler/workspace-v1") return { ok: false, error: "The workspace export response was incomplete." };
+      return { ok: true, details: payload };
+    } catch {
+      return { ok: false, error: "Could not export workspace data. Refresh the page and retry." };
+    }
+  }
+
+  async function deleteSolverCandidateReview(candidateId: string): Promise<MutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required." };
+    if (!state?.studioId || !session) return { ok: false, error: "An authenticated workspace is required." };
+    try {
+      const response = await fetch("/api/solver/candidates", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ studioId: state.studioId, candidateId }),
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+      if (!response.ok) return { ok: false, error: String(payload.error || "The solver review could not be deleted."), details: payload };
+      await load();
+      return { ok: payload.deleted === true, details: payload };
+    } catch (caught) { return fail(caught); }
+  }
+
+  async function createSetupAssignment(input: SetupAssignmentInput): Promise<MutationResult> {
+    if (!canEdit) return { ok: false, error: "Editor access is required to assign setup work." };
+    if (!state?.studioId) return { ok: false, error: "An authenticated workspace is required." };
+    const result = await createSetupAssignmentClient(state.studioId, input);
+    if (result.ok) await load();
+    return result;
+  }
+
+  async function updateSetupAssignment(input: SetupAssignmentUpdate): Promise<MutationResult> {
+    if (!state?.studioId) return { ok: false, error: "An authenticated workspace is required." };
+    const result = await updateSetupAssignmentClient(state.studioId, input);
+    if (result.ok) await load();
+    return result;
+  }
+
   async function inviteMember(email: string, nextRole: StudioRole): Promise<MutationResult> {
     if (!isOwner) return { ok: false, error: "Owner access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("invite_studio_member_v21", { p_email: email, p_role: nextRole });
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("invite_studio_member_v63", { p_studio_id: state?.studioId, p_email: email, p_role: nextRole });
       if (rpcError) throw rpcError; await load(); return { ok: true, details: object(data) };
     } catch (caught) { return fail(caught); }
   }
@@ -497,7 +820,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function setMemberRole(userId: string, nextRole: StudioRole): Promise<MutationResult> {
     if (!isOwner) return { ok: false, error: "Owner access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("set_studio_member_role_v21", { p_user_id: userId, p_role: nextRole });
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("set_studio_member_role_v63", { p_studio_id: state?.studioId, p_user_id: userId, p_role: nextRole });
       if (rpcError) throw rpcError; await load(); return { ok: Boolean(data) };
     } catch (caught) { return fail(caught); }
   }
@@ -505,7 +828,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function removeMember(userId: string): Promise<MutationResult> {
     if (!isOwner) return { ok: false, error: "Owner access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("remove_studio_member_v21", { p_user_id: userId });
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("remove_studio_member_v63", { p_studio_id: state?.studioId, p_user_id: userId });
       if (rpcError) throw rpcError; await load(); return { ok: Boolean(data) };
     } catch (caught) { return fail(caught); }
   }
@@ -513,17 +836,36 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   async function cancelInvite(inviteId: string): Promise<MutationResult> {
     if (!isOwner) return { ok: false, error: "Owner access is required." };
     try {
-      const { data, error: rpcError } = await getBrowserSupabase().rpc("cancel_studio_invite_v21", { p_invite_id: inviteId });
+      const { data, error: rpcError } = await getBrowserSupabase().rpc("cancel_studio_invite_v63", { p_studio_id: state?.studioId, p_invite_id: inviteId });
       if (rpcError) throw rpcError; await load(); return { ok: Boolean(data) };
     } catch (caught) { return fail(caught); }
   }
 
+  async function acceptInvitation(studioId: string, inviteId: string): Promise<MutationResult> {
+    if (!session) return { ok: false, error: "Sign in with the invited email before accepting." };
+    try {
+      const { error: rpcError } = await getBrowserSupabase().rpc("accept_studio_invite_v71", {
+        p_studio_id: studioId,
+        p_invite_id: inviteId,
+      });
+      if (rpcError) throw rpcError;
+      await load(session, state?.studioId || studioId);
+      return { ok: true };
+    } catch (caught) {
+      const raw = caught instanceof Error ? caught.message : String(caught);
+      if (raw.includes("Confirm your email address")) return { ok: false, error: "Confirm your email address, then retry the invitation." };
+      if (raw.includes("Invitation is unavailable")) return { ok: false, error: "This invitation expired, was cancelled, or belongs to a different email." };
+      if (raw.includes("different studio role")) return { ok: false, error: "You already have a different role in this workspace. Ask an owner to review your access." };
+      return { ok: false, error: "Could not accept the invitation. Refresh the page and retry." };
+    }
+  }
+
   const value: WorkspaceContextValue = {
-    loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
-    currentPlanningDatasetVersion,currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,currentSchedulePlanningDatasetVersion,
-    scheduleIsStale,validation,
-    refresh:()=>load(),signInWithEmail,signOut,applyRulePatch,applySchedulePatch,rebaseSchedule,proposeEnforcementMapping,reviewEnforcementProposal,exportPackage,
-    updateTeacher,updateRoom,updateClass,createScenario,inviteMember,setMemberRole,removeMember,cancelInvite,
+    loading,error,session,accessMode,role,canEdit,isOwner,state,members,invites,pendingInvitations,setupAssignments,candidateReviews,currentAssignments,currentRulebookVersion,currentEnforcementVersion,
+    availableWorkspaces,selectedStudioId,switchStudio,currentPlanningDatasetVersion,currentScheduleVersion,currentScheduleRulebookVersion,currentScheduleEnforcementVersion,currentSchedulePlanningDatasetVersion,
+    solverContextToken,scheduleIsStale,validation,
+    refresh:()=>load(),signInWithEmail,signOut,createWorkspace,applyRulePatch,applySetupTypedPolicies,applySchedulePatch,toggleSessionLock,previewScheduleRecovery,rebaseSchedule,undoSchedule,proposeEnforcementMapping,reviewEnforcementProposal,applyReviewedCsvImport,exportPackage,exportWorkspaceData,
+    updateTeacher,updateRoom,updateClass,createScenario,deleteSolverCandidateReview,createSetupAssignment,updateSetupAssignment,inviteMember,setMemberRole,removeMember,cancelInvite,acceptInvitation,
   };
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

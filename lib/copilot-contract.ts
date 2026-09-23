@@ -1,8 +1,8 @@
-import type { Day, RulePatch, SchedulePatch } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Day, type RulePatch, type SchedulePatch } from "@/lib/domain";
 
 const RULE_ID=/^[A-Z0-9]+-[0-9]{3}$/;
 const TIME=/^(?:[01]\d|2[0-3]):[0-5]\d$/;
-const DAYS=new Set<Day>(["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]);
+const DAYS=new Set<Day>(SCHEDULE_DAYS);
 const RULE_OPS=new Set(["CREATE","UPDATE","RETIRE","DISABLE","ENABLE"]);
 // Human Rulebook proposals may change human policy only. Machine mappings are governed separately.
 const RULE_FIELDS=new Set(["id","category","title","description","strength","classificationRaw","status","verificationStatus","reviewStatus","review","sourceRaw"]);

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const sql = readFileSync(resolve(process.cwd(), "supabase/migrations/20260902122425_schedule_commands_v25.sql"), "utf8");
+const sql = readFileSync(resolve(process.cwd(), "supabase/migrations/20260902122425_schedule_commands_v25.sql"), "utf8").replace(/\r\n?/g, "\n");
 
 describe("V2.5 canonical schedule commands", () => {
   it("uses one command RPC for MOVE, ASSIGN, and UNASSIGN", () => {

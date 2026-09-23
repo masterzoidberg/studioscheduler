@@ -1,10 +1,12 @@
 import type { ConstraintIRNode, ConstraintModelSnapshotV1 } from "@/lib/constraint-ir";
 import type { ClassDefinition, StudioState, Student } from "@/lib/domain";
+import { canonicalBindingName } from "@/lib/constraint-data-binding";
 
 export interface DelegatedPreflightIssue {
   constraintId: string;
   ruleIds: string[];
-  code: "LOWER_LEVEL_CLASS_MISSING" | "LOWER_LEVEL_ROSTER_MISSING" | "UNSUPPORTED_DELEGATED_CONSTRAINT";
+  code: "LOWER_LEVEL_CLASS_MISSING" | "LOWER_LEVEL_ROSTER_MISSING" | "UNSUPPORTED_DELEGATED_CONSTRAINT"
+    | "POLICY_PARTICIPANT_NOT_ROSTERED" | "POLICY_REQUIRED_SESSION_MISSING" | "POLICY_SESSION_ENDPOINT_MISSING";
   message: string;
   entityIds: string[];
 }
@@ -16,7 +18,7 @@ export interface DelegatedSolverPreflightReport {
   issues: DelegatedPreflightIssue[];
 }
 
-const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+const normalize = canonicalBindingName;
 const canonicalSort = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 function levelKey(value: string): "4A" | "4B" | "5" | null {
@@ -28,10 +30,10 @@ function levelKey(value: string): "4A" | "4B" | "5" | null {
 }
 
 function classHasLevel(klass: ClassDefinition, key: "4A" | "4B" | "5") {
-  const haystack = `${klass.level} ${klass.name}`.toLowerCase();
-  if (key === "4A") return /4\s*a/i.test(haystack);
-  if (key === "4B") return /4\s*b/i.test(haystack);
-  return /(^|[^0-9])5([^0-9]|$)/.test(haystack) || normalize(haystack).includes("level5");
+  const level = klass.level.toLowerCase();
+  if (key === "4A") return /4\s*a/i.test(level);
+  if (key === "4B") return /4\s*b/i.test(level);
+  return /(^|[^0-9])5([^0-9]|$)/.test(level) || normalize(level).includes("level5");
 }
 
 function subjectFamily(value: string): "Ballet" | "Jazz" | "Tap" | "Contemporary" | null {
@@ -44,14 +46,17 @@ function subjectFamily(value: string): "Ballet" | "Jazz" | "Tap" | "Contemporary
 }
 
 function classFamily(klass: ClassDefinition) {
-  return subjectFamily(`${klass.subject} ${klass.name}`);
+  return subjectFamily(klass.subject);
 }
 
 function studentException(constraint: ConstraintIRNode, student: Student) {
   const exceptions = Array.isArray(constraint.parameters.exceptions)
     ? constraint.parameters.exceptions as Array<Record<string, unknown>>
     : [];
-  return exceptions.find((item) => normalize(String(item.studentName || "")) === normalize(student.name)) ?? null;
+  return exceptions.find((item) => {
+    if (typeof item.participantId === "string" && item.participantId.trim()) return item.participantId === student.id;
+    return normalize(String(item.studentName || "")) === normalize(student.name);
+  }) ?? null;
 }
 
 function subjectSet(value: unknown) {
@@ -157,6 +162,33 @@ export function validateDelegatedSolverPreconditions(
     const constraintIssues = validateLowerLevelConstraint(state, constraint);
     issues.push(...constraintIssues);
     if (constraintIssues.length === 0) validated.push(constraint.id);
+  }
+
+  const sessionsByClass = new Map<string, typeof state.sessions>();
+  for (const session of state.sessions) sessionsByClass.set(session.classId, [...(sessionsByClass.get(session.classId) || []), session]);
+  for (const constraint of model.hardConstraints) {
+    const participantIds = constraint.selector.participantIds || [];
+    if (["PARTICIPANT_NO_OVERLAP", "MAX_ATTENDANCE_DAYS", "LINKED_ARRIVAL", "LATEST_FINISH_BY_PARTICIPANT"].includes(constraint.kind)) {
+      for (const participantId of participantIds) {
+        const rostered = state.classes.filter((klass) => klass.rosterStudentIds.includes(participantId));
+        if (!rostered.length) {
+          issues.push({ constraintId: constraint.id, ruleIds: constraint.ruleIds, code: "POLICY_PARTICIPANT_NOT_ROSTERED", message: `Participant ${participantId} is not on any current class roster required by this policy.`, entityIds: [participantId] });
+          continue;
+        }
+        for (const klass of rostered) {
+          const sessions = sessionsByClass.get(klass.id) || [];
+          if (sessions.length !== klass.weeklyFrequency) {
+            issues.push({ constraintId: constraint.id, ruleIds: constraint.ruleIds, code: "POLICY_REQUIRED_SESSION_MISSING", message: `${klass.name} requires ${klass.weeklyFrequency} session(s), but ${sessions.length} current session endpoint(s) exist.`, entityIds: [participantId, klass.id, ...sessions.map((session) => session.id)] });
+          }
+        }
+      }
+    }
+    if (constraint.kind === "DIRECTLY_AFTER" && typeof constraint.parameters.predecessorSessionId === "string") {
+      const endpointIds = [String(constraint.parameters.predecessorSessionId), String(constraint.parameters.successorSessionId)];
+      const present = new Set(state.sessions.map((session) => session.id));
+      const missing = endpointIds.filter((id) => !present.has(id));
+      if (missing.length) issues.push({ constraintId: constraint.id, ruleIds: constraint.ruleIds, code: "POLICY_SESSION_ENDPOINT_MISSING", message: `Direct-after references missing session endpoint(s): ${missing.join(", ")}.`, entityIds: endpointIds });
+    }
   }
 
   return {

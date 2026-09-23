@@ -2,12 +2,14 @@
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronLeft, ChevronRight, GripVertical, LockKeyhole, X } from "lucide-react";
-import type { Assignment, Day, Room, SchedulePatch } from "@/lib/domain";
+import { SCHEDULE_DAYS, type Assignment, type Day, type Room, type SchedulePatch } from "@/lib/domain";
 import { applyAssignmentChanges, validateSchedule } from "@/lib/validator";
+import { sessionDurationForAssignment } from "@/lib/schedule-editing";
 import { safeTeacherColor, subjectMarker, translucentHex } from "@/lib/schedule-visuals";
 import { useWorkspace } from "@/components/workspace-provider";
+import { useScheduleEditMode } from "@/components/schedule/schedule-edit-mode";
 
-const days: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const days: Day[] = [...SCHEDULE_DAYS];
 type MobileViewMode = 1 | 2 | 3 | "week";
 type RoomFilter = "ALL" | string;
 
@@ -37,7 +39,7 @@ const samePlacement = (a: Assignment, b: Assignment) =>
   a.day === b.day && a.startTime === b.startTime && a.endTime === b.endTime && a.roomId === b.roomId;
 
 function windowFor(day: Day) {
-  return day === "Saturday" ? { start: 9 * 60, end: 15 * 60 } : { start: 16 * 60 + 15, end: 22 * 60 };
+  return day === "Saturday" || day === "Sunday" ? { start: 9 * 60, end: 15 * 60 } : { start: 16 * 60 + 15, end: 22 * 60 };
 }
 
 export function MobileScheduleView() {
@@ -48,8 +50,10 @@ export function MobileScheduleView() {
     scheduleIsStale,
     validation,
     applySchedulePatch,
+    toggleSessionLock,
     canEdit,
   } = useWorkspace();
+  const { editingEnabled } = useScheduleEditMode();
   const [focusDay, setFocusDay] = useState<Day>("Monday");
   const [viewMode, setViewMode] = useState<MobileViewMode>(1);
   const [roomFilter, setRoomFilter] = useState<RoomFilter>("ALL");
@@ -58,6 +62,8 @@ export function MobileScheduleView() {
   const [dragPreview, setDragPreview] = useState<Assignment | null>(null);
   const [savingMove, setSavingMove] = useState(false);
   const [details, setDetails] = useState<Assignment | null>(null);
+  const [lockSaving, setLockSaving] = useState(false);
+  const [reason, setReason] = useState("");
   const dragRef = useRef<DragState | null>(null);
 
   if (!state) return null;
@@ -67,6 +73,8 @@ export function MobileScheduleView() {
   const teacherMap = new Map(state.teachers.map((item) => [item.id, item]));
   const roomMap = new Map(state.rooms.map((item) => [item.id, item]));
   const klass = (assignment: Assignment) => classMap.get(sessionMap.get(assignment.sessionId)?.classId || "");
+  const sessionFor = (assignment: Assignment) => sessionMap.get(assignment.sessionId);
+  const effectiveLock = (assignment: Assignment) => Boolean(assignment.locked || sessionFor(assignment)?.locked);
   const teacherColor = (teacherId: string) => safeTeacherColor(teacherMap.get(teacherId)?.displayColor, teacherId);
   const assignmentsFor = (day: Day, roomId?: string) => currentAssignments
     .filter((item) => item.day === day && (!roomId || item.roomId === roomId))
@@ -95,8 +103,9 @@ export function MobileScheduleView() {
   }
 
   function startDrag(event: ReactPointerEvent<HTMLButtonElement>, assignment: Assignment) {
-    if (!canEdit || scheduleIsStale || assignment.locked || savingMove) {
+    if (!canEdit || scheduleIsStale || effectiveLock(assignment) || savingMove) {
       setDetails(assignment);
+      setReason("");
       return;
     }
     event.stopPropagation();
@@ -132,7 +141,8 @@ export function MobileScheduleView() {
 
     const rect = drop.getBoundingClientRect();
     const operating = windowFor(day);
-    const duration = toMinutes(drag.assignment.endTime) - toMinutes(drag.assignment.startTime);
+    const duration = sessionDurationForAssignment(state!, drag.assignment)
+      ?? (toMinutes(drag.assignment.endTime) - toMinutes(drag.assignment.startTime));
     const slot = Math.round((event.clientY - rect.top) / rowHeight);
     const requested = start + slot * 15;
     const latest = Math.max(operating.start, operating.end - duration);
@@ -159,6 +169,7 @@ export function MobileScheduleView() {
     if (!drag.moved) {
       setDragPreview(null);
       setDetails(drag.assignment);
+      setReason("");
       return;
     }
 
@@ -200,6 +211,28 @@ export function MobileScheduleView() {
     setNotice(`Moved ${klass(candidate)?.name || candidate.id}. Saved as Schedule v${result.version}.`);
   }
 
+  async function changeDetailsLock() {
+    if (!details || !canEdit || !editingEnabled || lockSaving || scheduleIsStale) return;
+    const nextLocked = !effectiveLock(details);
+    if (!reason.trim()) {
+      setNotice("A reason is required for a governed lock change.");
+      return;
+    }
+
+    setLockSaving(true);
+    const result = await toggleSessionLock(details.sessionId, nextLocked, reason.trim());
+    setLockSaving(false);
+    if (!result.ok) {
+      setNotice(result.error || "The governed session lock change was rejected.");
+      return;
+    }
+
+    const ordinal = sessionFor(details)?.ordinal;
+    setDetails(null);
+    setReason("");
+    setNotice(`${nextLocked ? "Locked" : "Unlocked"} Session ${ordinal ?? details.sessionId} as Schedule v${result.version}. The current certification and solver candidates are stale and require review.`);
+  }
+
   function cancelDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
@@ -211,10 +244,12 @@ export function MobileScheduleView() {
   function classCard(assignment: Assignment, operatingStart: number) {
     const currentClass = klass(assignment);
     const color = teacherColor(assignment.teacherId);
-    const duration = toMinutes(assignment.endTime) - toMinutes(assignment.startTime);
+    const duration = sessionDurationForAssignment(state!, assignment)
+      ?? (toMinutes(assignment.endTime) - toMinutes(assignment.startTime));
     const top = ((toMinutes(assignment.startTime) - operatingStart) / 15) * slotHeight;
     const height = (duration / 15) * slotHeight;
     const isDragging = draggingId === assignment.id;
+    const isLocked = effectiveLock(assignment);
     return (
       <button
         key={assignment.id}
@@ -229,11 +264,11 @@ export function MobileScheduleView() {
           height: Math.max(40, height),
           borderLeftColor: color,
           backgroundColor: translucentHex(color),
-          touchAction: assignment.locked || !canEdit || scheduleIsStale ? "auto" : "none",
+          touchAction: isLocked || !canEdit || scheduleIsStale ? "auto" : "none",
         }}
       >
         <div className="flex min-w-0 items-center gap-1.5">
-          {assignment.locked ? <LockKeyhole className="size-3 shrink-0 text-slate-500" /> : <GripVertical className="size-3 shrink-0 text-slate-400" />}
+          {isLocked ? <LockKeyhole className="size-3 shrink-0 text-slate-500" /> : <GripVertical className="size-3 shrink-0 text-slate-400" />}
           <span className="shrink-0 text-sm" aria-hidden="true">{subjectMarker(currentClass?.subject, currentClass?.name)}</span>
           <span className="truncate text-xs font-bold text-slate-900">{currentClass?.name || assignment.sessionId}</span>
         </div>
@@ -328,7 +363,7 @@ export function MobileScheduleView() {
               <div className="mt-2 space-y-2">
                 {visibleRooms.map((room) => {
                   const list = assignmentsFor(day, room.id);
-                  return <div key={room.id} className="rounded-xl bg-slate-50 p-2.5"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{room.name}</p><div className="mt-1.5 space-y-1">{list.map((assignment) => <button key={assignment.id} type="button" onClick={() => setDetails(assignment)} className="flex w-full items-center gap-2 text-left text-xs"><span>{subjectMarker(klass(assignment)?.subject, klass(assignment)?.name)}</span><span className="min-w-0 flex-1 truncate font-medium">{klass(assignment)?.name}</span><span className="shrink-0 text-slate-500">{pretty(assignment.startTime)}</span></button>)}{!list.length ? <p className="text-xs text-slate-400">No classes</p> : null}</div></div>;
+                  return <div key={room.id} className="rounded-xl bg-slate-50 p-2.5"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{room.name}</p><div className="mt-1.5 space-y-1">{list.map((assignment) => <button key={assignment.id} type="button" onClick={() => { setDetails(assignment); setReason(""); }} className="flex w-full items-center gap-2 text-left text-xs"><span>{effectiveLock(assignment) ? "🔒" : subjectMarker(klass(assignment)?.subject, klass(assignment)?.name)}</span><span className="min-w-0 flex-1 truncate font-medium">{klass(assignment)?.name}</span><span className="shrink-0 text-slate-500">{pretty(assignment.startTime)}</span></button>)}{!list.length ? <p className="text-xs text-slate-400">No classes</p> : null}</div></div>;
                 })}
               </div>
             </section>
@@ -350,16 +385,19 @@ export function MobileScheduleView() {
           <button className="absolute inset-0" aria-label="Close class details" onClick={() => setDetails(null)} />
           <section className="relative w-full rounded-t-[28px] bg-white p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
-              <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Class details</p><h2 className="mt-1 text-xl font-semibold">{subjectMarker(klass(details)?.subject, klass(details)?.name)} {klass(details)?.name}</h2></div>
+              <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Class details</p><h2 className="mt-1 text-xl font-semibold">{subjectMarker(klass(details)?.subject, klass(details)?.name)} {klass(details)?.name}</h2><p className="mt-2 text-sm leading-6 text-slate-600">Session {sessionFor(details)?.ordinal ?? details.sessionId} · {details.day} · {pretty(details.startTime)}–{pretty(details.endTime)} · {teacherMap.get(details.teacherId)?.name || details.teacherId} · {roomMap.get(details.roomId)?.name || details.roomId}</p></div>
               <button type="button" onClick={() => setDetails(null)} className="grid size-10 place-items-center rounded-xl border border-slate-200"><X className="size-4" /></button>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
               <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Time</span><strong>{pretty(details.startTime)}–{pretty(details.endTime)}</strong></div>
-              <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Duration</span><strong>{toMinutes(details.endTime) - toMinutes(details.startTime)} min</strong></div>
+              <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Duration</span><strong>{sessionDurationForAssignment(state, details) ?? (toMinutes(details.endTime) - toMinutes(details.startTime))} min</strong></div>
               <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Room</span><strong>{roomMap.get(details.roomId)?.name}</strong></div>
               <div className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-400">Teacher</span><strong>{teacherMap.get(details.teacherId)?.name}</strong></div>
             </div>
-            <p className="mt-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">{details.locked ? "This class is locked and cannot be dragged." : canEdit && !scheduleIsStale ? "Close this panel, then press and drag the class block to move it. The duration stays fixed and the move is validated before saving." : "This schedule is currently read-only for your account or needs revalidation before edits."}</p>
+            <div className={`mt-4 rounded-xl border p-3 text-sm ${effectiveLock(details) ? "border-slate-200 bg-slate-50 text-slate-700" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}><LockKeyhole className="mr-2 inline size-4" /><strong>Effective lock: {effectiveLock(details) ? "Locked" : "Unlocked"}</strong><p className="mt-1">The session lock and current placement lock are governed together. Lock changes create a new planning and schedule context and stale certification and solver candidates.</p></div>
+            <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">{effectiveLock(details) ? "This class is locked and cannot be dragged. Use the governed unlock action below to change that state." : canEdit && !scheduleIsStale ? "Close this panel, then press and drag the class block to move it. The duration stays fixed and the move is validated before saving." : "This schedule is currently read-only for your account or needs revalidation before edits."}</p>
+            <label className="mt-4 block text-xs font-semibold text-slate-600">Reason<input disabled={!canEdit || scheduleIsStale || lockSaving} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required for lock changes" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal" /></label>
+            <button type="button" disabled={!canEdit || !editingEnabled || scheduleIsStale || lockSaving || !reason.trim()} onClick={() => void changeDetailsLock()} className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 font-semibold text-slate-800 disabled:opacity-40"><LockKeyhole className="size-4" />{lockSaving ? "Updating lock…" : effectiveLock(details) ? "Unlock session" : "Lock session"}</button>
           </section>
         </div>
       ) : null}

@@ -1,4 +1,5 @@
 import type { StudioRule } from "@/lib/domain";
+import type { TenantPolicyManifestV1 } from "@/lib/tenant-policy";
 
 export type RuleExecutionDisposition =
   | "HARD_CONSTRAINT"
@@ -161,9 +162,9 @@ export const RULE_EXECUTION_REGISTRY: RuleExecutionEntry[] = [
 
 export const RULE_EXECUTION_BY_ID = new Map(RULE_EXECUTION_REGISTRY.map((entry) => [entry.ruleId, entry]));
 
-export function ruleExecutionCoverage(rules: StudioRule[]) {
+export function ruleExecutionCoverage(rules: StudioRule[], tenantManifest?: Pick<TenantPolicyManifestV1, "records"> | null) {
   const activeIds = new Set(rules.filter((rule) => rule.status === "ACTIVE").map((rule) => rule.id));
-  const registryIds = new Set(RULE_EXECUTION_REGISTRY.map((entry) => entry.ruleId));
+  const registryIds = new Set((tenantManifest?.records ?? RULE_EXECUTION_REGISTRY).map((entry) => entry.ruleId));
   const missingRuleIds = [...activeIds].filter((id) => !registryIds.has(id)).sort(compareCanonicalStrings);
   const unknownRuleIds = [...registryIds].filter((id) => !activeIds.has(id)).sort(compareCanonicalStrings);
   return {

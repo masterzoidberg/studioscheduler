@@ -8,6 +8,7 @@ import {
   publishedConstraintModelBlockers,
   validateFeasibleSolverCandidate,
   type PublishedConstraintModelRecord,
+  type SolverAssignmentCandidate,
   type SolverServicePayload,
 } from "@/lib/solver-gateway";
 
@@ -107,8 +108,7 @@ function published(): PublishedConstraintModelRecord {
   };
 }
 
-function payload(overrides: Partial<SolverServicePayload> = {}): SolverServicePayload {
-  const p = problem();
+function payloadFor(p: FeasibilitySolverProblem, overrides: Partial<SolverServicePayload> = {}): SolverServicePayload {
   return {
     serviceVersion: "1.0",
     context: { ...p.context },
@@ -129,6 +129,29 @@ function payload(overrides: Partial<SolverServicePayload> = {}): SolverServicePa
     },
     ...overrides,
   };
+}
+
+function optimizedProblem(): FeasibilitySolverProblem {
+  const p = problem();
+  p.constraintModel = {
+    ...p.constraintModel,
+    objectivePrioritySpine: [{
+      ruleId: "PREF-DAY",
+      rank: 1,
+      title: "Preferred day",
+      description: "Prefer Monday.",
+      kind: "PREFERRED_DAY",
+      selector: { classIds: ["class"] },
+      parameters: { days: ["Monday"] },
+      strength: "VERY_STRONG",
+      scoringEnabled: true,
+    }],
+  };
+  return p;
+}
+
+function payload(overrides: Partial<SolverServicePayload> = {}): SolverServicePayload {
+  return payloadFor(problem(), overrides);
 }
 
 describe("published Constraint Model gateway", () => {
@@ -170,6 +193,53 @@ describe("published Constraint Model gateway", () => {
   it("does nothing when the published artifact exactly matches tested output", () => {
     expect(constraintModelSyncDecision(problem(), published()).action).toBe("CURRENT");
   });
+
+  it("does nothing when JSONB read-back only reorders nested object keys", () => {
+    const current = published();
+    current.snapshot = {
+      completeHardConstraintCompilation: true,
+      uncompiledConstraintRuleIds: [],
+      governanceAssertions: [],
+      readinessRuleIds: [],
+      objectivePrioritySpine: [],
+      hardConstraints: [
+        {
+          explanation: "qualification",
+          parameters: { allowedSubjects: ["Ballet"] },
+          selector: { teacherNames: ["Teacher"] },
+          ruleIds: ["CUR-007"],
+          kind: "TEACHER_SUBJECT_DOMAIN",
+          id: "teacher-domain",
+        },
+        {
+          explanation: "grid",
+          parameters: { minutes: 15 },
+          selector: {},
+          ruleIds: ["OPS-017"],
+          kind: "TIME_GRID",
+          id: "time-grid",
+        },
+      ],
+      activeRuleCount: 178,
+      compilerVersion: "dwde-ir-test",
+      rulebookVersion: 3,
+      schemaVersion: "1.0",
+    };
+
+    expect(constraintModelSyncDecision(problem(), current).action).toBe("CURRENT");
+  });
+
+  it("still blocks meaningful nested parameter drift after canonicalization", () => {
+    const drifted = published();
+    drifted.snapshot = {
+      ...drifted.snapshot,
+      hardConstraints: drifted.snapshot.hardConstraints.map((constraint, index) => index === 0
+        ? { ...constraint, parameters: { ...constraint.parameters, allowedSubjects: ["Jazz"] } }
+        : constraint),
+    };
+
+    expect(constraintModelSyncDecision(problem(), drifted).action).toBe("BLOCK");
+  });
 });
 
 describe("returned solver candidate boundary", () => {
@@ -187,6 +257,140 @@ describe("returned solver candidate boundary", () => {
     expect(result.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_SESSION_SET_MISMATCH");
   });
 
+  it("rejects malformed, nonfinite, cross-midnight, and extra-field assignments", () => {
+    const cases = [
+      { startTime: "17:0", endTime: "18:00" },
+      { startTime: "NaN", endTime: "18:00" },
+      { startTime: "23:30", endTime: "01:00" },
+      { startTime: "17:00", endTime: "18:00", extra: "not-canonical" },
+    ];
+
+    for (const changes of cases) {
+      const response = payload({
+        result: {
+          status: "FEASIBLE",
+          assignments: [{
+            sessionId: "session",
+            day: "Monday",
+            teacherId: "teacher",
+            roomId: "room",
+            ...changes,
+          } as unknown as SolverAssignmentCandidate],
+        },
+      });
+      const result = validateFeasibleSolverCandidate(state(), problem(), response);
+
+      expect(result.ok).toBe(false);
+      expect(result.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_ASSIGNMENT_SHAPE_INVALID");
+    }
+  });
+
+  it("rejects an unknown teacher before independent legality evaluation", () => {
+    const response = payload({
+      result: {
+        status: "FEASIBLE",
+        assignments: [{
+          sessionId: "session",
+          day: "Monday",
+          startTime: "17:00",
+          endTime: "18:00",
+          teacherId: "missing-teacher",
+          roomId: "room",
+        }],
+      },
+    });
+    const result = validateFeasibleSolverCandidate(state(), problem(), response);
+
+    expect(result.ok).toBe(false);
+    expect(result.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_UNKNOWN_TEACHER");
+  });
+
+  it("rejects duplicate session assignments before independent legality evaluation", () => {
+    const assignment = {
+      sessionId: "session",
+      day: "Monday" as const,
+      startTime: "17:00",
+      endTime: "18:00",
+      teacherId: "teacher",
+      roomId: "room",
+    };
+    const response = payload({
+      result: { status: "FEASIBLE", assignments: [assignment, { ...assignment }] },
+    });
+    const result = validateFeasibleSolverCandidate(state(), problem(), response);
+
+    expect(result.ok).toBe(false);
+    expect(result.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_SESSION_SET_MISMATCH");
+  });
+
+  it("does not let a shortened interval evade a teacher availability window", () => {
+    const boundedProblem = problem();
+    boundedProblem.constraintModel.hardConstraints.push({
+      id: "teacher-window",
+      kind: "TEACHER_DAY_WINDOW",
+      ruleIds: ["TEST-TEACHER-WINDOW"],
+      selector: { teacherNames: ["Teacher"] },
+      parameters: { end: "17:30" },
+      explanation: "Teacher is unavailable after 17:30.",
+    });
+    const response = payloadFor(boundedProblem, {
+      result: {
+        status: "FEASIBLE",
+        assignments: [{
+          sessionId: "session",
+          day: "Monday",
+          startTime: "17:00",
+          endTime: "17:15",
+          teacherId: "teacher",
+          roomId: "room",
+        }],
+      },
+    });
+
+    const result = validateFeasibleSolverCandidate(state(), boundedProblem, response);
+
+    expect(result.ok).toBe(false);
+    expect(result.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_INTERVAL_MISMATCH");
+  });
+
+  it("derives the interval from a pinned per-session duration override", () => {
+    const overriddenProblem = problem();
+    overriddenProblem.sessions[0].durationMinutes = 90;
+    const validResponse = payloadFor(overriddenProblem, {
+      result: {
+        status: "FEASIBLE",
+        assignments: [{
+          sessionId: "session",
+          day: "Monday",
+          startTime: "17:00",
+          endTime: "18:30",
+          teacherId: "teacher",
+          roomId: "room",
+        }],
+      },
+    });
+    const valid = validateFeasibleSolverCandidate(state(), overriddenProblem, validResponse);
+    expect(valid.ok).toBe(true);
+    expect(valid.assignments[0].endTime).toBe("18:30");
+
+    const inconsistentResponse = payloadFor(overriddenProblem, {
+      result: {
+        status: "FEASIBLE",
+        assignments: [{
+          sessionId: "session",
+          day: "Monday",
+          startTime: "17:00",
+          endTime: "18:00",
+          teacherId: "teacher",
+          roomId: "room",
+        }],
+      },
+    });
+    const inconsistent = validateFeasibleSolverCandidate(state(), overriddenProblem, inconsistentResponse);
+    expect(inconsistent.ok).toBe(false);
+    expect(inconsistent.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_INTERVAL_MISMATCH");
+  });
+
   it("rejects context drift even when the assignment itself is feasible", () => {
     const response = payload({ context: { studioId: "studio", rulebookVersion: 3, planningDatasetVersion: 8, compilerVersion: "dwde-ir-test" } });
     const result = validateFeasibleSolverCandidate(state(), problem(), response);
@@ -195,13 +399,22 @@ describe("returned solver candidate boundary", () => {
   });
 
   it("rejects a returned assignment that violates the shared Constraint IR", () => {
-    const response = payload({
+    const irProblem = problem();
+    irProblem.constraintModel.hardConstraints.push({
+      id: "teacher-window",
+      kind: "TEACHER_DAY_WINDOW",
+      ruleIds: ["TEST-TEACHER-WINDOW"],
+      selector: { teacherNames: ["Teacher"] },
+      parameters: { end: "17:30" },
+      explanation: "Teacher is unavailable after 17:30.",
+    });
+    const response = payloadFor(irProblem, {
       result: {
         status: "FEASIBLE",
-        assignments: [{ sessionId: "session", day: "Monday", startTime: "17:07", endTime: "18:07", teacherId: "teacher", roomId: "room" }],
+        assignments: [{ sessionId: "session", day: "Monday", startTime: "17:00", endTime: "18:00", teacherId: "teacher", roomId: "room" }],
       },
     });
-    const result = validateFeasibleSolverCandidate(state(), problem(), response);
+    const result = validateFeasibleSolverCandidate(state(), irProblem, response);
     expect(result.ok).toBe(false);
     expect(result.blockers.map((item) => item.code)).toContain("SOLVER_CANDIDATE_HARD_VALIDATION_FAILED");
   });
@@ -238,5 +451,33 @@ describe("returned solver candidate boundary", () => {
     const result = validateFeasibleSolverCandidate(state(), lockedProblem, payload());
     expect(result.ok).toBe(true);
     expect(result.assignments[0].locked).toBe(true);
+  });
+
+  it("independently rescored objective values match the solver-reported score", () => {
+    const optimized = optimizedProblem();
+    const result = validateFeasibleSolverCandidate(state(), optimized, payloadFor(optimized, {
+      result: {
+        status: "FEASIBLE",
+        assignments: [{ sessionId: "session", day: "Monday", startTime: "17:00", endTime: "18:00", teacherId: "teacher", roomId: "room" }],
+        objectiveValues: [{ ruleId: "PREF-DAY", rank: 1, strength: "VERY_STRONG", metric: "preferredDayMatches", unit: "days", direction: "MAXIMIZE", value: 1 }],
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.quality?.tiers[0]?.components[0]).toMatchObject({ metric: "preferredDayMatches", value: 1 });
+  });
+
+  it("rejects a solver score that disagrees with independent TypeScript rescoring", () => {
+    const optimized = optimizedProblem();
+    const result = validateFeasibleSolverCandidate(state(), optimized, payloadFor(optimized, {
+      result: {
+        status: "FEASIBLE",
+        assignments: [{ sessionId: "session", day: "Monday", startTime: "17:00", endTime: "18:00", teacherId: "teacher", roomId: "room" }],
+        objectiveValues: [{ ruleId: "PREF-DAY", rank: 1, strength: "VERY_STRONG", metric: "preferredDayMatches", unit: "days", direction: "MAXIMIZE", value: 0 }],
+      },
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.blockers.map((item) => item.code)).toContain("SOLVER_OBJECTIVE_SCORE_MISMATCH");
   });
 });

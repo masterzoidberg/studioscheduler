@@ -37,6 +37,16 @@ def _problem(*, classes, constraints, teachers=None, rooms=None, students=None, 
         for klass in classes:
             for ordinal in range(1, int(klass.get("weeklyFrequency", 1)) + 1):
                 sessions.append({"id": f"session-{klass['id']}-{ordinal}", "classId": klass["id"], "ordinal": ordinal})
+    if governance is None:
+        constraints = [
+            *constraints,
+            _constraint(
+                "fixture-qualification",
+                "TEACHER_SUBJECT_DOMAIN",
+                selector={"teacherIds": [teacher["id"] for teacher in teachers]},
+                parameters={},
+            ),
+        ]
     return {
         "planningDatasetVersion": 1,
         "classes": classes,

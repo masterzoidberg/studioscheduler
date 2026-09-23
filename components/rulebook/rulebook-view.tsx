@@ -72,6 +72,7 @@ export function RulebookView() {
 
   if (!state) return null;
 
+  const workspaceName = state.studioName;
   const currentVersion = state.rulebookVersions.find((version) => version.status === "CURRENT");
   const model = compileConstraintModel(state);
   const verified = state.rules.filter((rule) => (rule.reviewStatus ?? rule.verificationStatus) === "VERIFIED").length;
@@ -161,7 +162,7 @@ export function RulebookView() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `DWDE-Rulebook-v${currentRulebookVersion}.json`;
+    anchor.download = `${workspaceName.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "studio"}-rulebook-v${currentRulebookVersion}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -179,7 +180,7 @@ export function RulebookView() {
       <section className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[.16em] text-slate-500">DWDE 2026–2027 Master Rulebook</p>
+            <p className="text-xs font-semibold uppercase tracking-[.16em] text-slate-500">{currentVersion?.documentType === "DWDE_SITE_RULEBOOK" ? "Reviewed Rulebook" : `${state.studioName} Rulebook`}</p>
             <h2 className="mt-1 text-2xl font-semibold">Rulebook v{currentRulebookVersion}</h2>
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <span className="rounded-full bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-700">{currentVersion?.sourceHash ? "Reviewed human authority" : "Current human authority"}</span>
@@ -198,7 +199,7 @@ export function RulebookView() {
 
         <div className="mt-5 grid gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-900"><ShieldCheck className="mr-1 inline size-4" /><strong>Rulebook = human policy.</strong> This is the reviewed source of scheduling requirements and priorities.</div>
-          <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs leading-5 text-violet-900"><Cpu className="mr-1 inline size-4" /><strong>Constraint Model = compiled meaning.</strong> Engineering compiles deterministic semantics from this Rulebook. Cami does not approve code mappings separately.</div>
+          <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs leading-5 text-violet-900"><Cpu className="mr-1 inline size-4" /><strong>Constraint Model = compiled meaning.</strong> Engineering compiles deterministic semantics from this Rulebook. Human review does not approve code mappings separately.</div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-700"><Database className="mr-1 inline size-4" /><strong>Planning Dataset v{currentPlanningDatasetVersion} = current facts.</strong> Teachers, dancers, rooms, classes and rosters can change without rewriting policy history.</div>
         </div>
       </section>

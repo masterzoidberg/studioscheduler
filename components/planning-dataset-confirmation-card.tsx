@@ -44,10 +44,15 @@ type ConfirmationRow = {
   confirmed_for_scheduling_at: string | null;
   confirmed_for_scheduling_by_label: string | null;
   scheduling_confirmation_note: string | null;
+  certification_rulebook_version: number | null;
+  certification_constraint_model_version: number | null;
+  certification_constraint_model_snapshot_hash: string | null;
+  certification_review_set_fingerprint: string | null;
+  certification_review_schema_version: number | null;
 };
 
 const CURRENT_DATASET_SELECT =
-  "version,snapshot_hash,snapshot,confirmed_for_scheduling_at,confirmed_for_scheduling_by_label,scheduling_confirmation_note";
+  "version,snapshot_hash,snapshot,confirmed_for_scheduling_at,confirmed_for_scheduling_by_label,scheduling_confirmation_note,certification_rulebook_version,certification_constraint_model_version,certification_constraint_model_snapshot_hash,certification_review_set_fingerprint,certification_review_schema_version";
 
 function safeArray<T>(value: T[] | undefined): T[] {
   return Array.isArray(value) ? value : [];
@@ -80,7 +85,7 @@ const CONFIRMATION_ATTESTATIONS: Array<{ key: keyof ConfirmationEvidence; label:
 ];
 
 export function PlanningDatasetConfirmationCard() {
-  const { state, canEdit, currentPlanningDatasetVersion } = useWorkspace();
+  const { state, session, canEdit, currentPlanningDatasetVersion } = useWorkspace();
   const [row, setRow] = useState<ConfirmationRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadedPlanningDatasetVersion, setLoadedPlanningDatasetVersion] = useState<number | null>(null);
@@ -152,13 +157,52 @@ export function PlanningDatasetConfirmationCard() {
   }
 
   async function confirm() {
-    if (!canEdit || saving || !rowCurrent || !row?.snapshot || !row.snapshot_hash || confirmationBlockers.length > 0 || !allAttestationsChecked) return;
+    if (!state || !canEdit || saving || !rowCurrent || !row?.snapshot || !row.snapshot_hash || confirmationBlockers.length > 0 || !allAttestationsChecked) return;
     setSaving(true);
     setNotice("");
-    const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v39", {
-      p_expected_planning_dataset_version: currentPlanningDatasetVersion,
-      p_expected_snapshot_hash: row.snapshot_hash,
-      p_note: "Manager reviewed the displayed immutable planning snapshot, attested its known completeness, and confirmed it as scheduling authority after deterministic planning checks passed.",
+    if (!session?.access_token) {
+      setNotice("An authenticated workspace is required to certify this setup.");
+      setSaving(false);
+      return;
+    }
+    const preparationResponse = await fetch("/api/planning/confirmation", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "x-studio-id": state.studioId },
+      cache: "no-store",
+    });
+    const preparation = await preparationResponse.json() as {
+      error?: string;
+      certification?: {
+        currentPlanningDatasetVersion: number | null;
+        currentPlanningSnapshotHash: string | null;
+        currentRulebookVersion: number | null;
+        currentConstraintModelVersion: number | null;
+        currentConstraintModelSnapshotHash: string | null;
+        reviewSetSchemaVersion: number;
+        reviewSetFingerprint: string | null;
+      } | null;
+    };
+    if (!preparationResponse.ok || !preparation.certification) {
+      setNotice(preparation.error || "Certification preparation failed. Refresh and resolve the current readiness findings.");
+      setSaving(false);
+      return;
+    }
+    const context = preparation.certification;
+    if (context.currentPlanningDatasetVersion == null || !context.currentPlanningSnapshotHash || context.currentRulebookVersion == null || context.currentConstraintModelVersion == null || !context.currentConstraintModelSnapshotHash || !context.reviewSetFingerprint) {
+      setNotice("The server could not produce a complete current certification context.");
+      setSaving(false);
+      return;
+    }
+    const { data, error } = await getBrowserSupabase().rpc("confirm_current_planning_dataset_v63", {
+      p_studio_id: state.studioId,
+      p_expected_planning_dataset_version: context.currentPlanningDatasetVersion,
+      p_expected_snapshot_hash: context.currentPlanningSnapshotHash,
+      p_expected_rulebook_version: context.currentRulebookVersion,
+      p_expected_constraint_model_version: context.currentConstraintModelVersion,
+      p_expected_constraint_model_snapshot_hash: context.currentConstraintModelSnapshotHash,
+      p_expected_review_set_fingerprint: context.reviewSetFingerprint,
+      p_expected_review_schema_version: context.reviewSetSchemaVersion,
+      p_note: "Manager reviewed the displayed immutable planning snapshot, pinned Rulebook/model/review-set context, and confirmed it as scheduling authority after deterministic planning checks passed.",
       p_evidence: confirmationEvidence,
     });
     if (error) setNotice(`Confirmation failed: ${error.message}`);
@@ -220,6 +264,14 @@ export function PlanningDatasetConfirmationCard() {
             </p>
           ) : null}
           {notice ? <p className="mt-3 text-xs font-medium text-slate-700">{notice}</p> : null}
+          {confirmed ? (
+            <details className="mt-3 text-xs text-emerald-900">
+              <summary className="cursor-pointer font-semibold">Advanced certification context</summary>
+              <p className="mt-2 break-all leading-5">
+                Rulebook v{row?.certification_rulebook_version ?? "?"} · Constraint Model v{row?.certification_constraint_model_version ?? "?"} · review schema {row?.certification_review_schema_version ?? "?"} · review set {row?.certification_review_set_fingerprint?.slice(0, 12) || "missing"}… · model {row?.certification_constraint_model_snapshot_hash?.slice(0, 12) || "missing"}…
+              </p>
+            </details>
+          ) : null}
         </div>
         {canEdit ? (
           <button
